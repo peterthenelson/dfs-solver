@@ -1,11 +1,9 @@
 use std::fmt::Debug;
 
+/// Error types for the solver. These indicate something wrong with either the
+/// puzzle/strategy/constraints or with the algorithm itself.
 #[derive(Debug, Clone)]
-pub enum PuzzleError {
-    BadAction(String),
-    ConstraintViolation(String),
-    Other(String),
-}
+pub struct PuzzleError(String);
 
 /// Trait for representing solve-state.
 pub trait PuzzleState<A>: Clone + Debug {
@@ -14,16 +12,27 @@ pub trait PuzzleState<A>: Clone + Debug {
     fn undo(&mut self, action: &A) -> Result<(), PuzzleError>;
 }
 
-/// Trait for checking that the current solve-state is valid.
-pub trait Constraint<A, P> where P: PuzzleState<A> {
-    fn check(&self, puzzle: &P) -> Result<(), PuzzleError>;
+/// Violation of a constraint. Optionally provides a list of actions that are
+/// relevant to the violation.
+#[derive(Debug, Clone)]
+pub struct ConstraintViolation<A> {
+    pub message: String,
+    pub highlight: Option<Vec<A>>,
 }
 
-/// Train for enumerating the available actions at a particular solve-state
-/// (preferably in an order that leads to a faster solve).
+/// Trait for checking that the current solve-state is valid.
+pub trait Constraint<A, P> where P: PuzzleState<A> {
+    fn check(&self, puzzle: &P, details: bool) -> Option<ConstraintViolation<A>>;
+}
+
+/// Trait for enumerating the available actions at a particular decision point
+/// (preferably in an order that leads to a faster solve). Note that the
+/// posibilities must be exhaustive (e.g., if the puzzle is a sudoku, the first
+/// empty cell must be one of the 9 digits--there aren't any other possibilities).
 pub trait Strategy<A, P> where P: PuzzleState<A> {
     type ActionSet: Iterator<Item = A>;
     fn suggest(&self, puzzle: &P) -> Result<Self::ActionSet, PuzzleError>;
+    fn empty_action_set() -> Self::ActionSet;
 }
 
 /// The state of the DFS solver. This is used to track the current state of the
@@ -44,7 +53,7 @@ pub struct DfsSolver<'a, A, P, S> where A:Clone + Debug, P: PuzzleState<A>, S: S
     puzzle: &'a mut P,
     strategy: &'a S,
     constraints: Vec<&'a dyn Constraint<A, P>>,
-    violations: Vec<PuzzleError>,
+    violations: Vec<ConstraintViolation<A>>,
     stack: Vec<(A, <S as Strategy<A, P>>::ActionSet)>,
     state: DfsSolverState,
 }
@@ -65,22 +74,13 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         }
     }
 
-    fn apply(&mut self, action: A, alternatives: S::ActionSet) -> Result<(), PuzzleError> {
+    fn apply(&mut self, action: A, alternatives: S::ActionSet, detail: bool) -> Result<(), PuzzleError> {
         if self.state == DfsSolverState::Done {
-            return Err(PuzzleError::Other("Solver is done".to_string()));
+            return Err(PuzzleError("Solver is done".to_string()));
         }
         self.puzzle.apply(&action)?;
         self.stack.push((action, alternatives));
-        let mut new_violations: Vec<PuzzleError> = Vec::new();
-        for constraint in &self.constraints {
-            match constraint.check(self.puzzle) {
-                Ok(_) => {}
-                Err(e) => {
-                    new_violations.push(e);
-                }
-            }
-        }
-        self.violations = new_violations;
+        self.violations = self.constraints.iter().filter_map(|c| c.check(self.puzzle, detail)).collect();
         self.state = if self.violations.is_empty() {
             DfsSolverState::Advancing
         } else {
@@ -89,7 +89,11 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         return Ok(());
     }
 
-    pub fn step(&mut self) -> Result<(), PuzzleError> {
+    pub fn manual_step(&mut self, action: A, detail: bool) -> Result<(), PuzzleError> {
+        self.apply(action, S::empty_action_set(), detail)
+    }
+
+    pub fn step(&mut self, detail: bool) -> Result<(), PuzzleError> {
         match self.state {
             DfsSolverState::Done => Ok(()),
             DfsSolverState::Advancing => {
@@ -97,7 +101,7 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
                 let mut next_actions = self.strategy.suggest(self.puzzle)?;
                 match next_actions.next() {
                     Some(action) => {
-                        self.apply(action, next_actions)?;
+                        self.apply(action, next_actions, detail)?;
                     }
                     None => {
                         self.state = DfsSolverState::Done;
@@ -115,7 +119,7 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
                 self.puzzle.undo(&prev_action)?;
                 match alternatives.next() {
                     Some(action) => {
-                        self.apply(action, alternatives)?;
+                        self.apply(action, alternatives, detail)?;
                         Ok(())
                     }
                     None => Ok(()),
@@ -136,7 +140,7 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         return &self.puzzle;
     }
 
-    pub fn get_violations(&self) -> &[PuzzleError] {
+    pub fn get_violations(&self) -> &[ConstraintViolation<A>] {
         return &self.violations;
     }
 
@@ -146,8 +150,6 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         self.stack.clear();
         self.state = DfsSolverState::Advancing;
     }
-
-    // TODO: Force action fn
 }
 
 // TODO: Wrapping functions for AnySolution and AllSolutions.
@@ -183,38 +185,49 @@ mod test {
                 self.digits.push(*action);
                 return Ok(())
             } else {
-                return Err(PuzzleError::BadAction("Line is full".to_string()));
+                return Err(PuzzleError("Line is full".to_string()));
             }
         }
 
         fn undo(&mut self, action: &u8) -> Result<(), PuzzleError> {
             if self.digits.len() > 0 {
                 if self.digits.last() != Some(action) {
-                    return Err(PuzzleError::BadAction("Action not found".to_string()));
+                    return Err(PuzzleError("Action not found".to_string()));
                 }
                 self.digits.pop();
                 return Ok(())
             } else {
-                return Err(PuzzleError::BadAction("No actions to undo".to_string()));
+                return Err(PuzzleError("No actions to undo".to_string()));
             }
         }
     }
 
     struct GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine) -> Result<(), PuzzleError> {
+        fn check(&self, puzzle: &GwLine, detail: bool) -> Option<ConstraintViolation<u8>> {
             for i in 0..puzzle.digits.len() {
                 for j in i+1..puzzle.digits.len() {
+                    let highlight = if detail {
+                        Some(vec![puzzle.digits[i], puzzle.digits[j]])
+                    } else {
+                        None
+                    };
                     if puzzle.digits[i] == puzzle.digits[j] {
-                        return Err(PuzzleError::ConstraintViolation("Duplicate digits found".to_string()));
+                        return Some(ConstraintViolation {
+                            message: "Duplicate digits".to_string(),
+                            highlight,
+                        });
                     }
                     let diff: i16 = (puzzle.digits[i] as i16) - (puzzle.digits[j] as i16);
                     if j == i+1 && diff.abs() < 5 {
-                        return Err(PuzzleError::ConstraintViolation("Digits too close".to_string()));
+                        return Some(ConstraintViolation {
+                            message: "Digits too close".to_string(),
+                            highlight,
+                        });
                     }
                 }
             }
-            Ok(())
+            None
         }
     }
 
@@ -227,6 +240,9 @@ mod test {
             }
             return Ok(vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter());
         }
+        fn empty_action_set() -> Self::ActionSet {
+            vec![].into_iter()
+        }
     }
 
     #[test]
@@ -238,7 +254,7 @@ mod test {
             &mut puzzle, &strategy, vec![&constraint],
         );
         while solver.get_state() != DfsSolverState::Done {
-            match solver.step() {
+            match solver.step(true) {
                 Ok(_) => {
                     print!("Current state: {:?} -- {:?}\n", solver.get_state(), solver.get_puzzle());
                 }
