@@ -152,7 +152,60 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
     }
 }
 
-// TODO: Wrapping functions for AnySolution and AllSolutions.
+/// Find some solution to the puzzle using the given strategy and constraints.
+pub fn find_solution<A, P, S>(
+    puzzle: &mut P,
+    strategy: &S,
+    constraints: Vec<&dyn Constraint<A, P>>,
+) -> Result<bool, PuzzleError>
+where
+    A: Clone + Debug,
+    P: PuzzleState<A>,
+    S: Strategy<A, P>,
+{
+    let mut solver = DfsSolver::new(puzzle, strategy, constraints);
+    while solver.get_state() != DfsSolverState::Done {
+        match solver.step(false) {
+            Ok(_) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(solver.is_valid())
+}
+
+/// Print out a trace leading to some solution.
+pub fn trace_solution<A, P, S>(
+    puzzle: &mut P,
+    strategy: &S,
+    constraints: Vec<&dyn Constraint<A, P>>,
+    out: &mut dyn std::io::Write,
+) -> Result<bool, PuzzleError>
+where
+    A: Clone + Debug,
+    P: PuzzleState<A>,
+    S: Strategy<A, P>,
+{
+    let mut solver = DfsSolver::new(puzzle, strategy, constraints);
+    while solver.get_state() != DfsSolverState::Done {
+        match solver.step(true) {
+            Ok(_) => {
+                writeln!(out, "Current state: {:?} -- {:?}\n", solver.get_state(), solver.get_puzzle()).unwrap();
+            }
+            Err(e) => {
+                writeln!(out, "Error: {:?}", e).unwrap();
+                return Err(e);
+            }
+        }
+    }
+    if solver.is_valid() {
+        writeln!(out, "Solution found: {:?}", solver.get_puzzle()).unwrap();
+    } else {
+        writeln!(out, "No solution found.").unwrap();
+    }
+    Ok(solver.is_valid())
+}
+
+// TODO: find_all_solutions()
 
 #[cfg(test)]
 mod test {
@@ -246,28 +299,12 @@ mod test {
     }
 
     #[test]
-    fn german_whispers() {
+    fn german_whispers() -> Result<(), PuzzleError> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
-        let mut solver = DfsSolver::new(
-            &mut puzzle, &strategy, vec![&constraint],
-        );
-        while solver.get_state() != DfsSolverState::Done {
-            match solver.step(true) {
-                Ok(_) => {
-                    print!("Current state: {:?} -- {:?}\n", solver.get_state(), solver.get_puzzle());
-                }
-                Err(e) => {
-                    println!("Error: {:?}", e);
-                    break;
-                }
-            }
-        }
-        if solver.is_valid() {
-            println!("Solution found: {:?}", puzzle);
-        } else {
-            println!("No solution found.");
-        }
+        let solved = find_solution(&mut puzzle, &strategy, vec![&constraint])?;
+        assert!(solved);
+        Ok(())
     }
 }
