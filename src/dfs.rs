@@ -42,13 +42,24 @@ pub trait Strategy<A, P> where P: PuzzleState<A> {
 pub enum DfsSolverState {
     Advancing,
     Backtracking,
-    Done,
+    Solved,
+    Exhausted,
 }
 
-/// DFS solver. This is a lower-level API that allows for more control over
-/// the solving process. It is not recommended for most users, but is useful
-/// when additional control is needed for debugging or UI purposes. See the
-/// wrapper functions for a higher-level API.
+// A view on the state and associated data for the solver.
+pub trait DfsSolverView<A, P> where A:Clone + Debug, P: PuzzleState<A> {
+    fn get_state(&self) -> DfsSolverState;
+    fn is_done(&self) -> bool;
+    fn is_valid(&self) -> bool;
+    fn get_violations(&self) -> &[ConstraintViolation<A>];
+    fn get_puzzle(&self) -> &P;
+}
+
+/// DFS solver. If you want a lower-level API that allows for more control over
+/// the solving process, you can directly use this. It is not recommended for
+/// most users, but is useful when additional control is needed for debugging or
+/// UI purposes. See FindFirstSolution and FindAllSolutions for some
+/// higher-level APIs.
 pub struct DfsSolver<'a, A, P, S> where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
     puzzle: &'a mut P,
     strategy: &'a S,
@@ -56,6 +67,28 @@ pub struct DfsSolver<'a, A, P, S> where A:Clone + Debug, P: PuzzleState<A>, S: S
     violations: Vec<ConstraintViolation<A>>,
     stack: Vec<(A, <S as Strategy<A, P>>::ActionSet)>,
     state: DfsSolverState,
+}
+
+impl <'a, A, P, S> DfsSolverView<A, P> for DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+    fn get_state(&self) -> DfsSolverState {
+        self.state
+    }
+
+    fn is_done(&self) -> bool {
+        self.state == DfsSolverState::Solved || self.state == DfsSolverState::Exhausted
+    }
+
+    fn is_valid(&self) -> bool {
+        self.violations.is_empty()
+    }
+
+    fn get_violations(&self) -> &[ConstraintViolation<A>] {
+        &self.violations
+    }
+
+    fn get_puzzle(&self) -> &P {
+        self.puzzle
+    }
 }
 
 impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
@@ -75,7 +108,7 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
     }
 
     fn apply(&mut self, action: A, alternatives: S::ActionSet, detail: bool) -> Result<(), PuzzleError> {
-        if self.state == DfsSolverState::Done {
+        if self.is_done() {
             return Err(PuzzleError("Solver is done".to_string()));
         }
         self.puzzle.apply(&action)?;
@@ -93,9 +126,18 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         self.apply(action, S::empty_action_set(), detail)
     }
 
+    pub fn force_backtrack(&mut self) -> bool {
+        if self.state == DfsSolverState::Exhausted {
+            return false;
+        }
+        self.state = DfsSolverState::Backtracking;
+        true
+    }
+
     pub fn step(&mut self, detail: bool) -> Result<(), PuzzleError> {
         match self.state {
-            DfsSolverState::Done => Ok(()),
+            DfsSolverState::Solved => Err(PuzzleError("Solver is done".to_string())),
+            DfsSolverState::Exhausted => Err(PuzzleError("Solver is done".to_string())),
             DfsSolverState::Advancing => {
                 // Take a new action
                 let mut next_actions = self.strategy.suggest(self.puzzle)?;
@@ -104,14 +146,14 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
                         self.apply(action, next_actions, detail)?;
                     }
                     None => {
-                        self.state = DfsSolverState::Done;
+                        self.state = DfsSolverState::Solved;
                     }
                 };
                 Ok(())
             }
             DfsSolverState::Backtracking => {
                 if self.stack.is_empty() {
-                    self.state = DfsSolverState::Done;
+                    self.state = DfsSolverState::Exhausted;
                     return Ok(());
                 }
                 // Backtrack, attempting to advance an existing action set
@@ -128,22 +170,6 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         }
     }
 
-    pub fn get_state(&self) -> DfsSolverState {
-        self.state
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.violations.is_empty()
-    }
-
-    pub fn get_puzzle(&self) -> &P {
-        return &self.puzzle;
-    }
-
-    pub fn get_violations(&self) -> &[ConstraintViolation<A>] {
-        return &self.violations;
-    }
-
     pub fn reset(&mut self) {
         self.puzzle.reset();
         self.violations.clear();
@@ -152,60 +178,73 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
     }
 }
 
-/// Find some solution to the puzzle using the given strategy and constraints.
-pub fn find_solution<A, P, S>(
-    puzzle: &mut P,
-    strategy: &S,
-    constraints: Vec<&dyn Constraint<A, P>>,
-) -> Result<bool, PuzzleError>
-where
-    A: Clone + Debug,
-    P: PuzzleState<A>,
-    S: Strategy<A, P>,
-{
-    let mut solver = DfsSolver::new(puzzle, strategy, constraints);
-    while solver.get_state() != DfsSolverState::Done {
-        match solver.step(false) {
-            Ok(_) => {}
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(solver.is_valid())
+/// Find first solution to the puzzle using the given strategy and constraints.
+pub struct FindFirstSolution<'a, A, P, S>(DfsSolver<'a, A, P, S>, bool) where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>;
+
+impl <'a, A, P, S> DfsSolverView<A, P> for FindFirstSolution<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+    fn get_state(&self) -> DfsSolverState { self.0.get_state() }
+    fn is_done(&self) -> bool { self.0.is_done() }
+    fn is_valid(&self) -> bool { self.0.is_valid() }
+    fn get_violations(&self) -> &[ConstraintViolation<A>] { self.0.get_violations() }
+    fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
-/// Print out a trace leading to some solution.
-pub fn trace_solution<A, P, S>(
-    puzzle: &mut P,
-    strategy: &S,
-    constraints: Vec<&dyn Constraint<A, P>>,
-    out: &mut dyn std::io::Write,
-) -> Result<bool, PuzzleError>
-where
-    A: Clone + Debug,
-    P: PuzzleState<A>,
-    S: Strategy<A, P>,
-{
-    let mut solver = DfsSolver::new(puzzle, strategy, constraints);
-    while solver.get_state() != DfsSolverState::Done {
-        match solver.step(true) {
-            Ok(_) => {
-                writeln!(out, "Current state: {:?} -- {:?}\n", solver.get_state(), solver.get_puzzle()).unwrap();
-            }
-            Err(e) => {
-                writeln!(out, "Error: {:?}", e).unwrap();
-                return Err(e);
-            }
+impl <'a, A, P, S> FindFirstSolution<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+    pub fn new(
+        puzzle: &'a mut P,
+        strategy: &'a S,
+        constraints: Vec<&'a dyn Constraint<A, P>>,
+        detail: bool,
+    ) -> Self {
+        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraints), detail)
+    }
+
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<A, P>, PuzzleError> {
+        self.0.step(self.1)?;
+        Ok(&self.0)
+    }
+
+    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<A, P>>, PuzzleError> {
+        while !self.0.is_done() {
+            self.step()?;
+        }
+        if self.0.is_valid() {
+            return Ok(Some(&self.0));
+        } else {
+            return Ok(None);
         }
     }
-    if solver.is_valid() {
-        writeln!(out, "Solution found: {:?}", solver.get_puzzle()).unwrap();
-    } else {
-        writeln!(out, "No solution found.").unwrap();
-    }
-    Ok(solver.is_valid())
 }
 
-// TODO: find_all_solutions()
+/// Find all solutions to the puzzle using the given strategy and constraints.
+pub struct FindAllSolutions<'a, A, P, S>(DfsSolver<'a, A, P, S>, bool) where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>;
+
+impl <'a, A, P, S> DfsSolverView<A, P> for FindAllSolutions<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+    fn get_state(&self) -> DfsSolverState { self.0.get_state() }
+    fn is_done(&self) -> bool { self.0.get_state() == DfsSolverState::Exhausted }
+    fn is_valid(&self) -> bool { self.0.is_valid() }
+    fn get_violations(&self) -> &[ConstraintViolation<A>] { self.0.get_violations() }
+    fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
+}
+
+impl <'a, A, P, S> FindAllSolutions<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+    pub fn new(
+        puzzle: &'a mut P,
+        strategy: &'a S,
+        constraints: Vec<&'a dyn Constraint<A, P>>,
+        detail: bool,
+    ) -> Self {
+        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraints), detail)
+    }
+
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<A, P>, PuzzleError> {
+        if self.0.state == DfsSolverState::Solved {
+            self.0.force_backtrack();
+        }
+        self.0.step(self.1)?;
+        Ok(&self.0)
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -299,12 +338,49 @@ mod test {
     }
 
     #[test]
-    fn german_whispers() -> Result<(), PuzzleError> {
+    fn german_whispers_find() -> Result<(), PuzzleError> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
-        let solved = find_solution(&mut puzzle, &strategy, vec![&constraint])?;
-        assert!(solved);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, vec![&constraint], false);
+        let maybe_solution = finder.solve()?;
+        assert!(maybe_solution.is_some());
+        println!("  Solution: {:?}", maybe_solution.unwrap().get_puzzle());
         Ok(())
     }
+
+    #[test]
+    fn german_whispers_trace() -> Result<(), PuzzleError> {
+        let mut puzzle = GwLine::new();
+        let strategy = GwLineStrategy {};
+        let constraint = GwLineConstraint {};
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, vec![&constraint], true);
+        let mut steps: usize = 0;
+        let mut violation_count: usize = 0;
+        while !finder.is_done() {
+            finder.step()?;
+            steps += 1;
+            violation_count += finder.get_violations().len();
+        }
+        assert!(finder.is_valid());
+        println!("  Steps: {}", steps);
+        println!("  Violations: {}", violation_count);
+        Ok(())
+    }
+
+    #[test]
+    fn german_whispers_all() -> Result<(), PuzzleError> {
+        let mut puzzle = GwLine::new();
+        let strategy = GwLineStrategy {};
+        let constraint = GwLineConstraint {};
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, vec![&constraint], false);
+        let mut solution_count: usize = 0;
+        while !finder.is_done() {
+            finder.step()?;
+            solution_count += if finder.get_state() == DfsSolverState::Solved { 1 } else { 0 };
+        }
+        println!("  Num solutions: {}", solution_count);
+        Ok(())
+    }
+
 }
