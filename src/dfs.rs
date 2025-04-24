@@ -1,11 +1,22 @@
 use std::fmt::Debug;
+use std::borrow::Cow;
 
-/// Error types for the solver. These indicate something wrong with either the
-/// puzzle/strategy/constraints or with the algorithm itself.
-#[derive(Debug, Clone)]
-pub struct PuzzleError(String);
+/// Error type for the solver. This is used to indicate something wrong with
+/// either the puzzle/strategy/constraints or with the algorithm itself.
+/// Violations of constraints or exhaustion of the search space are not errors.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PuzzleError(Cow<'static, str>);
+impl PuzzleError {
+    pub const fn new_const(s: &'static str) -> Self {
+        PuzzleError(Cow::Borrowed(s))
+    }
 
-/// Trait for representing solve-state.
+    pub fn new<S: Into<String>>(s: S) -> Self {
+        PuzzleError(Cow::Owned(s.into()))
+    }
+}
+
+/// Trait for representing whatever puzzle is being solved.
 pub trait PuzzleState<A>: Clone + Debug {
     fn reset(&mut self);
     fn apply(&mut self, action: &A) -> Result<(), PuzzleError>;
@@ -14,6 +25,8 @@ pub trait PuzzleState<A>: Clone + Debug {
 
 /// Violation of a constraint. Optionally provides a list of actions that are
 /// relevant to the violation.
+/// TODO: Rethink how to do the detailed-vs-not reporting to avoid allocations
+/// when not required.
 #[derive(Debug, Clone)]
 pub struct ConstraintViolation<A> {
     pub message: String,
@@ -28,16 +41,17 @@ pub trait Constraint<A, P> where P: PuzzleState<A> {
 /// Trait for enumerating the available actions at a particular decision point
 /// (preferably in an order that leads to a faster solve). Note that the
 /// posibilities must be exhaustive (e.g., if the puzzle is a sudoku, the first
-/// empty cell must be one of the 9 digits--there aren't any other possibilities).
+/// empty cell must be one of the 9 digits--if none of them work, then the
+/// puzzle has no solution).
 pub trait Strategy<A, P> where P: PuzzleState<A> {
     type ActionSet: Iterator<Item = A>;
     fn suggest(&self, puzzle: &P) -> Result<Self::ActionSet, PuzzleError>;
     fn empty_action_set() -> Self::ActionSet;
 }
 
-/// The state of the DFS solver. This is used to track the current state of the
-/// solver and whether it is advancing (ready to take new actions), backtracking
-/// (undoing actions), or done (no more actions to take).
+/// The state of the DFS solver. At any point in time, the solver is either
+/// advancing (ready to take a new action), backtracking (undoing actions),
+/// solved (has found a solution), or exhausted (no more actions to take).
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum DfsSolverState {
     Advancing,
@@ -56,10 +70,9 @@ pub trait DfsSolverView<A, P> where A:Clone + Debug, P: PuzzleState<A> {
 }
 
 /// DFS solver. If you want a lower-level API that allows for more control over
-/// the solving process, you can directly use this. It is not recommended for
-/// most users, but is useful when additional control is needed for debugging or
-/// UI purposes. See FindFirstSolution and FindAllSolutions for some
-/// higher-level APIs.
+/// the solving process, you can directly use this. Most users should prefer
+/// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
+/// if you are implementing a UI or debugging, this API may be useful.
 pub struct DfsSolver<'a, A, P, S> where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
     puzzle: &'a mut P,
     strategy: &'a S,
@@ -91,6 +104,8 @@ impl <'a, A, P, S> DfsSolverView<A, P> for DfsSolver<'a, A, P, S> where A:Clone 
     }
 }
 
+const PUZZLE_ALREADY_DONE: PuzzleError = PuzzleError::new_const("Puzzle already done");
+
 impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
     pub fn new(
         puzzle: &'a mut P,
@@ -109,7 +124,7 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
 
     fn apply(&mut self, action: A, alternatives: S::ActionSet, detail: bool) -> Result<(), PuzzleError> {
         if self.is_done() {
-            return Err(PuzzleError("Solver is done".to_string()));
+            return Err(PUZZLE_ALREADY_DONE);
         }
         self.puzzle.apply(&action)?;
         self.stack.push((action, alternatives));
@@ -136,8 +151,8 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
 
     pub fn step(&mut self, detail: bool) -> Result<(), PuzzleError> {
         match self.state {
-            DfsSolverState::Solved => Err(PuzzleError("Solver is done".to_string())),
-            DfsSolverState::Exhausted => Err(PuzzleError("Solver is done".to_string())),
+            DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
+            DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing => {
                 // Take a new action
                 let mut next_actions = self.strategy.suggest(self.puzzle)?;
@@ -277,19 +292,19 @@ mod test {
                 self.digits.push(*action);
                 return Ok(())
             } else {
-                return Err(PuzzleError("Line is full".to_string()));
+                return Err(PuzzleError::new_const("Line is full"));
             }
         }
 
         fn undo(&mut self, action: &u8) -> Result<(), PuzzleError> {
             if self.digits.len() > 0 {
                 if self.digits.last() != Some(action) {
-                    return Err(PuzzleError("Action not found".to_string()));
+                    return Err(PuzzleError::new_const("Action not found"));
                 }
                 self.digits.pop();
                 return Ok(())
             } else {
-                return Err(PuzzleError("No actions to undo".to_string()));
+                return Err(PuzzleError::new_const("No actions to undo"));
             }
         }
     }
