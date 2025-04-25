@@ -97,7 +97,37 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<S
     }
 }
 
-// TODO Rectangle checker
+pub struct NineBoxChecker {}
+impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<9, 9, MIN, MAX>> for NineBoxChecker {
+    fn check(&self, puzzle: &Sudoku<9, 9, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
+        for box_row in 0..3 {
+            for box_col in 0..3 {
+                let mut seen = vec![false; (MAX - MIN + 1) as usize];
+                for r in 0..3 {
+                    for c in 0..3 {
+                        let row = box_row * 3 + r;
+                        let col = box_col * 3 + c;
+                        if let Some(value) = puzzle.grid[row][col] {
+                            if seen[(value - MIN) as usize] {
+                                let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
+                                    Some(vec![SudokuAction { row, col, value }])
+                                } else {
+                                    None
+                                };
+                                return Some(ConstraintViolation {
+                                    message: format!("Duplicate value {} in box ({}, {})", value, box_row, box_col),
+                                    highlight,
+                                });
+                            }
+                            seen[(value - MIN) as usize] = true;
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
 
 pub struct FirstEmptyStrategy {}
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for FirstEmptyStrategy {
@@ -141,5 +171,74 @@ mod test {
         assert_eq!(sudoku.grid[8][8], None);
     }
 
-    // TODO: Add more tests for the constraints and strategies
+    #[test]
+    fn test_sudoku_row_violation() {
+        let mut sudoku: Sudoku<9, 9, 1, 9> = Sudoku::new();
+        let checker = RowColChecker {};
+        assert_eq!(sudoku.apply(&SudokuAction { row: 5, col: 3, value: 1 }), Ok(()));
+        assert_eq!(sudoku.apply(&SudokuAction { row: 5, col: 4, value: 3 }), Ok(()));
+        assert!(checker.check(&sudoku, true).is_none());
+        assert_eq!(sudoku.apply(&SudokuAction { row: 5, col: 8, value: 1 }), Ok(()));
+        match checker.check(&sudoku, true) {
+            Some(ConstraintViolation { message, highlight }) => {
+                assert_eq!(message, "Duplicate value 1 in row 5");
+                assert_eq!(highlight, Some(vec![SudokuAction { row: 5, col: 8, value: 1 }]));
+            }
+            None => panic!("Expected a violation"),
+        }
+    }
+
+    #[test]
+    fn test_sudoku_col_violation() {
+        let mut sudoku: Sudoku<9, 9, 1, 9> = Sudoku::new();
+        let checker = RowColChecker {};
+        assert_eq!(sudoku.apply(&SudokuAction { row: 1, col: 3, value: 2 }), Ok(()));
+        assert_eq!(sudoku.apply(&SudokuAction { row: 3, col: 3, value: 7 }), Ok(()));
+        assert!(checker.check(&sudoku, true).is_none());
+        assert_eq!(sudoku.apply(&SudokuAction { row: 6, col: 3, value: 2 }), Ok(()));
+        match checker.check(&sudoku, true) {
+            Some(ConstraintViolation { message, highlight }) => {
+                assert_eq!(message, "Duplicate value 2 in col 3");
+                assert_eq!(highlight, Some(vec![SudokuAction { row: 6, col: 3, value: 2 }]));
+            }
+            None => panic!("Expected a violation"),
+        }
+    }
+
+    #[test]
+    fn test_sudoku_box_violation() {
+        let mut sudoku: Sudoku<9, 9, 1, 9> = Sudoku::new();
+        let checker = NineBoxChecker {};
+        assert_eq!(sudoku.apply(&SudokuAction { row: 3, col: 0, value: 8 }), Ok(()));
+        assert_eq!(sudoku.apply(&SudokuAction { row: 4, col: 1, value: 2 }), Ok(()));
+        assert!(checker.check(&sudoku, true).is_none());
+        assert_eq!(sudoku.apply(&SudokuAction { row: 5, col: 2, value: 8 }), Ok(()));
+        match checker.check(&sudoku, true) {
+            Some(ConstraintViolation { message, highlight }) => {
+                assert_eq!(message, "Duplicate value 8 in box (1, 0)");
+                assert_eq!(highlight, Some(vec![SudokuAction { row: 5, col: 2, value: 8 }]));
+            }
+            None => panic!("Expected a violation"),
+        }
+    }
+
+    #[test]
+    fn test_first_empty_strategy() {
+        let mut sudoku: Sudoku<9, 9, 1, 9> = Sudoku::new();
+        let strategy = FirstEmptyStrategy {};
+        assert_eq!(sudoku.apply(&SudokuAction { row: 0, col: 0, value: 5 }), Ok(()));
+        assert_eq!(sudoku.apply(&SudokuAction { row: 1, col: 1, value: 3 }), Ok(()));
+        let mut action_set = strategy.suggest(&sudoku).unwrap();
+        match action_set.next() {
+            Some(SudokuAction { row, col, value }) => {
+                assert_eq!(row, 0);
+                assert_eq!(col, 1);
+                assert_eq!(value, 1);
+            }
+            None => panic!("Expected an action"),
+        }
+    }
+
+    // TODO: Add tests for loading and saving to a string
+    // TODO: Add tests that use this all together for solving a sudoku
 }
