@@ -188,6 +188,24 @@ impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<9,
     }
 }
 
+pub struct NineStandardChecker { pub row_col_checker: RowColChecker, pub box_checker: NineBoxChecker }
+
+impl NineStandardChecker {
+    pub fn new() -> Self {
+        Self { row_col_checker: RowColChecker {}, box_checker: NineBoxChecker {} }
+    }
+}
+
+impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<9, 9, MIN, MAX>> for NineStandardChecker {
+    fn check(&self, puzzle: &Sudoku<9, 9, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
+        let row_col_violation = self.row_col_checker.check(puzzle, details);
+        if row_col_violation.is_some() {
+            return row_col_violation;
+        }
+        self.box_checker.check(puzzle, details)
+    }
+}
+
 pub struct FirstEmptyStrategy {}
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for FirstEmptyStrategy {
     type ActionSet = std::vec::IntoIter<SudokuAction<MIN, MAX>>;
@@ -213,6 +231,8 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<Sud
 
 #[cfg(test)]
 mod test {
+    use crate::dfs::FindFirstSolution;
+
     use super::*;
 
     #[test]
@@ -300,7 +320,7 @@ mod test {
 
     #[test]
     fn test_sudoku_parse() {
-        let input = "5.3......\n\
+        let input: &str = "5.3......\n\
                            6..195...\n\
                            .98....6.\n\
                            8...6...3\n\
@@ -316,5 +336,31 @@ mod test {
         assert_eq!(sudoku.to_string(), input);
     }
 
-    // TODO: Add tests that use this all together for solving a sudoku
+    #[test]
+    fn test_sudoku_solve() {
+        let input: &str = "...26.7.1\n\
+                           68..7..9.\n\
+                           19...45..\n\
+                           82.1...4.\n\
+                           ..46.29..\n\
+                           .5...3.28\n\
+                           ..93...74\n\
+                           .4..5..36\n\
+                           7.3.18...\n";
+        let mut sudoku: Sudoku<9,9, 1,9> = Sudoku::parse(input).unwrap();
+        let strategy = FirstEmptyStrategy {};
+        let checker = NineStandardChecker::new();
+        let mut finder = FindFirstSolution::new(
+            &mut sudoku, &strategy, vec![&checker], false);
+        match finder.solve() {
+            Ok(solution) => {
+                assert!(solution.is_some());
+                let solved = solution.unwrap();
+                assert_eq!(solved.get_puzzle().grid[0][0], Some(4));
+                assert_eq!(solved.get_puzzle().grid[0][1], Some(3));
+                assert_eq!(solved.get_puzzle().grid[0][2], Some(5));
+            }
+            Err(e) => panic!("Failed to solve sudoku: {:?}", e),
+        }
+    }
 }
