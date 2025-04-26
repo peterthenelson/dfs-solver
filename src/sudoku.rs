@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use crate::dfs::{Constraint, ConstraintViolation, PuzzleError, PuzzleState, Strategy};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11,6 +12,64 @@ pub struct SudokuAction<const MIN: u8 = 1, const MAX: u8 = 9> {
 pub struct Sudoku<const N: usize = 9, const M: usize = 9, const MIN: u8 = 1, const MAX: u8 = 9> {
     pub grid: [[Option<u8>; M]; N],
 } 
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Sudoku<N, M, MIN, MAX> {
+    pub fn parse(s: &str) -> Result<Self, PuzzleError> {
+        let mut grid = [[None; M]; N];
+        let lines: Vec<&str> = s.lines().collect();
+        if lines.len() != N {
+            return Err(PuzzleError::new("Invalid number of rows".to_string()));
+        }
+        for i in 0..N {
+            let line = lines[i].trim();
+            if line.len() != M {
+                return Err(PuzzleError::new("Invalid number of columns".to_string()));
+            }
+            for j in 0..M {
+                let c = line.chars().nth(j).unwrap();
+                if c == '.' {
+                    grid[i][j] = None;
+                } else if c.is_digit(10) {
+                    grid[i][j] = Some(c.to_digit(10).unwrap() as u8);
+                } else {
+                    return Err(PuzzleError::new("Invalid character in input".to_string()));
+                }
+            }
+        }
+        Ok(Self { grid })
+    }
+
+    pub fn serialize(&self) -> String {
+        let mut result = String::new();
+        for row in &self.grid {
+            for &cell in row {
+                if let Some(value) = cell {
+                    result.push_str(&value.to_string());
+                } else {
+                    result.push('.');
+                }
+            }
+            result.push('\n');
+        }
+        result
+    }
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Display for Sudoku<N, M, MIN, MAX> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        for row in &self.grid {
+            for &cell in row {
+                if let Some(value) = cell {
+                    write!(f, "{}", value)?;
+                } else {
+                    write!(f, ".")?;
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
 
 pub const OUT_OF_BOUNDS_ERROR: PuzzleError = PuzzleError::new_const("Out of bounds");
 pub const ALREADY_FILLED_ERROR: PuzzleError = PuzzleError::new_const("Cell already filled");
@@ -239,6 +298,23 @@ mod test {
         }
     }
 
-    // TODO: Add tests for loading and saving to a string
+    #[test]
+    fn test_sudoku_parse() {
+        let input = "5.3......\n\
+                           6..195...\n\
+                           .98....6.\n\
+                           8...6...3\n\
+                           4..8.3..1\n\
+                           7...2...6\n\
+                           .6....28.\n\
+                           ...419..5\n\
+                           ......8.9\n";
+        let sudoku: Sudoku<9,9, 1,9> = Sudoku::parse(input).unwrap();
+        assert_eq!(sudoku.grid[0][0], Some(5));
+        assert_eq!(sudoku.grid[8][8], Some(9));
+        assert_eq!(sudoku.grid[2][7], Some(6));
+        assert_eq!(sudoku.to_string(), input);
+    }
+
     // TODO: Add tests that use this all together for solving a sudoku
 }
