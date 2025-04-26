@@ -55,6 +55,10 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Sudoku<N, M,
     }
 }
 
+pub fn nine_standard_parse(s: &str) -> Result<Sudoku<9, 9, 1, 9>, PuzzleError> {
+    Sudoku::<9, 9, 1, 9>::parse(s)
+}
+
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Display for Sudoku<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         for row in &self.grid {
@@ -347,7 +351,7 @@ mod test {
                            ..93...74\n\
                            .4..5..36\n\
                            7.3.18...\n";
-        let mut sudoku: Sudoku<9,9, 1,9> = Sudoku::parse(input).unwrap();
+        let mut sudoku: Sudoku<9,9, 1,9> = nine_standard_parse(input).unwrap();
         let strategy = FirstEmptyStrategy {};
         let checker = NineStandardChecker::new();
         let mut finder = FindFirstSolution::new(
