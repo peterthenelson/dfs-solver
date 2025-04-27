@@ -360,7 +360,7 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, vec![&constraint], false);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
-        println!("  Solution: {:?}", maybe_solution.unwrap().get_puzzle());
+        assert_eq!(maybe_solution.unwrap().get_puzzle().digits, vec![4, 9, 3, 8, 2, 7, 1, 6]);
         Ok(())
     }
 
@@ -378,8 +378,8 @@ mod test {
             violation_count += finder.get_violations().len();
         }
         assert!(finder.is_valid());
-        println!("  Steps: {}", steps);
-        println!("  Violations: {}", violation_count);
+        assert!(steps > 100);
+        assert!(violation_count > 100);
         Ok(())
     }
 
@@ -394,8 +394,7 @@ mod test {
             finder.step()?;
             solution_count += if finder.get_state() == DfsSolverState::Solved { 1 } else { 0 };
         }
-        println!("  Num solutions: {}", solution_count);
+        assert_eq!(solution_count, 2);
         Ok(())
     }
-
 }
