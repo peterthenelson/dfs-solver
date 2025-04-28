@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use crate::dfs::{Constraint, ConstraintViolation, PuzzleError, PuzzleState, Strategy};
+use crate::dfs::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail, PuzzleError, PuzzleState, Strategy};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SudokuAction<const MIN: u8 = 1, const MAX: u8 = 9> {
@@ -129,21 +129,21 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Sudoku<N, M,
 
 pub struct RowColChecker {}
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for RowColChecker {
-    fn check(&self, puzzle: &Sudoku<N, M, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
+    fn check(&self, puzzle: &Sudoku<N, M, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+        let mut violations = vec![];
         for r in 0..N {
             let mut seen = vec![false; (MAX - MIN + 1) as usize];
             for c in 0..M {
                 if let Some(value) = puzzle.grid[r][c] {
                     if seen[(value - MIN) as usize] {
-                        let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
-                            Some(vec![SudokuAction { row: r, col: c, value }])
+                        if details {
+                            violations.push(ConstraintViolationDetail {
+                                message: format!("Duplicate value {} in row {}", value, r),
+                                highlight: Some(vec![SudokuAction { row: r, col: c, value }]),
+                            })
                         } else {
-                            None
-                        };
-                        return Some(ConstraintViolation {
-                            message: format!("Duplicate value {} in row {}", value, r),
-                            highlight,
-                        });
+                            return ConstraintResult::Simple("Duplicate value in row");
+                        }
                     }
                     seen[(value - MIN) as usize] = true;
                 }
@@ -154,219 +154,139 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<S
             for r in 0..N {
                 if let Some(value) = puzzle.grid[r][c] {
                     if seen[(value - MIN) as usize] {
-                        let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
-                            Some(vec![SudokuAction { row: r, col: c, value }])
+                        if details {
+                            violations.push(ConstraintViolationDetail {
+                                message: format!("Duplicate value {} in col {}", value, c),
+                                highlight: Some(vec![SudokuAction { row: r, col: c, value }]),
+                            })
                         } else {
-                            None
-                        };
-                        return Some(ConstraintViolation {
-                            message: format!("Duplicate value {} in col {}", value, c),
-                            highlight,
-                        });
+                            return ConstraintResult::Simple("Duplicate value in col");
+                        }
                     }
                     seen[(value - MIN) as usize] = true;
                 }
             }
         }
-        None
+        if violations.len() > 0 {
+            return ConstraintResult::Details(violations)
+        } else {
+            return ConstraintResult::NoViolation;
+        }
     }
 }
 
-pub struct NineBoxChecker {}
+pub struct BoxChecker {
+    pub br: usize,
+    pub bc: usize,
+    pub bh: usize,
+    pub bw: usize,
+}
+impl BoxChecker {
+    pub fn new(br: usize, bc: usize, bh: usize, bw: usize) -> Self {
+        Self { br, bc, bh, bw }
+    }
+}
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for BoxChecker {
+    fn check(&self, puzzle: &Sudoku<N, M, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+        _ = assert!(N == self.br * self.bh && M == self.bc * self.bw, "Sudoku dimensions do not match box dimensions");
+        let mut violations = vec![];
+        for box_row in 0..self.br {
+            for box_col in 0..self.bc {
+                let mut seen = vec![false; (MAX - MIN + 1) as usize];
+                for r in 0..self.bh {
+                    for c in 0..self.bw {
+                        let row = box_row * self.bh + r;
+                        let col = box_col * self.bw + c;
+                        if let Some(value) = puzzle.grid[row][col] {
+                            if seen[(value - MIN) as usize] {
+                                if details {
+                                    violations.push(ConstraintViolationDetail {
+                                        message: format!("Duplicate value {} in box ({}, {})", value, box_row, box_col),
+                                        highlight: Some(vec![SudokuAction { row, col, value }]),
+                                    })
+                                } else {
+                                    return ConstraintResult::Simple("Duplicate value in box");
+                                }
+                            }
+                            seen[(value - MIN) as usize] = true;
+                        }
+                    }
+                }
+            }
+        }
+        if violations.len() > 0 {
+            ConstraintResult::Details(violations)
+        } else {
+            ConstraintResult::NoViolation
+        }
+    }
+}
+
+pub struct NineBoxChecker(BoxChecker);
+impl NineBoxChecker {
+    pub fn new() -> Self {
+        NineBoxChecker(BoxChecker::new(3, 3, 3, 3))
+    }
+}
 impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<9, 9, MIN, MAX>> for NineBoxChecker {
-    fn check(&self, puzzle: &Sudoku<9, 9, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        for box_row in 0..3 {
-            for box_col in 0..3 {
-                let mut seen = vec![false; (MAX - MIN + 1) as usize];
-                for r in 0..3 {
-                    for c in 0..3 {
-                        let row = box_row * 3 + r;
-                        let col = box_col * 3 + c;
-                        if let Some(value) = puzzle.grid[row][col] {
-                            if seen[(value - MIN) as usize] {
-                                let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
-                                    Some(vec![SudokuAction { row, col, value }])
-                                } else {
-                                    None
-                                };
-                                return Some(ConstraintViolation {
-                                    message: format!("Duplicate value {} in box ({}, {})", value, box_row, box_col),
-                                    highlight,
-                                });
-                            }
-                            seen[(value - MIN) as usize] = true;
-                        }
-                    }
-                }
-            }
-        }
-        None
+    fn check(&self, puzzle: &Sudoku<9, 9, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+        self.0.check(puzzle, details)
     }
 }
+pub type NineStandardChecker<const MIN: u8, const MAX: u8> = ConstraintConjunction<SudokuAction<MIN, MAX>, Sudoku<9, 9, MIN, MAX>, RowColChecker, NineBoxChecker>;
+pub fn nine_standard_checker() -> NineStandardChecker<1, 9> {
+    NineStandardChecker::new(RowColChecker {}, NineBoxChecker::new())
+}
 
-pub struct NineStandardChecker { pub row_col_checker: RowColChecker, pub box_checker: NineBoxChecker }
 
-impl NineStandardChecker {
+pub struct EightBoxChecker(BoxChecker);
+impl EightBoxChecker {
     pub fn new() -> Self {
-        Self { row_col_checker: RowColChecker {}, box_checker: NineBoxChecker {} }
+        EightBoxChecker(BoxChecker::new(4, 2, 2, 4))
     }
 }
-
-impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<9, 9, MIN, MAX>> for NineStandardChecker {
-    fn check(&self, puzzle: &Sudoku<9, 9, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        let row_col_violation = self.row_col_checker.check(puzzle, details);
-        if row_col_violation.is_some() {
-            return row_col_violation;
-        }
-        self.box_checker.check(puzzle, details)
-    }
-}
-
-pub struct EightBoxChecker {}
 impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<8, 8, MIN, MAX>> for EightBoxChecker {
-    fn check(&self, puzzle: &Sudoku<8, 8, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        for box_row in 0..4 {
-            for box_col in 0..2 {
-                let mut seen = vec![false; (MAX - MIN + 1) as usize];
-                for r in 0..2 {
-                    for c in 0..4 {
-                        let row = box_row * 2 + r;
-                        let col = box_col * 4 + c;
-                        if let Some(value) = puzzle.grid[row][col] {
-                            if seen[(value - MIN) as usize] {
-                                let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
-                                    Some(vec![SudokuAction { row, col, value }])
-                                } else {
-                                    None
-                                };
-                                return Some(ConstraintViolation {
-                                    message: format!("Duplicate value {} in box ({}, {})", value, box_row, box_col),
-                                    highlight,
-                                });
-                            }
-                            seen[(value - MIN) as usize] = true;
-                        }
-                    }
-                }
-            }
-        }
-        None
+    fn check(&self, puzzle: &Sudoku<8, 8, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+        self.0.check(puzzle, details)
     }
 }
-pub struct EightStandardChecker { pub row_col_checker: RowColChecker, pub box_checker: EightBoxChecker }
+pub type EightStandardChecker<const MIN: u8, const MAX: u8> = ConstraintConjunction<SudokuAction<MIN, MAX>, Sudoku<8, 8, MIN, MAX>, RowColChecker, EightBoxChecker>;
+pub fn eight_standard_checker() -> EightStandardChecker<1, 8> {
+    EightStandardChecker::new(RowColChecker {}, EightBoxChecker::new())
+}
 
-impl EightStandardChecker {
+
+pub struct SixBoxChecker(BoxChecker);
+impl SixBoxChecker {
     pub fn new() -> Self {
-        Self { row_col_checker: RowColChecker {}, box_checker: EightBoxChecker {} }
+        SixBoxChecker(BoxChecker::new(3, 2, 2, 3))
     }
 }
-
-impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<8, 8, MIN, MAX>> for EightStandardChecker {
-    fn check(&self, puzzle: &Sudoku<8, 8, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        let row_col_violation = self.row_col_checker.check(puzzle, details);
-        if row_col_violation.is_some() {
-            return row_col_violation;
-        }
-        self.box_checker.check(puzzle, details)
-    }
-}
-
-pub struct SixBoxChecker {}
 impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<6, 6, MIN, MAX>> for SixBoxChecker {
-    fn check(&self, puzzle: &Sudoku<6, 6, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        for box_row in 0..3 {
-            for box_col in 0..2 {
-                let mut seen = vec![false; (MAX - MIN + 1) as usize];
-                for r in 0..2 {
-                    for c in 0..3 {
-                        let row = box_row * 2 + r;
-                        let col = box_col * 3 + c;
-                        if let Some(value) = puzzle.grid[row][col] {
-                            if seen[(value - MIN) as usize] {
-                                let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
-                                    Some(vec![SudokuAction { row, col, value }])
-                                } else {
-                                    None
-                                };
-                                return Some(ConstraintViolation {
-                                    message: format!("Duplicate value {} in box ({}, {})", value, box_row, box_col),
-                                    highlight,
-                                });
-                            }
-                            seen[(value - MIN) as usize] = true;
-                        }
-                    }
-                }
-            }
-        }
-        None
+    fn check(&self, puzzle: &Sudoku<6, 6, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+        self.0.check(puzzle, details)
     }
 }
-pub struct SixStandardChecker { pub row_col_checker: RowColChecker, pub box_checker: SixBoxChecker }
+pub type SixStandardChecker<const MIN: u8, const MAX: u8> = ConstraintConjunction<SudokuAction<MIN, MAX>, Sudoku<6, 6, MIN, MAX>, RowColChecker, SixBoxChecker>;
+pub fn six_standard_checker() -> SixStandardChecker<1, 6> {
+    SixStandardChecker::new(RowColChecker {}, SixBoxChecker::new())
+}
 
-impl SixStandardChecker {
+pub struct FourBoxChecker(BoxChecker);
+impl FourBoxChecker {
     pub fn new() -> Self {
-        Self { row_col_checker: RowColChecker {}, box_checker: SixBoxChecker {} }
+        FourBoxChecker(BoxChecker::new(2, 2, 2, 2))
     }
 }
-
-impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<6, 6, MIN, MAX>> for SixStandardChecker {
-    fn check(&self, puzzle: &Sudoku<6, 6, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        let row_col_violation = self.row_col_checker.check(puzzle, details);
-        if row_col_violation.is_some() {
-            return row_col_violation;
-        }
-        self.box_checker.check(puzzle, details)
-    }
-}
-
-pub struct FourBoxChecker {}
 impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<4, 4, MIN, MAX>> for FourBoxChecker {
-    fn check(&self, puzzle: &Sudoku<4, 4, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        for box_row in 0..2 {
-            for box_col in 0..2 {
-                let mut seen = vec![false; (MAX - MIN + 1) as usize];
-                for r in 0..2 {
-                    for c in 0..2 {
-                        let row = box_row * 2 + r;
-                        let col = box_col * 2 + c;
-                        if let Some(value) = puzzle.grid[row][col] {
-                            if seen[(value - MIN) as usize] {
-                                let highlight: Option<Vec<SudokuAction<MIN, MAX>>> = if details {
-                                    Some(vec![SudokuAction { row, col, value }])
-                                } else {
-                                    None
-                                };
-                                return Some(ConstraintViolation {
-                                    message: format!("Duplicate value {} in box ({}, {})", value, box_row, box_col),
-                                    highlight,
-                                });
-                            }
-                            seen[(value - MIN) as usize] = true;
-                        }
-                    }
-                }
-            }
-        }
-        None
+    fn check(&self, puzzle: &Sudoku<4, 4, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+        self.0.check(puzzle, details)
     }
 }
-pub struct FourStandardChecker { pub row_col_checker: RowColChecker, pub box_checker: FourBoxChecker }
-
-impl FourStandardChecker {
-    pub fn new() -> Self {
-        Self { row_col_checker: RowColChecker {}, box_checker: FourBoxChecker {} }
-    }
-}
-
-impl <const MIN: u8, const MAX: u8> Constraint<SudokuAction<MIN, MAX>, Sudoku<4, 4, MIN, MAX>> for FourStandardChecker {
-    fn check(&self, puzzle: &Sudoku<4, 4, MIN, MAX>, details: bool) -> Option<ConstraintViolation<SudokuAction<MIN, MAX>>> {
-        let row_col_violation = self.row_col_checker.check(puzzle, details);
-        if row_col_violation.is_some() {
-            return row_col_violation;
-        }
-        self.box_checker.check(puzzle, details)
-    }
+pub type FourStandardChecker<const MIN: u8, const MAX: u8> = ConstraintConjunction<SudokuAction<MIN, MAX>, Sudoku<4, 4, MIN, MAX>, RowColChecker, FourBoxChecker>;
+pub fn four_standard_checker() -> FourStandardChecker<1, 4> {
+    FourStandardChecker::new(RowColChecker {}, FourBoxChecker::new())
 }
 
 pub struct FirstEmptyStrategy {}
@@ -422,11 +342,12 @@ mod test {
         assert!(checker.check(&sudoku, true).is_none());
         assert_eq!(sudoku.apply(&SudokuAction { row: 5, col: 8, value: 1 }), Ok(()));
         match checker.check(&sudoku, true) {
-            Some(ConstraintViolation { message, highlight }) => {
-                assert_eq!(message, "Duplicate value 1 in row 5");
-                assert_eq!(highlight, Some(vec![SudokuAction { row: 5, col: 8, value: 1 }]));
+            ConstraintResult::Details(violations) => {
+                assert_eq!(violations.len(), 1);
+                assert_eq!(violations[0].message, "Duplicate value 1 in row 5");
+                assert_eq!(violations[0].highlight, Some(vec![SudokuAction { row: 5, col: 8, value: 1 }]));
             }
-            None => panic!("Expected a violation"),
+            _ => panic!("Expected a detailed violation"),
         }
     }
 
@@ -439,28 +360,30 @@ mod test {
         assert!(checker.check(&sudoku, true).is_none());
         assert_eq!(sudoku.apply(&SudokuAction { row: 6, col: 3, value: 2 }), Ok(()));
         match checker.check(&sudoku, true) {
-            Some(ConstraintViolation { message, highlight }) => {
-                assert_eq!(message, "Duplicate value 2 in col 3");
-                assert_eq!(highlight, Some(vec![SudokuAction { row: 6, col: 3, value: 2 }]));
+            ConstraintResult::Details(violations) => {
+                assert_eq!(violations.len(), 1);
+                assert_eq!(violations[0].message, "Duplicate value 2 in col 3");
+                assert_eq!(violations[0].highlight, Some(vec![SudokuAction { row: 6, col: 3, value: 2 }]));
             }
-            None => panic!("Expected a violation"),
+            _ => panic!("Expected a detailed violation"),
         }
     }
 
     #[test]
     fn test_sudoku_box_violation() {
         let mut sudoku: Sudoku<9, 9, 1, 9> = Sudoku::new();
-        let checker = NineBoxChecker {};
+        let checker = NineBoxChecker::new();
         assert_eq!(sudoku.apply(&SudokuAction { row: 3, col: 0, value: 8 }), Ok(()));
         assert_eq!(sudoku.apply(&SudokuAction { row: 4, col: 1, value: 2 }), Ok(()));
         assert!(checker.check(&sudoku, true).is_none());
         assert_eq!(sudoku.apply(&SudokuAction { row: 5, col: 2, value: 8 }), Ok(()));
         match checker.check(&sudoku, true) {
-            Some(ConstraintViolation { message, highlight }) => {
-                assert_eq!(message, "Duplicate value 8 in box (1, 0)");
-                assert_eq!(highlight, Some(vec![SudokuAction { row: 5, col: 2, value: 8 }]));
+            ConstraintResult::Details(violations) => {
+                assert_eq!(violations.len(), 1);
+                assert_eq!(violations[0].message, "Duplicate value 8 in box (1, 0)");
+                assert_eq!(violations[0].highlight, Some(vec![SudokuAction { row: 5, col: 2, value: 8 }]));
             }
-            None => panic!("Expected a violation"),
+            _ => panic!("Expected a detailed violation"),
         }
     }
 
@@ -513,7 +436,7 @@ mod test {
                            567429.13\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
         let strategy = FirstEmptyStrategy {};
-        let checker = NineStandardChecker::new();
+        let checker = nine_standard_checker();
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
@@ -541,7 +464,7 @@ mod test {
                            46..8...\n";
         let mut sudoku = eight_standard_parse(input).unwrap();
         let strategy = FirstEmptyStrategy {};
-        let checker = EightStandardChecker::new();
+        let checker = eight_standard_checker();
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
@@ -567,7 +490,7 @@ mod test {
                            ..1.46\n";
         let mut sudoku = six_standard_parse(input).unwrap();
         let strategy = FirstEmptyStrategy {};
-        let checker = SixStandardChecker::new();
+        let checker = six_standard_checker();
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
@@ -591,7 +514,7 @@ mod test {
                            4.12\n";
         let mut sudoku = four_standard_parse(input).unwrap();
         let strategy = FirstEmptyStrategy {};
-        let checker = FourStandardChecker::new();
+        let checker = four_standard_checker();
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &strategy, &checker, false);
         match finder.solve() {

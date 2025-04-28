@@ -23,19 +23,91 @@ pub trait PuzzleState<A>: Clone + Debug {
     fn undo(&mut self, action: &A) -> Result<(), PuzzleError>;
 }
 
-/// Violation of a constraint. Optionally provides a list of actions that are
-/// relevant to the violation.
-/// TODO: Rethink how to do the detailed-vs-not reporting to avoid allocations
-/// when not required.
-#[derive(Debug, Clone)]
-pub struct ConstraintViolation<A> {
+/// Potential violation of a constraint. The optimized approach to use in the
+/// solver is to return the first violation found without any detailed
+/// information. However, for debugging or UI purposes, it may be useful to
+/// return a list of all the violations, along with the specific actions that
+/// caused them.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstraintResult<A> {
+    Simple(&'static str),
+    Details(Vec<ConstraintViolationDetail<A>>),
+    NoViolation,
+}
+
+impl <A> ConstraintResult<A> {
+    pub fn is_none(&self) -> bool {
+        match self {
+            ConstraintResult::NoViolation => true,
+            _ => false,
+        }
+    }
+}
+
+pub struct ConstraintConjunction<A, P, X, Y>
+where A: Clone + Debug, P: PuzzleState<A>, X: Constraint<A, P>, Y: Constraint<A, P> {
+    pub x: X,
+    pub y: Y,
+    pub p_a: std::marker::PhantomData<A>,
+    pub p_p: std::marker::PhantomData<P>,
+}
+
+impl <A, P, X, Y> ConstraintConjunction<A, P, X, Y>
+where A: Clone + Debug, P: PuzzleState<A>, X: Constraint<A, P>, Y: Constraint<A, P> {
+    pub fn new(x: X, y: Y) -> Self {
+        ConstraintConjunction { x, y, p_a: std::marker::PhantomData, p_p: std::marker::PhantomData }
+    }
+}
+
+impl <A, P, X, Y> Constraint<A, P> for ConstraintConjunction<A, P, X, Y>
+where A: Clone + Debug, P: PuzzleState<A>, X: Constraint<A, P>, Y: Constraint<A, P> {
+    fn check(&self, puzzle: &P, details: bool) -> ConstraintResult<A> {
+        if details {
+            let mut violations = Vec::new();
+            match self.x.check(puzzle, details) {
+                ConstraintResult::NoViolation => (),
+                ConstraintResult::Simple(message) => {
+                    violations.push(ConstraintViolationDetail {
+                        message: message.to_string(),
+                        highlight: None,
+                    });
+                },
+                ConstraintResult::Details(mut violation) => {
+                    violations.append(&mut violation);
+                }
+            };
+            match self.y.check(puzzle, details) {
+                ConstraintResult::NoViolation => (),
+                ConstraintResult::Simple(message) => {
+                    violations.push(ConstraintViolationDetail {
+                        message: message.to_string(),
+                        highlight: None,
+                    });
+                },
+                ConstraintResult::Details(mut violation) => {
+                    violations.append(&mut violation);
+                }
+            };
+            ConstraintResult::Details(violations)
+        } else {
+            match self.x.check(puzzle, details) {
+                ConstraintResult::NoViolation => self.y.check(puzzle, details),
+                x_result => x_result,
+            }
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstraintViolationDetail<A> {
     pub message: String,
     pub highlight: Option<Vec<A>>,
 }
 
 /// Trait for checking that the current solve-state is valid.
 pub trait Constraint<A, P> where P: PuzzleState<A> {
-    fn check(&self, puzzle: &P, details: bool) -> Option<ConstraintViolation<A>>;
+    fn check(&self, puzzle: &P, details: bool) -> ConstraintResult<A>;
 }
 
 /// Trait for enumerating the available actions at a particular decision point
@@ -65,7 +137,7 @@ pub trait DfsSolverView<A, P> where A: Clone + Debug, P: PuzzleState<A> {
     fn get_state(&self) -> DfsSolverState;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
-    fn get_violation(&self) -> Option<ConstraintViolation<A>>;
+    fn get_violations(&self) -> ConstraintResult<A>;
     fn get_puzzle(&self) -> &P;
 }
 
@@ -78,7 +150,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
     puzzle: &'a mut P,
     strategy: &'a S,
     constraint: &'a C,
-    violation: Option<ConstraintViolation<A>>,
+    violation: ConstraintResult<A>,
     stack: Vec<(A, <S as Strategy<A, P>>::ActionSet)>,
     state: DfsSolverState,
 }
@@ -97,7 +169,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
         self.violation.is_none()
     }
 
-    fn get_violation(&self) -> Option<ConstraintViolation<A>> {
+    fn get_violations(&self) -> ConstraintResult<A> {
         self.violation.clone()
     }
 
@@ -119,19 +191,19 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
             puzzle,
             strategy,
             constraint,
-            violation: None,
+            violation: ConstraintResult::NoViolation,
             stack: Vec::new(),
             state: DfsSolverState::Advancing,
         }
     }
 
-    fn apply(&mut self, action: A, alternatives: S::ActionSet, detail: bool) -> Result<(), PuzzleError> {
+    fn apply(&mut self, action: A, alternatives: S::ActionSet, details: bool) -> Result<(), PuzzleError> {
         if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
         }
         self.puzzle.apply(&action)?;
         self.stack.push((action, alternatives));
-        self.violation = self.constraint.check(self.puzzle, detail);
+        self.violation = self.constraint.check(self.puzzle, details);
         self.state = if self.violation.is_none() {
             DfsSolverState::Advancing
         } else {
@@ -140,8 +212,8 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
         return Ok(());
     }
 
-    pub fn manual_step(&mut self, action: A, detail: bool) -> Result<(), PuzzleError> {
-        self.apply(action, S::empty_action_set(), detail)
+    pub fn manual_step(&mut self, action: A, details: bool) -> Result<(), PuzzleError> {
+        self.apply(action, S::empty_action_set(), details)
     }
 
     pub fn force_backtrack(&mut self) -> bool {
@@ -152,7 +224,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
         true
     }
 
-    pub fn step(&mut self, detail: bool) -> Result<(), PuzzleError> {
+    pub fn step(&mut self, details: bool) -> Result<(), PuzzleError> {
         match self.state {
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
@@ -161,7 +233,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
                 let mut next_actions = self.strategy.suggest(self.puzzle)?;
                 match next_actions.next() {
                     Some(action) => {
-                        self.apply(action, next_actions, detail)?;
+                        self.apply(action, next_actions, details)?;
                     }
                     None => {
                         self.state = DfsSolverState::Solved;
@@ -179,7 +251,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
                 self.puzzle.undo(&prev_action)?;
                 match alternatives.next() {
                     Some(action) => {
-                        self.apply(action, alternatives, detail)?;
+                        self.apply(action, alternatives, details)?;
                         Ok(())
                     }
                     None => Ok(()),
@@ -190,7 +262,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
 
     pub fn reset(&mut self) {
         self.puzzle.reset();
-        self.violation = None;
+        self.violation = ConstraintResult::NoViolation;
         self.stack.clear();
         self.state = DfsSolverState::Advancing;
     }
@@ -205,7 +277,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
     fn get_state(&self) -> DfsSolverState { self.0.get_state() }
     fn is_done(&self) -> bool { self.0.is_done() }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violation(&self) -> Option<ConstraintViolation<A>> { self.0.get_violation() }
+    fn get_violations(&self) -> ConstraintResult<A> { self.0.get_violations() }
     fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
@@ -215,9 +287,9 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
         puzzle: &'a mut P,
         strategy: &'a S,
         constraint: &'a C,
-        detail: bool,
+        details: bool,
     ) -> Self {
-        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), detail)
+        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), details)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<A, P>, PuzzleError> {
@@ -246,7 +318,7 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
     fn get_state(&self) -> DfsSolverState { self.0.get_state() }
     fn is_done(&self) -> bool { self.0.get_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violation(&self) -> Option<ConstraintViolation<A>> { self.0.get_violation() }
+    fn get_violations(&self) -> ConstraintResult<A> { self.0.get_violations() }
     fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
@@ -256,9 +328,9 @@ where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P
         puzzle: &'a mut P,
         strategy: &'a S,
         constraint: &'a C,
-        detail: bool,
+        details: bool,
     ) -> Self {
-        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), detail)
+        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), details)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<A, P>, PuzzleError> {
@@ -320,30 +392,38 @@ mod test {
 
     struct GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, detail: bool) -> Option<ConstraintViolation<u8>> {
+        fn check(&self, puzzle: &GwLine, details: bool) -> ConstraintResult<u8> {
+            let mut violations = Vec::new();
             for i in 0..puzzle.digits.len() {
                 for j in i+1..puzzle.digits.len() {
-                    let highlight = if detail {
-                        Some(vec![puzzle.digits[i], puzzle.digits[j]])
-                    } else {
-                        None
-                    };
                     if puzzle.digits[i] == puzzle.digits[j] {
-                        return Some(ConstraintViolation {
-                            message: "Duplicate digits".to_string(),
-                            highlight,
-                        });
+                        if details {
+                            violations.push(ConstraintViolationDetail {
+                                message: format!("Duplicate digits: {} and {}", puzzle.digits[i], puzzle.digits[j]),
+                                highlight: Some(vec![puzzle.digits[i], puzzle.digits[j]]),
+                            });
+                        } else {
+                            return ConstraintResult::Simple("Duplicate digits");
+                        }
                     }
                     let diff: i16 = (puzzle.digits[i] as i16) - (puzzle.digits[j] as i16);
                     if j == i+1 && diff.abs() < 5 {
-                        return Some(ConstraintViolation {
-                            message: "Digits too close".to_string(),
-                            highlight,
-                        });
+                        if details {
+                            violations.push(ConstraintViolationDetail {
+                                message: format!("Adjacent digits too close: {} and {}", puzzle.digits[i], puzzle.digits[j]),
+                                highlight: Some(vec![puzzle.digits[i], puzzle.digits[j]]),
+                            });
+                        } else {
+                            return ConstraintResult::Simple("Adjacent digits too close");
+                        }
                     }
                 }
             }
-            None
+            if violations.len() > 0 {
+                return ConstraintResult::Details(violations);
+            } else {
+                ConstraintResult::NoViolation
+            }
         }
     }
 
@@ -384,9 +464,12 @@ mod test {
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
-            violation_count += match finder.get_violation() {
-                Some(v) => v.highlight.unwrap_or_default().len(),
-                None => 0,
+            violation_count += match finder.get_violations() {
+                ConstraintResult::Simple(_) => 1,
+                ConstraintResult::Details(details) => {
+                    details.len()
+                },
+                ConstraintResult::NoViolation => 0,
             }
         }
         assert!(finder.is_valid());
