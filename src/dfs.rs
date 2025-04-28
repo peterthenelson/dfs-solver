@@ -61,11 +61,11 @@ pub enum DfsSolverState {
 }
 
 // A view on the state and associated data for the solver.
-pub trait DfsSolverView<A, P> where A:Clone + Debug, P: PuzzleState<A> {
+pub trait DfsSolverView<A, P> where A: Clone + Debug, P: PuzzleState<A> {
     fn get_state(&self) -> DfsSolverState;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
-    fn get_violations(&self) -> &[ConstraintViolation<A>];
+    fn get_violation(&self) -> Option<ConstraintViolation<A>>;
     fn get_puzzle(&self) -> &P;
 }
 
@@ -73,16 +73,18 @@ pub trait DfsSolverView<A, P> where A:Clone + Debug, P: PuzzleState<A> {
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
 /// if you are implementing a UI or debugging, this API may be useful.
-pub struct DfsSolver<'a, A, P, S> where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
+pub struct DfsSolver<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     puzzle: &'a mut P,
     strategy: &'a S,
-    constraints: Vec<&'a dyn Constraint<A, P>>,
-    violations: Vec<ConstraintViolation<A>>,
+    constraint: &'a C,
+    violation: Option<ConstraintViolation<A>>,
     stack: Vec<(A, <S as Strategy<A, P>>::ActionSet)>,
     state: DfsSolverState,
 }
 
-impl <'a, A, P, S> DfsSolverView<A, P> for DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+impl <'a, A, P, S, C> DfsSolverView<A, P> for DfsSolver<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     fn get_state(&self) -> DfsSolverState {
         self.state
     }
@@ -92,11 +94,11 @@ impl <'a, A, P, S> DfsSolverView<A, P> for DfsSolver<'a, A, P, S> where A:Clone 
     }
 
     fn is_valid(&self) -> bool {
-        self.violations.is_empty()
+        self.violation.is_none()
     }
 
-    fn get_violations(&self) -> &[ConstraintViolation<A>] {
-        &self.violations
+    fn get_violation(&self) -> Option<ConstraintViolation<A>> {
+        self.violation.clone()
     }
 
     fn get_puzzle(&self) -> &P {
@@ -106,17 +108,18 @@ impl <'a, A, P, S> DfsSolverView<A, P> for DfsSolver<'a, A, P, S> where A:Clone 
 
 const PUZZLE_ALREADY_DONE: PuzzleError = PuzzleError::new_const("Puzzle already done");
 
-impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+impl <'a, A, P, S, C> DfsSolver<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     pub fn new(
         puzzle: &'a mut P,
         strategy: &'a S,
-        constraints: Vec<&'a dyn Constraint<A, P>>,
+        constraint: &'a C, 
     ) -> Self {
         DfsSolver {
             puzzle,
             strategy,
-            constraints,
-            violations: Vec::new(),
+            constraint,
+            violation: None,
             stack: Vec::new(),
             state: DfsSolverState::Advancing,
         }
@@ -128,8 +131,8 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
         }
         self.puzzle.apply(&action)?;
         self.stack.push((action, alternatives));
-        self.violations = self.constraints.iter().filter_map(|c| c.check(self.puzzle, detail)).collect();
-        self.state = if self.violations.is_empty() {
+        self.violation = self.constraint.check(self.puzzle, detail);
+        self.state = if self.violation.is_none() {
             DfsSolverState::Advancing
         } else {
             DfsSolverState::Backtracking
@@ -187,31 +190,34 @@ impl <'a, A, P, S> DfsSolver<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A
 
     pub fn reset(&mut self) {
         self.puzzle.reset();
-        self.violations.clear();
+        self.violation = None;
         self.stack.clear();
         self.state = DfsSolverState::Advancing;
     }
 }
 
 /// Find first solution to the puzzle using the given strategy and constraints.
-pub struct FindFirstSolution<'a, A, P, S>(DfsSolver<'a, A, P, S>, bool) where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>;
+pub struct FindFirstSolution<'a, A, P, S, C>(DfsSolver<'a, A, P, S, C>, bool)
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P>;
 
-impl <'a, A, P, S> DfsSolverView<A, P> for FindFirstSolution<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+impl <'a, A, P, S, C> DfsSolverView<A, P> for FindFirstSolution<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     fn get_state(&self) -> DfsSolverState { self.0.get_state() }
     fn is_done(&self) -> bool { self.0.is_done() }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violations(&self) -> &[ConstraintViolation<A>] { self.0.get_violations() }
+    fn get_violation(&self) -> Option<ConstraintViolation<A>> { self.0.get_violation() }
     fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
-impl <'a, A, P, S> FindFirstSolution<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+impl <'a, A, P, S, C> FindFirstSolution<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     pub fn new(
         puzzle: &'a mut P,
         strategy: &'a S,
-        constraints: Vec<&'a dyn Constraint<A, P>>,
+        constraint: &'a C,
         detail: bool,
     ) -> Self {
-        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraints), detail)
+        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), detail)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<A, P>, PuzzleError> {
@@ -232,24 +238,27 @@ impl <'a, A, P, S> FindFirstSolution<'a, A, P, S> where A:Clone + Debug, P:Puzzl
 }
 
 /// Find all solutions to the puzzle using the given strategy and constraints.
-pub struct FindAllSolutions<'a, A, P, S>(DfsSolver<'a, A, P, S>, bool) where A:Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>;
+pub struct FindAllSolutions<'a, A, P, S, C>(DfsSolver<'a, A, P, S, C>, bool)
+    where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P>;
 
-impl <'a, A, P, S> DfsSolverView<A, P> for FindAllSolutions<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+impl <'a, A, P, S, C> DfsSolverView<A, P> for FindAllSolutions<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     fn get_state(&self) -> DfsSolverState { self.0.get_state() }
     fn is_done(&self) -> bool { self.0.get_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violations(&self) -> &[ConstraintViolation<A>] { self.0.get_violations() }
+    fn get_violation(&self) -> Option<ConstraintViolation<A>> { self.0.get_violation() }
     fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
-impl <'a, A, P, S> FindAllSolutions<'a, A, P, S> where A:Clone + Debug, P:PuzzleState<A>, S:Strategy<A, P> {
+impl <'a, A, P, S, C> FindAllSolutions<'a, A, P, S, C>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P>, C: Constraint<A, P> {
     pub fn new(
         puzzle: &'a mut P,
         strategy: &'a S,
-        constraints: Vec<&'a dyn Constraint<A, P>>,
+        constraint: &'a C,
         detail: bool,
     ) -> Self {
-        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraints), detail)
+        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), detail)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<A, P>, PuzzleError> {
@@ -357,7 +366,7 @@ mod test {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, vec![&constraint], false);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, false);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
         assert_eq!(maybe_solution.unwrap().get_puzzle().digits, vec![4, 9, 3, 8, 2, 7, 1, 6]);
@@ -369,13 +378,16 @@ mod test {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, vec![&constraint], true);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, true);
         let mut steps: usize = 0;
         let mut violation_count: usize = 0;
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
-            violation_count += finder.get_violations().len();
+            violation_count += match finder.get_violation() {
+                Some(v) => v.highlight.unwrap_or_default().len(),
+                None => 0,
+            }
         }
         assert!(finder.is_valid());
         assert!(steps > 100);
@@ -388,7 +400,7 @@ mod test {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, vec![&constraint], false);
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &constraint, false);
         let mut solution_count: usize = 0;
         while !finder.is_done() {
             finder.step()?;

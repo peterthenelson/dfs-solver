@@ -515,7 +515,7 @@ mod test {
         let strategy = FirstEmptyStrategy {};
         let checker = NineStandardChecker::new();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, vec![&checker], false);
+            &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -543,7 +543,7 @@ mod test {
         let strategy = FirstEmptyStrategy {};
         let checker = EightStandardChecker::new();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, vec![&checker], false);
+            &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -569,7 +569,7 @@ mod test {
         let strategy = FirstEmptyStrategy {};
         let checker = SixStandardChecker::new();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, vec![&checker], false);
+            &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -593,7 +593,7 @@ mod test {
         let strategy = FirstEmptyStrategy {};
         let checker = FourStandardChecker::new();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, vec![&checker], false);
+            &mut sudoku, &strategy, &checker, false);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
