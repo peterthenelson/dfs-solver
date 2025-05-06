@@ -121,6 +121,68 @@ pub trait Strategy<A, P> where P: PuzzleState<A> {
     fn empty_action_set() -> Self::ActionSet;
 }
 
+/// A partial strategy that can be used to suggest actions (but requires some
+/// other strategy to fall back on). This is useful for strategies that are
+/// specific to a particular constraint or puzzle type, but may not be able to
+/// enumerate all the possible actions.
+pub trait PartialStrategy<A, P>: where P: PuzzleState<A> {
+    fn suggest(&self, puzzle: &P) -> Result<Vec<A>, PuzzleError>;
+}
+
+/// All strategies are partial strategies.
+impl <A, P, S> PartialStrategy<A, P> for S
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
+    fn suggest(&self, puzzle: &P) -> Result<Vec<A>, PuzzleError> {
+        let mut actions = Vec::new();
+        for action in self.suggest(puzzle)? {
+            actions.push(action);
+        }
+        Ok(actions)
+    }
+}
+
+/// A composite strategy that combines multiple strategies into one.
+pub struct CompositeStrategy<'a, A, P, S>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
+    default_strategy: S,
+    partial_strategies: Vec<&'a dyn PartialStrategy<A, P>>,
+    p_a: std::marker::PhantomData<A>,
+    p_p: std::marker::PhantomData<P>,
+}
+
+impl <'a, A, P, S> CompositeStrategy<'a, A, P, S>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
+    pub fn new(default_strategy: S, partial_strategies: Vec<&'a dyn PartialStrategy<A, P>>) -> Self {
+        CompositeStrategy {
+            default_strategy,
+            partial_strategies,
+            p_a: std::marker::PhantomData,
+            p_p: std::marker::PhantomData,
+        }
+    }
+}
+
+impl <'a, A, P, S> Strategy<A, P> for CompositeStrategy<'a, A, P, S>
+where A: Clone + Debug, P: PuzzleState<A>, S: Strategy<A, P> {
+    type ActionSet = std::vec::IntoIter<A>;
+
+    fn suggest(&self, puzzle: &P) -> Result<Self::ActionSet, PuzzleError> {
+        let mut actions = Vec::new();
+        for strategy in &self.partial_strategies {
+            actions.extend(strategy.suggest(puzzle)?);
+            if !actions.is_empty() {
+                return Ok(actions.into_iter());
+            }
+        }
+        actions.extend(self.default_strategy.suggest(puzzle)?);
+        return Ok(actions.into_iter());
+    }
+
+    fn empty_action_set() -> Self::ActionSet {
+        vec![].into_iter()
+    }
+}
+
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
 /// solved (has found a solution), or exhausted (no more actions to take).
@@ -358,6 +420,10 @@ mod test {
             }
         }
 
+        fn len(&self) -> usize {
+            self.digits.len()
+        }
+
         fn full(&self) -> bool {
             self.digits.len() == 8
         }
@@ -441,6 +507,18 @@ mod test {
         }
     }
 
+    struct GwLineStrategyPartial {}
+    impl PartialStrategy<u8, GwLine> for GwLineStrategyPartial {
+        fn suggest(&self, puzzle: &GwLine) -> Result<Vec<u8>, PuzzleError> {
+            // This is a partial strategy that only affects the first digit and
+            // avoids guessing things that can't work.
+            if puzzle.len() == 0 {
+                return Ok(vec![4, 6]);
+            }
+            Ok(vec![])
+        }
+    }
+
     #[test]
     fn german_whispers_find() -> Result<(), PuzzleError> {
         let mut puzzle = GwLine::new();
@@ -484,11 +562,33 @@ mod test {
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
         let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &constraint, false);
+        let mut steps: usize = 0;
         let mut solution_count: usize = 0;
         while !finder.is_done() {
             finder.step()?;
+            steps += 1;
             solution_count += if finder.get_state() == DfsSolverState::Solved { 1 } else { 0 };
         }
+        assert!(steps > 2500);
+        assert_eq!(solution_count, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn german_whispers_all_fast() -> Result<(), PuzzleError> {
+        let mut puzzle = GwLine::new();
+        let partial = GwLineStrategyPartial {};
+        let strategy = CompositeStrategy::new(GwLineStrategy {}, vec![&partial]);
+        let constraint = GwLineConstraint {};
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &constraint, false);
+        let mut steps: usize = 0;
+        let mut solution_count: usize = 0;
+        while !finder.is_done() {
+            finder.step()?;
+            steps += 1;
+            solution_count += if finder.get_state() == DfsSolverState::Solved { 1 } else { 0 };
+        }
+        assert!(steps < 1000);
         assert_eq!(solution_count, 2);
         Ok(())
     }
