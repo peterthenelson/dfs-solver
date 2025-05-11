@@ -1,4 +1,5 @@
-use crate::{dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy}, sudoku::{Sudoku, SudokuAction}};
+use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
+use crate::sudoku::{Sudoku, SudokuAction};
 
 pub struct Cage {
     pub cells: Vec<(usize, usize)>,
@@ -13,10 +14,6 @@ pub struct CageChecker {
 impl CageChecker {
     pub fn new(cages: Vec<Cage>) -> Self {
         CageChecker { cages }
-    }
-
-    pub fn get_cages(&self) -> &Vec<Cage> {
-        &self.cages
     }
 }
 
