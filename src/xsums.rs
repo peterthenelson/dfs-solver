@@ -1,4 +1,4 @@
-use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail};
+use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
 use crate::sudoku::{Sudoku, SudokuAction};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -15,19 +15,6 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
         match self.direction {
             XSumDirection::Row => puzzle.grid[self.index][0],
             XSumDirection::Col => puzzle.grid[0][self.index],
-        }
-    }
-
-    pub fn bound(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> usize {
-        match self.direction {
-            XSumDirection::Row => match puzzle.grid[self.index][0] {
-                Some(v) => std::cmp::min(M, v as usize),
-                None => M,
-            },
-            XSumDirection::Col => match puzzle.grid[0][self.index] {
-                Some(v) => std::cmp::min(N, v as usize),
-                None => N,
-            }
         }
     }
 }
@@ -103,6 +90,81 @@ Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumChecker<MIN, 
     }
 }
 
+pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
+    xsums: Vec<XSum<MIN, MAX, N, M>>,
+}
+
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
+    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, crate::dfs::PuzzleError> {
+        for xsum in &self.xsums {
+            match xsum.length(puzzle) {
+                Some(len) => {
+                    let mut sum = len;
+                    let mut first_empty: Option<(usize, usize)> = None;
+                    let mut n_empty = 0;
+                    match xsum.direction {
+                        XSumDirection::Row => {
+                            for i in 1..std::cmp::min(M, len as usize) {
+                                match puzzle.grid[xsum.index][i] {
+                                    Some(v) => sum += v,
+                                    None => {
+                                        if first_empty.is_none() {
+                                            first_empty = Some((xsum.index, i));
+                                        }
+                                        n_empty += 1;
+                                    }
+                                }
+                            }
+                        },
+                        XSumDirection::Col => {
+                            for i in 1..std::cmp::min(N, len as usize) {
+                                match puzzle.grid[i][xsum.index] {
+                                    Some(v) => sum += v,
+                                    None => {
+                                        if first_empty.is_none() {
+                                            first_empty = Some((i, xsum.index));
+                                        }
+                                        n_empty += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(empty) = first_empty {
+                        let target = xsum.target - sum;
+                        if n_empty == 1 && MIN <= target && target <= MAX {
+                            return Ok(vec![SudokuAction { row: empty.0, col: empty.1, value: target }]);
+                        }
+                        let mut suggestions = Vec::new();
+                        for v in MIN..=std::cmp::min(std::cmp::min(target, MAX), (M + 1) as u8) {
+                            suggestions.push(SudokuAction { row: empty.0, col: empty.1, value: v });
+                        }
+                        return Ok(suggestions);
+                    }
+                },
+                None => {
+                    let mut suggestions = Vec::new();
+                    match xsum.direction {
+                        XSumDirection::Row => {
+                            for v in MIN..=std::cmp::min(std::cmp::min(MAX, xsum.target), (M + 1) as u8) {
+                                suggestions.push(SudokuAction { row: xsum.index, col: 0, value: v });
+                            }
+                        },
+                        XSumDirection::Col => {
+                            for v in MIN..=std::cmp::min(std::cmp::min(MAX, xsum.target), (N + 1) as u8) {
+                                suggestions.push(SudokuAction { row: 0, col: xsum.index, value: v });
+                            }
+                        }
+                    }
+                    return Ok(suggestions);
+                },
+            }
+        }
+        return Ok(vec![]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
@@ -148,5 +210,80 @@ mod tests {
                 ]),
             },
         ]));
+    }
+
+    #[test]
+    fn test_xsum_partial_strategy_no_first_digit() {
+        let xsum_strategy = XSumPartialStrategy {
+            xsums: vec![
+                // Missing first digit, so suggest 1 to 5 (no higher than target).
+                XSum { direction: XSumDirection::Col, index: 0, target: 5 },
+            ],
+        };
+        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+            "......\n\
+             2.....\n\
+             3.....\n\
+             ......\n\
+             ......\n\
+             ......\n"
+        ).unwrap();
+        let result = xsum_strategy.suggest(&puzzle);
+        assert_eq!(result.unwrap(), vec![
+            SudokuAction { row: 0, col: 0, value: 1 },
+            SudokuAction { row: 0, col: 0, value: 2 },
+            SudokuAction { row: 0, col: 0, value: 3 },
+            SudokuAction { row: 0, col: 0, value: 4 },
+            SudokuAction { row: 0, col: 0, value: 5 },
+        ]);
+    }
+
+    #[test]
+    fn test_xsum_partial_strategy_first_digit_one_empty() {
+        let xsum_strategy = XSumPartialStrategy {
+            xsums: vec![
+                // Has first digit and one remaining empty cell, so suggest the
+                // exact answer.
+                XSum { direction: XSumDirection::Row, index: 1, target: 7 },
+            ],
+        };
+        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+            "......\n\
+             2.....\n\
+             3.....\n\
+             ......\n\
+             ......\n\
+             ......\n"
+        ).unwrap();
+        let result = xsum_strategy.suggest(&puzzle);
+        assert_eq!(result.unwrap(), vec![
+            SudokuAction { row: 1, col: 1, value: 5 },
+        ]);
+    }
+
+    #[test]
+    fn test_xsum_partial_strategy_first_digit_multiple_remaining() {
+        let xsum_strategy = XSumPartialStrategy {
+            xsums: vec![
+                // Has first digit and multiple empty cells, so suggest 1 to 4
+                // (no higher than remaining).
+                XSum { direction: XSumDirection::Row, index: 2, target: 7 },
+            ],
+        };
+        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+            "......\n\
+             2.....\n\
+             3.....\n\
+             ......\n\
+             ......\n\
+             ......\n"
+        ).unwrap();
+        let result = xsum_strategy.suggest(&puzzle);
+        assert_eq!(result.unwrap(), vec![
+            SudokuAction { row: 2, col: 1, value: 1 },
+            SudokuAction { row: 2, col: 1, value: 2 },
+            SudokuAction { row: 2, col: 1, value: 3 },
+            SudokuAction { row: 2, col: 1, value: 4 },
+        ]);
     }
 }
