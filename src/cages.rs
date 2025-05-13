@@ -1,6 +1,7 @@
 use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
 use crate::sudoku::{Sudoku, SudokuAction};
 
+#[derive(Debug, Clone)]
 pub struct Cage {
     pub cells: Vec<(usize, usize)>,
     pub target: u8,
@@ -65,7 +66,7 @@ Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for CageChecker {
 }
 
 pub struct CagePartialStrategy {
-    cages: Vec<Cage>,
+    pub cages: Vec<Cage>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
