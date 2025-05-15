@@ -21,11 +21,11 @@ pub struct XSum<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
 }
 
 pub struct XSumIter<'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
-    pub xsum: &'a XSum<MIN, MAX, N, M>,
-    pub r: isize,
-    pub c: isize,
+    xsum: &'a XSum<MIN, MAX, N, M>,
+    r: isize,
+    c: isize,
     // Inclusive limit for the iterator
-    pub lim: isize,
+    lim: isize,
 }
 
 impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumIter<'a, MIN, MAX, N, M> {
@@ -129,7 +129,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
 }
 
 pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
-    xsums: Vec<XSum<MIN, MAX, N, M>>,
+    pub xsums: Vec<XSum<MIN, MAX, N, M>>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
@@ -152,7 +152,6 @@ Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumChecker<MIN, 
                     sum_highlight.push(len_cell);
                 }
                 for (r, c) in xsum.xrange(len) {
-                    println!("prev sum: {}; r: {}, c: {}", sum, r, c);
                     if let Some(v) = puzzle.grid[r][c] {
                         sum += v;
                         if details {
@@ -183,7 +182,7 @@ Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumChecker<MIN, 
 }
 
 pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
-    xsums: Vec<XSum<MIN, MAX, N, M>>,
+    pub xsums: Vec<XSum<MIN, MAX, N, M>>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>

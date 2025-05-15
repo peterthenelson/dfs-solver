@@ -1,6 +1,7 @@
 use dfs_puzzle::dfs::{CompositeStrategy, ConstraintConjunction, FindFirstSolution};
 use dfs_puzzle::sudoku::{nine_standard_checker, FirstEmptyStrategy, Sudoku};
 use dfs_puzzle::cages::{Cage, CageChecker, CagePartialStrategy};
+use dfs_puzzle::xsums::{XSum, XSumDirection, XSumChecker, XSumPartialStrategy};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 fn main() {
@@ -16,14 +17,30 @@ fn main() {
         Cage { cells: vec![(7, 4), (7, 5)], target: 9, exclusive: false },
         Cage { cells: vec![(8, 2), (8, 3), (8, 4), (8, 5)], target: 18, exclusive: false },
     ];
-    // TODO: xsums
+    let xsums = vec![
+        XSum { direction: XSumDirection::RR, index: 2, target: 14 },
+        XSum { direction: XSumDirection::RR, index: 5, target: 16 },
+        XSum { direction: XSumDirection::RR, index: 8, target: 18 },
+        XSum { direction: XSumDirection::CD, index: 2, target: 15 },
+        XSum { direction: XSumDirection::CD, index: 5, target: 20 },
+        XSum { direction: XSumDirection::CD, index: 8, target: 16 },
+        XSum { direction: XSumDirection::RL, index: 3, target: 19 },
+        XSum { direction: XSumDirection::RL, index: 7, target: 9 },
+        XSum { direction: XSumDirection::CU, index: 3, target: 12 },
+        XSum { direction: XSumDirection::CU, index: 7, target: 15 },
+    ];
     let sudoku_constraint = nine_standard_checker();
     let cage_constraint = CageChecker::new(cages.clone());
-    let constraint = ConstraintConjunction::new(sudoku_constraint, cage_constraint);
+    let xsum_constraint = XSumChecker::new(xsums.clone());
+    let constraint = ConstraintConjunction::new(
+        sudoku_constraint,
+        ConstraintConjunction::new(cage_constraint, xsum_constraint),);
     let cage_strategy = CagePartialStrategy { cages: cages.clone() };
+    let xsum_strategy = XSumPartialStrategy { xsums: xsums.clone() };
     let strategy = CompositeStrategy::new(
         FirstEmptyStrategy {},
         vec![
+            &xsum_strategy,
             &cage_strategy,
         ],
     );
