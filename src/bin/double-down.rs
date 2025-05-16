@@ -1,7 +1,7 @@
-use dfs_puzzle::dfs::{CompositeStrategy, ConstraintConjunction, FindFirstSolution};
-use dfs_puzzle::sudoku::{nine_standard_checker, FirstEmptyStrategy, Sudoku};
-use dfs_puzzle::cages::{Cage, CageChecker, CagePartialStrategy};
-use dfs_puzzle::xsums::{XSum, XSumDirection, XSumChecker, XSumPartialStrategy};
+use variant_sudoku_dfs::dfs::{CompositeStrategy, ConstraintConjunction, FindFirstSolution};
+use variant_sudoku_dfs::sudoku::{nine_standard_checker, FirstEmptyStrategy, Sudoku};
+use variant_sudoku_dfs::cages::{Cage, CageChecker, CagePartialStrategy};
+use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSumPartialStrategy};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 fn main() {

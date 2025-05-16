@@ -1,3 +1,4 @@
+use crate::core::PuzzleError;
 use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
 use crate::sudoku::{Sudoku, SudokuAction};
 
@@ -71,7 +72,7 @@ pub struct CagePartialStrategy {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for CagePartialStrategy {
-    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, crate::dfs::PuzzleError> {
+    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, PuzzleError> {
         for cage in &self.cages {
             let mut sum = 0;
             let mut first_empty: Option<(usize, usize)> = None;

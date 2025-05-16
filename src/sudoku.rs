@@ -1,5 +1,6 @@
 use std::fmt::Display;
-use crate::dfs::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail, PuzzleError, PuzzleState, Strategy};
+use crate::core::{PuzzleError, PuzzleState};
+use crate::dfs::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail, Strategy};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SudokuAction<const MIN: u8 = 1, const MAX: u8 = 9> {

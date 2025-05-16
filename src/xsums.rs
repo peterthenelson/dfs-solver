@@ -1,3 +1,4 @@
+use crate::core::PuzzleError;
 use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
 use crate::sudoku::{Sudoku, SudokuAction};
 
@@ -187,7 +188,7 @@ pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, con
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
-    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, crate::dfs::PuzzleError> {
+    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, PuzzleError> {
         for xsum in &self.xsums {
             match xsum.length(puzzle) {
                 Some(len_cell) => {
