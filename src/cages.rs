@@ -1,10 +1,13 @@
-use crate::core::PuzzleError;
-use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
-use crate::sudoku::{Sudoku, SudokuAction};
+use bit_set::BitSet;
+
+use crate::puzzle::{PuzzleError, PuzzleIndex, PuzzleState, PuzzleValue};
+use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
+use crate::strategy::PartialStrategy;
+use crate::sudoku::{SState, SVal};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
-    pub cells: Vec<(usize, usize)>,
+    pub cells: Vec<[usize; 2]>,
     pub target: u8,
     pub exclusive: bool,
 }
@@ -20,28 +23,28 @@ impl CageChecker {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for CageChecker {
-    fn check(&self, puzzle: &Sudoku<N, M, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+Constraint<2, u8, SState<N, M, MIN, MAX>> for CageChecker {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult<2> {
         let mut violations = Vec::new();
         for cage in self.cages.iter() {
             let mut has_empty = false;
             let mut sum = 0;
-            let mut sum_highlight: Vec<SudokuAction<MIN, MAX>> = Vec::new();
-            let mut seen = vec![false; (MAX - MIN + 1) as usize];
-            let mut seen_highlight: Vec<SudokuAction<MIN, MAX>> = Vec::new();
+            let mut sum_highlight: Vec<PuzzleIndex<2>> = Vec::new();
+            let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality());
+            let mut seen_highlight: Vec<PuzzleIndex<2>> = Vec::new();
             for cell in &cage.cells {
-                if let Some(value) = puzzle.grid[cell.0][cell.1] {
-                    sum += value;
-                    if cage.exclusive && seen[(value - MIN) as usize] {
+                if let Some(value) = puzzle.get(*cell) {
+                    sum += value.value();
+                    if cage.exclusive && seen.contains(value.to_uint() as usize) {
                         if details {
-                            seen_highlight.push(SudokuAction{ row: cell.0, col: cell.1, value });
+                            seen_highlight.push(cell.clone());
                         } else {
                             return ConstraintResult::Simple("Cage exclusivity violation");
                         }
                     }
-                    seen[(value - MIN) as usize] = true;
+                    seen.insert(value.to_uint() as usize);
                     if details {
-                        sum_highlight.push(SudokuAction{ row: cell.0, col: cell.1, value });
+                        sum_highlight.push(cell.clone());
                     }
                 } else {
                     has_empty = true;
@@ -71,19 +74,19 @@ pub struct CagePartialStrategy {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for CagePartialStrategy {
-    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, PuzzleError> {
+PartialStrategy<2, u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(PuzzleIndex<2>, Vec<SVal<MIN, MAX>>), PuzzleError> {
         for cage in &self.cages {
             let mut sum = 0;
-            let mut first_empty: Option<(usize, usize)> = None;
+            let mut first_empty: Option<[usize; 2]> = None;
             let mut n_empty = 0;
-            let mut seen = vec![false; (MAX - MIN + 1) as usize];
+            let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality());
             for cell in &cage.cells {
-                match puzzle.grid[cell.0][cell.1] {
+                match puzzle.get(*cell) {
                     Some(value) => {
-                        sum += value;
+                        sum += value.value();
                         if cage.exclusive {
-                            seen[(value - MIN) as usize] = true;
+                            seen.insert(value.to_uint() as usize);
                         }
                     },
                     None => {
@@ -98,25 +101,19 @@ PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for CagePartialS
                 let target = cage.target;
                 let remaining = target - sum;
                 if n_empty == 1 && MIN <= remaining && remaining <= MAX {
-                    return Ok(vec![SudokuAction {
-                        row: empty.0,
-                        col: empty.1,
-                        value: remaining,
-                    }]);
+                    return Ok((empty, vec![SVal::new(remaining)]));
                 }
-                return Ok((MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
-                    return match seen[(value - MIN) as usize] {
-                        true => None,
-                        false => Some(SudokuAction {
-                            row: empty.0,
-                            col: empty.1,
-                            value,
-                        }),
+                return Ok((empty, (MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
+                    let value = SVal::<MIN, MAX>::new(value);
+                    return if seen.contains(value.to_uint() as usize) {
+                        None
+                    } else {
+                        Some(value)
                     };
-                }).collect::<Vec<SudokuAction<MIN, MAX>>>());
+                }).collect::<Vec<SVal<MIN, MAX>>>()));
             }
         }
-        Ok(vec![])
+        Ok(([0, 0], vec![]))
     }
 }
 
@@ -128,16 +125,16 @@ mod tests {
     #[test]
     fn test_cage_checker() {
         // Cage 1 is satisfied (1 + 2 = 3).
-        let cage1 = Cage{ cells: vec![(0, 0), (0, 1)], target: 3, exclusive: true };
+        let cage1 = Cage{ cells: vec![[0, 0], [0, 1]], target: 3, exclusive: true };
         // Cage 2 is a failure (3 + 4 != 5).
-        let cage2 = Cage{ cells: vec![(1, 2), (1, 3)], target: 5, exclusive: true };
+        let cage2 = Cage{ cells: vec![[1, 2], [1, 3]], target: 5, exclusive: true };
         // Cage 3 is a failure even though it's incomplete (4 > 3).
-        let cage3 = Cage{ cells: vec![(2, 0), (2, 1)], target: 3, exclusive: true };
+        let cage3 = Cage{ cells: vec![[2, 0], [2, 1]], target: 3, exclusive: true };
         // Cage 4 has no violations because it's incomplete and not over target.
-        let cage4 = Cage{ cells: vec![(3, 2), (3, 3)], target: 4, exclusive: true };
+        let cage4 = Cage{ cells: vec![[3, 2], [3, 3]], target: 4, exclusive: true };
 
         let cage_checker = CageChecker::new(vec![cage1, cage2, cage3, cage4]);
-        let puzzle = Sudoku::<4, 4, 1, 4>::parse(
+        let puzzle = SState::<4, 4, 1, 4>::parse(
             "12..\n\
              ..34\n\
              4...\n\
@@ -148,16 +145,11 @@ mod tests {
         assert_eq!(result, ConstraintResult::Details(vec![
             ConstraintViolationDetail {
                 message: "Cage violation: expected sum 5 but got 7".to_string(),
-                highlight: Some(vec![
-                    SudokuAction { row: 1, col: 2, value: 3 },
-                    SudokuAction { row: 1, col: 3, value: 4 },
-                ]),
+                highlight: Some(vec![[1, 2], [1, 3]]),
             },
             ConstraintViolationDetail {
                 message: "Cage violation: expected sum 3 but got 4".to_string(),
-                highlight: Some(vec![
-                    SudokuAction { row: 2, col: 0, value: 4 },
-                ]),
+                highlight: Some(vec![[2, 0]]),
             },
         ]));
     }
@@ -165,9 +157,9 @@ mod tests {
     #[test]
     fn test_cage_partial_strategy_exclusive() {
         let cage_strategy = CagePartialStrategy {
-            cages: vec![Cage { cells: vec![(0, 0), (0, 1), (0, 2)], target: 7, exclusive: true }],
+            cages: vec![Cage { cells: vec![[0, 0], [0, 1], [0, 2]], target: 7, exclusive: true }],
         };
-        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+        let puzzle = SState::<6, 6, 1, 6>::parse(
             "..4...\n\
              ......\n\
              ......\n\
@@ -175,20 +167,17 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        let actions = cage_strategy.suggest(&puzzle).unwrap();
-        assert_eq!(actions, vec![
-            SudokuAction { row: 0, col: 0, value: 1 },
-            SudokuAction { row: 0, col: 0, value: 2 },
-            SudokuAction { row: 0, col: 0, value: 3 },
-        ]);
+        let (index, actions) = cage_strategy.suggest_partial(&puzzle).unwrap();
+        assert_eq!(index, [0, 0]);
+        assert_eq!(actions, vec![SVal::new(1), SVal::new(2), SVal::new(3)]);
     }
 
     #[test]
     fn test_cage_partial_strategy_nonexclusive() {
         let cage_strategy = CagePartialStrategy {
-            cages: vec![Cage { cells: vec![(0, 0), (0, 1), (1, 0)], target: 7, exclusive: false }],
+            cages: vec![Cage { cells: vec![[0, 0], [0, 1], [1, 0]], target: 7, exclusive: false }],
         };
-        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+        let puzzle = SState::<6, 6, 1, 6>::parse(
             "......\n\
              2.....\n\
              ......\n\
@@ -196,22 +185,17 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        let actions = cage_strategy.suggest(&puzzle).unwrap();
-        assert_eq!(actions, vec![
-            SudokuAction { row: 0, col: 0, value: 1 },
-            SudokuAction { row: 0, col: 0, value: 2 },
-            SudokuAction { row: 0, col: 0, value: 3 },
-            SudokuAction { row: 0, col: 0, value: 4 },
-            SudokuAction { row: 0, col: 0, value: 5 },
-        ]);
+        let (index, actions) = cage_strategy.suggest_partial(&puzzle).unwrap();
+        assert_eq!(index, [0, 0]);
+        assert_eq!(actions, (1..=5).map(SVal::new).collect::<Vec<SVal<1, 6>>>());
     }
 
     #[test]
     fn test_cage_partial_strategy_last_digit() {
         let cage_strategy = CagePartialStrategy {
-            cages: vec![Cage { cells: vec![(0, 0), (0, 1)], target: 6, exclusive: true }],
+            cages: vec![Cage { cells: vec![[0, 0], [0, 1]], target: 6, exclusive: true }],
         };
-        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+        let puzzle = SState::<6, 6, 1, 6>::parse(
             "2.....\n\
              ......\n\
              ......\n\
@@ -219,9 +203,8 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        let actions = cage_strategy.suggest(&puzzle).unwrap();
-        assert_eq!(actions, vec![
-            SudokuAction { row: 0, col: 1, value: 4 },
-        ]);
+        let (index, actions) = cage_strategy.suggest_partial(&puzzle).unwrap();
+        assert_eq!(index, [0, 1]);
+        assert_eq!(actions, vec![SVal::new(4)]);
     }
 }

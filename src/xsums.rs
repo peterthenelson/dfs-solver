@@ -1,6 +1,7 @@
-use crate::core::PuzzleError;
-use crate::dfs::{Constraint, ConstraintResult, ConstraintViolationDetail, PartialStrategy};
-use crate::sudoku::{Sudoku, SudokuAction};
+use crate::puzzle::{PuzzleError, PuzzleIndex, PuzzleState};
+use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
+use crate::strategy::PartialStrategy;
+use crate::sudoku::{SState, SVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum XSumDirection {
@@ -36,13 +37,13 @@ impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumIter
 }
 
 impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator for XSumIter<'a, MIN, MAX, N, M> {
-    type Item = (usize, usize);
+    type Item = PuzzleIndex<2>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.r < 0 || self.c < 0 {
             return None;
         }
-        let ret = Some((self.r as usize, self.c as usize));
+        let ret = Some([self.r as usize, self.c as usize]);
         match self.xsum.direction {
             XSumDirection::RR => {
                 if self.c > self.lim {
@@ -81,37 +82,37 @@ impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MAX, N, M> {
-    pub fn length(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Option<SudokuAction<MIN, MAX>> {
+    pub fn length(&self, puzzle: &SState<N, M, MIN, MAX>) -> Option<(PuzzleIndex<2>, SVal<MIN, MAX>)> {
         match self.direction {
-            XSumDirection::RR => if let Some(v) = puzzle.grid[self.index][0] {
-                Some(SudokuAction { row: self.index, col: 0, value: v })
+            XSumDirection::RR => if let Some(v) = puzzle.get([self.index, 0]) {
+                Some(([self.index, 0], v))
             } else {
                 None
             },
-            XSumDirection::RL => if let Some(v) = puzzle.grid[self.index][M - 1] {
-                Some(SudokuAction { row: self.index, col: M - 1, value: v })
+            XSumDirection::RL => if let Some(v) = puzzle.get([self.index, M - 1]) {
+                Some(([self.index, M - 1], v))
             } else {
                 None
             },
-            XSumDirection::CD => if let Some(v) = puzzle.grid[0][self.index] {
-                Some(SudokuAction { row: 0, col: self.index, value: v })
+            XSumDirection::CD => if let Some(v) = puzzle.get([0, self.index]) {
+                Some(([0, self.index], v))
             } else {
                 None
             },
-            XSumDirection::CU => if let Some(v) = puzzle.grid[N - 1][self.index] {
-                Some(SudokuAction { row: N - 1, col: self.index, value: v })
+            XSumDirection::CU => if let Some(v) = puzzle.get([N - 1, self.index]) {
+                Some(([N - 1, self.index], v))
             } else {
                 None
             },
         }
     }
 
-    pub fn set_length_action(&self, v: u8) -> SudokuAction<MIN, MAX> {
+    pub fn length_index(&self) -> PuzzleIndex<2> {
         match self.direction {
-            XSumDirection::RR => SudokuAction { row: self.index, col: 0, value: v },
-            XSumDirection::RL => SudokuAction { row: self.index, col: M - 1, value: v },
-            XSumDirection::CD => SudokuAction { row: 0, col: self.index, value: v },
-            XSumDirection::CU => SudokuAction { row: N - 1, col: self.index, value: v },
+            XSumDirection::RR => [self.index, 0],
+            XSumDirection::RL => [self.index, M - 1],
+            XSumDirection::CD => [0, self.index],
+            XSumDirection::CU => [N - 1, self.index],
         }
     }
 
@@ -140,23 +141,22 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &Sudoku<N, M, MIN, MAX>, details: bool) -> ConstraintResult<SudokuAction<MIN, MAX>> {
+Constraint<2, u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult<2> {
         let mut violations = Vec::new();
         for xsum in self.xsums.iter() {
-            if let Some(len_cell) = xsum.length(puzzle) {
-                let len = len_cell.value;
-                let mut sum = len;
+            if let Some((len_index, len)) = xsum.length(puzzle) {
+                let mut sum = len.value();
                 let mut sum_highlight = Vec::new();
                 let mut has_empty = false;
                 if details {
-                    sum_highlight.push(len_cell);
+                    sum_highlight.push(len_index);
                 }
-                for (r, c) in xsum.xrange(len) {
-                    if let Some(v) = puzzle.grid[r][c] {
-                        sum += v;
+                for [r, c] in xsum.xrange(len.value()) {
+                    if let Some(v) = puzzle.get([r, c]) {
+                        sum += v.value();
                         if details {
-                            sum_highlight.push(SudokuAction { row: r, col: c, value: v });
+                            sum_highlight.push([r, c]);
                         }
                     } else {
                         has_empty = true;
@@ -187,20 +187,20 @@ pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, con
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
-    fn suggest(&self, puzzle: &Sudoku<N, M, MIN, MAX>) -> Result<Vec<SudokuAction<MIN, MAX>>, PuzzleError> {
+PartialStrategy<2, u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(PuzzleIndex<2>, Vec<SVal<MIN, MAX>>), PuzzleError> {
         for xsum in &self.xsums {
             match xsum.length(puzzle) {
-                Some(len_cell) => {
-                    let mut sum = len_cell.value;
-                    let mut first_empty: Option<(usize, usize)> = None;
+                Some((_, len)) => {
+                    let mut sum = len.value();
+                    let mut first_empty: Option<[usize; 2]> = None;
                     let mut n_empty = 0;
-                    for (r, c) in xsum.xrange(len_cell.value) {
-                        match puzzle.grid[r][c] {
-                            Some(v) => sum += v,
+                    for [r, c] in xsum.xrange(len.value()) {
+                        match puzzle.get([r, c]) {
+                            Some(v) => sum += v.value(),
                             None => {
                                 if first_empty.is_none() {
-                                    first_empty = Some((r, c));
+                                    first_empty = Some([r, c]);
                                 }
                                 n_empty += 1;
                             }
@@ -209,13 +209,13 @@ PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumPartialS
                     if let Some(empty) = first_empty {
                         let target = xsum.target - sum;
                         if n_empty == 1 && MIN <= target && target <= MAX {
-                            return Ok(vec![SudokuAction { row: empty.0, col: empty.1, value: target }]);
+                            return Ok((empty, vec![SVal::new(target)]));
                         }
                         let mut suggestions = Vec::new();
                         for v in MIN..=std::cmp::min(std::cmp::min(target, MAX), (M + 1) as u8) {
-                            suggestions.push(SudokuAction { row: empty.0, col: empty.1, value: v });
+                            suggestions.push(SVal::new(v));
                         }
-                        return Ok(suggestions);
+                        return Ok((empty, suggestions));
                     }
                 },
                 None => {
@@ -229,13 +229,13 @@ PartialStrategy<SudokuAction<MIN, MAX>, Sudoku<N, M, MIN, MAX>> for XSumPartialS
                             std::cmp::min(N as u8, MAX)),
                     };
                     for v in MIN..=max {
-                        suggestions.push(xsum.set_length_action(v));
+                        suggestions.push(SVal::new(v));
                     }
-                    return Ok(suggestions);
+                    return Ok((xsum.length_index(), suggestions));
                 },
             }
         }
-        return Ok(vec![]);
+        return Ok(([0, 0], vec![]));
     }
 }
 
@@ -250,17 +250,17 @@ mod tests {
         let x2 = XSum { direction: XSumDirection::RL, index: 0, target: 5 };
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
-        let puzzle1 = Sudoku::<4, 4, 1, 4>::parse(
+        let puzzle1 = SState::<4, 4, 1, 4>::parse(
             "2..3\n\
              ....\n\
              ....\n\
              4...\n"
         ).unwrap();
-        assert_eq!(x1.length(&puzzle1).unwrap(), SudokuAction { row: 0, col: 0, value: 2 });
-        assert_eq!(x2.length(&puzzle1).unwrap(), SudokuAction { row: 0, col: 3, value: 3 });
-        assert_eq!(x3.length(&puzzle1).unwrap(), SudokuAction { row: 0, col: 0, value: 2 });
-        assert_eq!(x4.length(&puzzle1).unwrap(), SudokuAction { row: 3, col: 0, value: 4 });
-        let puzzle2 = Sudoku::<4, 4, 1, 4>::parse(
+        assert_eq!(x1.length(&puzzle1).unwrap(), ([0, 0], SVal::new(2)));
+        assert_eq!(x2.length(&puzzle1).unwrap(), ([0, 3], SVal::new(3)));
+        assert_eq!(x3.length(&puzzle1).unwrap(), ([0, 0], SVal::new(2)));
+        assert_eq!(x4.length(&puzzle1).unwrap(), ([3, 0], SVal::new(4)));
+        let puzzle2 = SState::<4, 4, 1, 4>::parse(
             "....\n\
              .21.\n\
              .43.\n\
@@ -283,10 +283,10 @@ mod tests {
         // ....
         // ....
         // 4...
-        assert_eq!(x1.xrange(2).collect::<Vec<_>>(), vec![(0, 1)]);
-        assert_eq!(x2.xrange(3).collect::<Vec<_>>(), vec![(0, 2), (0, 1)]);
-        assert_eq!(x3.xrange(2).collect::<Vec<_>>(), vec![(1, 0)]);
-        assert_eq!(x4.xrange(4).collect::<Vec<_>>(), vec![(2, 0), (1, 0), (0, 0)]);
+        assert_eq!(x1.xrange(2).collect::<Vec<_>>(), vec![[0, 1]]);
+        assert_eq!(x2.xrange(3).collect::<Vec<_>>(), vec![[0, 2], [0, 1]]);
+        assert_eq!(x3.xrange(2).collect::<Vec<_>>(), vec![[1, 0]]);
+        assert_eq!(x4.xrange(4).collect::<Vec<_>>(), vec![[2, 0], [1, 0], [0, 0]]);
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
         let x5 = XSum{ direction: XSumDirection::RR, index: 3, target: 1 };
 
         let xsum_checker = XSumChecker::new(vec![x1, x2, x3, x4, x5]);
-        let puzzle = Sudoku::<4, 4, 1, 4>::parse(
+        let puzzle = SState::<4, 4, 1, 4>::parse(
             "2134\n\
              ..4.\n\
              432.\n\
@@ -314,19 +314,11 @@ mod tests {
         assert_eq!(result, ConstraintResult::Details(vec![
             ConstraintViolationDetail {
                 message: "X sum violation: expected sum 10 but got 9".to_string(),
-                highlight: Some(vec![
-                    SudokuAction { row: 0, col: 2, value: 3 },
-                    SudokuAction { row: 1, col: 2, value: 4 },
-                    SudokuAction { row: 2, col: 2, value: 2 },
-                ]),
+                highlight: Some(vec![[0, 2], [1, 2], [2, 2]]),
             },
             ConstraintViolationDetail {
                 message: "X sum violation: expected sum 5 but got 9".to_string(),
-                highlight: Some(vec![
-                    SudokuAction { row: 2, col: 0, value: 4 },
-                    SudokuAction { row: 2, col: 1, value: 3 },
-                    SudokuAction { row: 2, col: 2, value: 2 },
-                ]),
+                highlight: Some(vec![[2, 0], [2, 1], [2, 2]]),
             },
         ]));
     }
@@ -345,7 +337,7 @@ mod tests {
         let x5 = XSum{ direction: XSumDirection::RL, index: 0, target: 1 };
 
         let xsum_checker = XSumChecker::new(vec![x1, x2, x3, x4, x5]);
-        let puzzle = Sudoku::<4, 4, 1, 4>::parse(
+        let puzzle = SState::<4, 4, 1, 4>::parse(
             "....\n\
              .234\n\
              .4..\n\
@@ -356,19 +348,11 @@ mod tests {
         assert_eq!(result, ConstraintResult::Details(vec![
             ConstraintViolationDetail {
                 message: "X sum violation: expected sum 10 but got 9".to_string(),
-                highlight: Some(vec![
-                    SudokuAction { row: 3, col: 1, value: 3 },
-                    SudokuAction { row: 2, col: 1, value: 4 },
-                    SudokuAction { row: 1, col: 1, value: 2 },
-                ]),
+                highlight: Some(vec![[3, 1], [2, 1], [1, 1]]),
             },
             ConstraintViolationDetail {
                 message: "X sum violation: expected sum 5 but got 9".to_string(),
-                highlight: Some(vec![
-                    SudokuAction { row: 1, col: 3, value: 4 },
-                    SudokuAction { row: 1, col: 2, value: 3 },
-                    SudokuAction { row: 1, col: 1, value: 2 },
-                ]),
+                highlight: Some(vec![[1, 3], [1, 2], [1, 1]]),
             },
         ]));
     }
@@ -397,7 +381,7 @@ mod tests {
                 XSum { direction: XSumDirection::CU, index: 1, target: 7 },
             ],
         };
-        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+        let puzzle = SState::<6, 6, 1, 6>::parse(
             "......\n\
              .2....\n\
              .3....\n\
@@ -405,32 +389,46 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        assert_eq!(xsum_strategy1.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 0, value: 1 },
-            SudokuAction { row: 1, col: 0, value: 2 },
-            SudokuAction { row: 1, col: 0, value: 3 },
-        ]);
-        assert_eq!(xsum_strategy2.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 5, value: 1 },
-            SudokuAction { row: 1, col: 5, value: 2 },
-            SudokuAction { row: 1, col: 5, value: 3 },
-            SudokuAction { row: 1, col: 5, value: 4 },
-        ]);
-        assert_eq!(xsum_strategy3.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 0, col: 1, value: 1 },
-            SudokuAction { row: 0, col: 1, value: 2 },
-            SudokuAction { row: 0, col: 1, value: 3 },
-            SudokuAction { row: 0, col: 1, value: 4 },
-            SudokuAction { row: 0, col: 1, value: 5 },
-        ]);
-        assert_eq!(xsum_strategy4.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 5, col: 1, value: 1 },
-            SudokuAction { row: 5, col: 1, value: 2 },
-            SudokuAction { row: 5, col: 1, value: 3 },
-            SudokuAction { row: 5, col: 1, value: 4 },
-            SudokuAction { row: 5, col: 1, value: 5 },
-            SudokuAction { row: 5, col: 1, value: 6 },
-        ]);
+        assert_eq!(xsum_strategy1.suggest_partial(&puzzle).unwrap(), (
+            [1, 0],
+            vec![
+                SVal::new(1),
+                SVal::new(2),
+                SVal::new(3),
+            ],
+
+        ));
+        assert_eq!(xsum_strategy2.suggest_partial(&puzzle).unwrap(), (
+            [1, 5],
+            vec![
+                SVal::new(1),
+                SVal::new(2),
+                SVal::new(3),
+                SVal::new(4),
+            ],
+
+        ));
+        assert_eq!(xsum_strategy3.suggest_partial(&puzzle).unwrap(), (
+            [0, 1],
+            vec![
+                SVal::new(1),
+                SVal::new(2),
+                SVal::new(3),
+                SVal::new(4),
+                SVal::new(5),
+            ],
+        ));
+        assert_eq!(xsum_strategy4.suggest_partial(&puzzle).unwrap(), (
+            [5, 1],
+            vec![
+                SVal::new(1),
+                SVal::new(2),
+                SVal::new(3),
+                SVal::new(4),
+                SVal::new(5),
+                SVal::new(6),
+            ],
+        ));
     }
 
     #[test]
@@ -457,7 +455,7 @@ mod tests {
                 XSum { direction: XSumDirection::CU, index: 4, target: 10 },
             ],
         };
-        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+        let puzzle = SState::<6, 6, 1, 6>::parse(
             ".2....\n\
              2.....\n\
              ....23\n\
@@ -465,18 +463,18 @@ mod tests {
              ....3.\n\
              ....4.\n"
         ).unwrap();
-        assert_eq!(xsum_strategy1.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 1, value: 1 },
-        ]);
-        assert_eq!(xsum_strategy2.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 1, value: 1 },
-        ]);
-        assert_eq!(xsum_strategy3.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 2, col: 3, value: 4 },
-        ]);
-        assert_eq!(xsum_strategy4.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 3, col: 4, value: 1 },
-        ]);
+        assert_eq!(xsum_strategy1.suggest_partial(&puzzle).unwrap(), (
+            [1, 1], vec![SVal::new(1)],
+        ));
+        assert_eq!(xsum_strategy2.suggest_partial(&puzzle).unwrap(), (
+            [1, 1], vec![SVal::new(1)],
+        ));
+        assert_eq!(xsum_strategy3.suggest_partial(&puzzle).unwrap(), (
+            [2, 3], vec![SVal::new(4)],
+        ));
+        assert_eq!(xsum_strategy4.suggest_partial(&puzzle).unwrap(), (
+            [3, 4], vec![SVal::new(1)],
+        ));
     }
 
     #[test]
@@ -503,7 +501,7 @@ mod tests {
                 XSum { direction: XSumDirection::CU, index: 4, target: 12 },
             ],
         };
-        let puzzle = Sudoku::<6, 6, 1, 6>::parse(
+        let puzzle = SState::<6, 6, 1, 6>::parse(
             ".4....\n\
              4....3\n\
              ......\n\
@@ -511,26 +509,24 @@ mod tests {
              ......\n\
              ....3.\n"
         ).unwrap();
-        assert_eq!(xsum_strategy1.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 1, value: 1 },
-        ]);
-        assert_eq!(xsum_strategy2.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 1, value: 1 },
-            SudokuAction { row: 1, col: 1, value: 2 },
-        ]);
-        assert_eq!(xsum_strategy3.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 1, col: 4, value: 1 },
-            SudokuAction { row: 1, col: 4, value: 2 },
-            SudokuAction { row: 1, col: 4, value: 3 },
-            SudokuAction { row: 1, col: 4, value: 4 },
-        ]);
-        assert_eq!(xsum_strategy4.suggest(&puzzle).unwrap(), vec![
-            SudokuAction { row: 4, col: 4, value: 1 },
-            SudokuAction { row: 4, col: 4, value: 2 },
-            SudokuAction { row: 4, col: 4, value: 3 },
-            SudokuAction { row: 4, col: 4, value: 4 },
-            SudokuAction { row: 4, col: 4, value: 5 },
-            SudokuAction { row: 4, col: 4, value: 6 },
-        ]);
+        assert_eq!(xsum_strategy1.suggest_partial(&puzzle).unwrap(), (
+            [1, 1], vec![SVal::new(1)],
+        ));
+        assert_eq!(xsum_strategy2.suggest_partial(&puzzle).unwrap(), (
+            [1, 1], vec![SVal::new(1), SVal::new(2)],
+        ));
+        assert_eq!(xsum_strategy3.suggest_partial(&puzzle).unwrap(), (
+            [1, 4], vec![SVal::new(1), SVal::new(2), SVal::new(3), SVal::new(4)],
+        ));
+        assert_eq!(xsum_strategy4.suggest_partial(&puzzle).unwrap(), (
+            [4, 4], vec![
+                SVal::new(1),
+                SVal::new(2),
+                SVal::new(3),
+                SVal::new(4),
+                SVal::new(5),
+                SVal::new(6),
+            ],
+        ));
     }
 }
