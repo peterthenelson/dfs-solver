@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::core::{empty_set, to_value, Error, Grid, Index, State, UVal, UValUnwrapped, UValWrapped, Value};
+use crate::core::{empty_set, to_value, Error, Index, State, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{Strategy};
 
@@ -44,16 +44,16 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
 /// Standard rectangular Sudoku grid.
 #[derive(Debug, Clone)]
 pub struct SState<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
-    grid: Grid<u8, N, M>,
+    grid: UVGrid<u8>,
 } 
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M, MIN, MAX> {
     pub fn new() -> Self {
-        Self { grid: Grid::new() }
+        Self { grid: UVGrid::new(N, M) }
     }
 
     pub fn parse(s: &str) -> Result<Self, Error> {
-        let mut grid = Grid::new();
+        let mut grid = UVGrid::new(N, M);
         let lines: Vec<&str> = s.lines().collect();
         if lines.len() != N {
             return Err(Error::new("Invalid number of rows".to_string()));
@@ -136,7 +136,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> fo
     const COLS: usize = M;
 
     fn reset(&mut self) {
-        self.grid = Grid::new();
+        self.grid = UVGrid::new(N, M);
     }
 
     fn get(&self, index: Index) -> Option<Self::Value> {

@@ -97,7 +97,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P> {
 mod tests {
     use super::*;
     use std::vec;
-    use crate::core::{to_value, Error, Grid, State, Value, UVal, UValUnwrapped, UValWrapped};
+    use crate::core::{to_value, Error, State, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
@@ -110,13 +110,13 @@ mod tests {
 
     #[derive(Debug, Clone)]
     pub struct ThreeVals {
-        pub grid: Grid<u8, 1, 3>,
+        pub grid: UVGrid<u8>,
     }
     impl State<u8> for ThreeVals {
         type Value = Val;
         const ROWS: usize = 1;
         const COLS: usize = 3;
-        fn reset(&mut self) { self.grid = Grid::new(); }
+        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
         fn get(&self, index: Index) -> Option<Self::Value> { self.grid.get(index).map(to_value) }
         fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
             self.grid.set(index, Some(value.to_uval()));
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_composite_strategy() {
-        let mut puzzle = ThreeVals { grid: Grid::new() };
+        let mut puzzle = ThreeVals { grid: UVGrid::new(ThreeVals::ROWS, ThreeVals::COLS) };
         let partial = HardcodedSuggest(2, 2);
         let strategy= CompositeStrategy::new(
             FirstEmptyStrategy {},

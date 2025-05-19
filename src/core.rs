@@ -93,28 +93,41 @@ pub trait Value<U: UInt>: Copy + Clone + Debug + PartialEq + Eq {
 
 /// This is the underlying grid structure for a puzzle.
 #[derive(Debug, Clone)]
-pub struct Grid<U: UInt, const N: usize, const M: usize> {
-    grid: [[Option<U>; M]; N],
+pub struct UVGrid<U: UInt> {
+    rows: usize,
+    cols: usize,
+    grid: Box<[Option<U>]>,
 }
 
-impl<U: UInt, const N: usize, const M: usize> Grid<U, N, M> {
-    pub fn new() -> Self {
+impl<U: UInt> UVGrid<U> {
+    pub fn new(rows: usize, cols: usize) -> Self {
         Self {
-            grid: [[None; M]; N],
+            rows,
+            cols,
+            grid: vec![None; rows * cols].into_boxed_slice(),
         }
     }
 
     pub fn get(&self, index: Index) -> Option<UVal<U, UValWrapped>> {
-        self.grid[index[0]][index[1]].map(|v| UVal::new(v))
+        self.grid[index[0] * self.cols + index[1]].map(|v| UVal::new(v))
     }
 
     pub fn set(&mut self, index: Index, value: Option<UVal<U, UValWrapped>>) {
-        self.grid[index[0]][index[1]] = value.map(|v| v.unwrap().value());
+        self.grid[index[0] * self.cols + index[1]] = value.map(|v| v.unwrap().value());
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn cols(&self) -> usize {
+        self.cols
     }
 }
 
 /// This a set of values (e.g., that are possible, that have been seen, etc.).
 /// They are represented as a bitset of the possible values.
+#[derive(Debug, Clone)]
 pub struct Set<U: UInt> {
     s: BitSet,
     _p_u: PhantomData<U>,
@@ -169,6 +182,43 @@ impl <U: UInt> Set<U> {
 
     pub fn union_with(&mut self, other: &Set<U>) {
         self.s.union_with(&other.s);
+    }
+}
+
+/// This is a grid of Sets of values. It is used to represent the
+/// not-yet-ruled-out values for each cell in the grid.
+#[derive(Debug, Clone)]
+pub struct SetGrid<U: UInt, V: Value<U>> {
+    rows: usize,
+    cols: usize,
+    grid: Box<[Set<U>]>,
+    _p_v: PhantomData<V>,
+}
+
+impl<U: UInt, V: Value<U>> SetGrid<U, V> {
+    pub fn new(rows: usize, cols: usize) -> Self {
+        Self {
+            rows,
+            cols,
+            grid: vec![empty_set::<U, V>(); rows * cols].into_boxed_slice(),
+            _p_v: PhantomData,
+        }
+    }
+
+    pub fn get(&self, index: Index) -> &Set<U> {
+        &self.grid[index[0] * self.cols + index[1]]
+    }
+
+    pub fn get_mut(&mut self, index: Index) -> &mut Set<U> {
+        self.grid.get_mut(index[0] * self.cols + index[1]).unwrap()
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn cols(&self) -> usize {
+        self.cols
     }
 }
 

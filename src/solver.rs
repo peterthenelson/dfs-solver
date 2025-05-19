@@ -230,7 +230,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
 #[cfg(test)]
 mod test {
     use crate::constraint::ConstraintViolationDetail;
-    use crate::core::{to_value, Grid, UVal, UValUnwrapped, UValWrapped, Value};
+    use crate::core::{to_value, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
     use crate::strategy::{CompositeStrategy, PartialStrategy};
     use super::*;
 
@@ -245,13 +245,13 @@ mod test {
 
     #[derive(Clone, Debug)]
     struct GwLine {
-        digits: Grid<u8, 1, 8>,
+        digits: UVGrid<u8>,
     }
 
     impl GwLine {
         pub fn new() -> Self {
             GwLine {
-                digits: Grid::<u8, 1, 8>::new()
+                digits: UVGrid::<u8>::new(Self::ROWS, Self::COLS),
             }
         }
     }
@@ -275,7 +275,7 @@ mod test {
         const COLS: usize = 8;
 
         fn reset(&mut self) {
-            self.digits = Grid::<u8, 1, 8>::new();
+            self.digits = UVGrid::<u8>::new(Self::ROWS, Self::COLS);
         }
 
         fn get(&self, index: Index) -> Option<Self::Value> {
