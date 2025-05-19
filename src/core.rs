@@ -178,6 +178,23 @@ pub fn to_value<U: UInt, V: Value<U>>(u: UVal<U, UValWrapped>) -> V {
     V::from_uval(u.unwrap())
 }
 
+/// The puzzle itself as well as other components can be stateful (i.e., they
+/// respond to changes in the grid). The trait provides a default do-nothing
+/// implementation so that non-stateful components that are required to be
+/// stateful for some reason can be trivially stateful.
+pub trait Stateful<U: UInt, V: Value<U>>: {
+    fn reset(&mut self) {}
+    fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
+        let _ = index;
+        let _ = value;
+        Ok(())
+    }
+    fn undo(&mut self, index: Index) -> Result<(), Error> {
+        let _ = index;
+        Ok(())
+    }
+}
+
 /// Trait for representing whatever puzzle is being solved in its current state
 /// of being (partially) filled in. Ultimately this is just wrapping a Grid, but
 /// it may impose additional meanings on the values of the grid.
@@ -185,9 +202,10 @@ pub trait State<U: UInt>: Clone + Debug {
     type Value: Value<U>;
     const ROWS: usize;
     const COLS: usize;
-
     fn reset(&mut self);
     fn get(&self, index: Index) -> Option<Self::Value>;
     fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error>;
     fn undo(&mut self, index: Index) -> Result<(), Error>;
 }
+
+impl <U: UInt, S: State<U>> Stateful<U, S::Value> for S {}
