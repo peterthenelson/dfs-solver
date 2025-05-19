@@ -125,7 +125,7 @@ mod tests {
             self.grid.set(index, Some(value.to_uval()));
             Ok(())
         }
-        fn undo(&mut self, index: Index) -> Result<(), Error> {
+        fn undo(&mut self, index: Index, _: Self::Value) -> Result<(), Error> {
             self.grid.set(index, None);
             Ok(())
         }

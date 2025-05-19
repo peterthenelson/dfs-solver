@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::core::{empty_set, to_value, Error, Index, State, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::{Strategy};
+use crate::strategy::{DecisionPoint, Strategy};
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -129,6 +129,7 @@ for SState<N, M, MIN, MAX> {
 pub const OUT_OF_BOUNDS_ERROR: Error = Error::new_const("Out of bounds");
 pub const ALREADY_FILLED_ERROR: Error = Error::new_const("Cell already filled");
 pub const NO_SUCH_ACTION_ERROR: Error = Error::new_const("No such action to undo");
+pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> for SState<N, M, MIN, MAX> {
     type Value = SVal<MIN, MAX>;
@@ -157,19 +158,23 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> fo
         Ok(())
     }
 
-    fn undo(&mut self, index: Index) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
         if index[0] >= N || index[1] >= M {
             return Err(OUT_OF_BOUNDS_ERROR);
         }
-        if self.grid.get(index).is_none() {
-            return Err(NO_SUCH_ACTION_ERROR);
+        match self.grid.get(index) {
+            None => return Err(NO_SUCH_ACTION_ERROR),
+            Some(v) => {
+                if v != value.to_uval() {
+                    return Err(UNDO_MISMATCH);
+                }
+            }
         }
         self.grid.set(index, None);
         Ok(())
     }
 }
 
-// TODO: Don't use the grid directly; use the API.
 pub struct RowColChecker {}
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker {
     fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
@@ -336,22 +341,20 @@ pub struct FirstEmptyStrategy {}
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8, SState<N, M, MIN, MAX>> for FirstEmptyStrategy {
     type ActionSet = std::vec::IntoIter<SVal<MIN, MAX>>;
 
-    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(Index, Self::ActionSet), Error> {
+    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<DecisionPoint<u8, SState<N, M, MIN, MAX>, Self::ActionSet>, Error> {
         for i in 0..N {
             for j in 0..M {
                 if puzzle.get([i, j]).is_none() {
-                    return Ok(([i, j], (MIN..=MAX).map(|value| {
-                        SVal::new(value)
-                    }).collect::<Vec<_>>().into_iter()));
+                    return Ok(DecisionPoint::new(
+                        [i, j],
+                        (MIN..=MAX).map(|value| {
+                            SVal::new(value)
+                        }).collect::<Vec<_>>().into_iter()
+                    ));
                 }
             }
         }
-        let empty: Self::ActionSet = vec![].into_iter();
-        Ok(([0, 0], empty))
-    }
-
-    fn empty_action_set() -> Self::ActionSet {
-        vec![].into_iter()
+        Ok(DecisionPoint::empty())
     }
 }
 
@@ -366,7 +369,7 @@ mod test {
         assert_eq!(sudoku.apply([0, 0], SVal(5)), Ok(()));
         assert_eq!(sudoku.apply([8, 8], SVal(1)), Ok(()));
         assert_eq!(sudoku.get([0, 0]), Some(SVal(5)));
-        assert_eq!(sudoku.undo([0, 0]), Ok(()));
+        assert_eq!(sudoku.undo([0, 0], SVal(5)), Ok(()));
         assert_eq!(sudoku.get([0, 0]), None);
         assert_eq!(sudoku.get([8, 8]), Some(SVal(1)));
         sudoku.reset();
@@ -433,9 +436,9 @@ mod test {
         let strategy = FirstEmptyStrategy {};
         assert_eq!(sudoku.apply([0, 0], SVal(3)) , Ok(()));
         assert_eq!(sudoku.apply([1, 1], SVal(3)) , Ok(()));
-        let (index, actions) = strategy.suggest(&sudoku).unwrap();
-        assert_eq!(index, [0, 1]);
-        assert_eq!(actions.collect::<Vec<_>>(), (1..=9).map(|v| SVal(v)).collect::<Vec<_>>());
+        let d = strategy.suggest(&sudoku).unwrap();
+        assert_eq!(d.index, [0, 1]);
+        assert_eq!(d.into_vec(), (1..=9).map(|v| SVal(v)).collect::<Vec<_>>());
     }
 
     #[test]

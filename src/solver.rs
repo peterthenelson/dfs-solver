@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use crate::core::{Error, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintResult};
-use crate::strategy::Strategy;
+use crate::strategy::{DecisionPoint, Strategy};
 
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
@@ -33,7 +33,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     strategy: &'a S,
     constraint: &'a C,
     violation: ConstraintResult,
-    stack: Vec<(Index, <S as Strategy<U, P>>::ActionSet)>,
+    stack: Vec<DecisionPoint<U, P, S::ActionSet>>,
     state: DfsSolverState,
 }
 
@@ -61,7 +61,8 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     }
 }
 
-const PUZZLE_ALREADY_DONE: Error = Error::new_const(" already done");
+const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
+const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
  
 impl <'a, U, P, S, C> DfsSolver<'a, U, P, S, C>
 where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
@@ -80,12 +81,14 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
         }
     }
 
-    fn apply(&mut self, index: Index, value: P::Value, alternatives: S::ActionSet, details: bool) -> Result<(), Error> {
+    fn apply(&mut self, decision: DecisionPoint<U, P, S::ActionSet>, details: bool) -> Result<(), Error> {
         if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
+        } else if decision.chosen.is_none() {
+            return Err(NO_CHOICE);
         }
-        self.puzzle.apply(index, value)?;
-        self.stack.push((index, alternatives));
+        self.puzzle.apply(decision.index, decision.chosen.unwrap())?;
+        self.stack.push(decision);
         self.violation = self.constraint.check(self.puzzle, details);
         self.state = if self.violation.is_none() {
             DfsSolverState::Advancing
@@ -96,7 +99,11 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     }
 
     pub fn manual_step(&mut self, index: Index, value: P::Value, details: bool) -> Result<(), Error> {
-        self.apply(index, value, S::empty_action_set(), details)
+        self.apply(DecisionPoint {
+            chosen: Some(value),
+            index,
+            alternatives: S::ActionSet::default(),
+         }, details)
     }
 
     pub fn force_backtrack(&mut self) -> bool {
@@ -113,15 +120,12 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing => {
                 // Take a new action
-                let (index, mut next_actions) = self.strategy.suggest(self.puzzle)?;
-                match next_actions.next() {
-                    Some(action) => {
-                        self.apply(index, action, next_actions, details)?;
-                    }
-                    None => {
-                        self.state = DfsSolverState::Solved;
-                    }
-                };
+                let decision = self.strategy.suggest(self.puzzle)?;
+                if decision.chosen.is_some() {
+                    self.apply(decision, details)?;
+                } else {
+                    self.state = DfsSolverState::Solved;
+                }
                 Ok(())
             }
             DfsSolverState::Backtracking => {
@@ -130,11 +134,11 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
                     return Ok(());
                 }
                 // Backtrack, attempting to advance an existing action set
-                let (prev_index, mut alternatives) = self.stack.pop().unwrap();
-                self.puzzle.undo(prev_index)?;
-                match alternatives.next() {
-                    Some(action) => {
-                        self.apply(prev_index, action, alternatives, details)?;
+                let mut decision = self.stack.pop().unwrap();
+                self.puzzle.undo(decision.index, decision.chosen.unwrap())?;
+                match decision.advance() {
+                    Some(_) => {
+                        self.apply(decision, details)?;
                         Ok(())
                     }
                     None => Ok(()),
@@ -296,12 +300,13 @@ mod test {
             Ok(())
         }
 
-        fn undo(&mut self, index: Index) -> Result<(), Error> {
+        fn undo(&mut self, index: Index, value: GwValue) -> Result<(), Error> {
             if index[0] >=1 || index[1] >= 8 {
                 return Err(Error::new_const("Index out of bounds"));
-            }
-            if self.digits.get(index).is_none() {
+            } else if self.digits.get(index).is_none() {
                 return Err(Error::new_const("No such action to undo"));
+            } else if self.digits.get(index).unwrap() != value.to_uval() {
+                return Err(Error::new_const("Value does not match"));
             }
             self.digits.set(index, None);
             Ok(())
@@ -357,29 +362,31 @@ mod test {
     impl Strategy<u8, GwLine> for GwLineStrategy {
         type ActionSet = std::vec::IntoIter<GwValue>;
 
-        fn suggest(&self, puzzle: &GwLine) -> Result<(Index, Self::ActionSet), Error> {
+        fn suggest(&self, puzzle: &GwLine) -> Result<DecisionPoint<u8, GwLine, Self::ActionSet>, Error> {
             for i in 0..8 {
                 if puzzle.digits.get([0, i]).is_none() {
-                    return Ok(([0, i], vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().map(GwValue).collect::<Vec<_>>().into_iter()));
+                    return Ok(DecisionPoint::new(
+                        [0, i],
+                        vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().map(GwValue).collect::<Vec<_>>().into_iter())
+                    );
                 }
             }
-            Ok(([0, 0], Self::empty_action_set()))
-        }
-
-        fn empty_action_set() -> Self::ActionSet {
-            vec![].into_iter()
+            Ok(DecisionPoint::empty())
         }
     }
 
     struct GwLineStrategyPartial {}
     impl PartialStrategy<u8, GwLine> for GwLineStrategyPartial {
-        fn suggest_partial(&self, puzzle: &GwLine) -> Result<(Index, Vec<GwValue>), Error> {
+        fn suggest_partial(&self, puzzle: &GwLine) -> Result<DecisionPoint<u8, GwLine, std::vec::IntoIter<GwValue>>, Error> {
             // This is a partial strategy that only affects the first digit and
             // avoids guessing things that can't work.
             if puzzle.digits.get([0, 0]).is_none() {
-                return Ok(([0, 0], vec![4, 6].into_iter().map(GwValue).collect::<Vec<_>>()));
+                return Ok(DecisionPoint::new(
+                    [0, 0],
+                    vec![4, 6].into_iter().map(GwValue).collect::<Vec<_>>().into_iter())
+                );
             }
-            Ok(([0, 0], vec![]))
+            Ok(DecisionPoint::empty())
         }
     }
 
@@ -396,11 +403,11 @@ mod test {
         puzzle.apply([0, 5], GwValue(1)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::Simple("Duplicate digits"));
-        puzzle.undo([0, 5]).unwrap();
+        puzzle.undo([0, 5], GwValue(1)).unwrap();
         puzzle.apply([0, 1], GwValue(3)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::Simple("Adjacent digits too close"));
-        puzzle.undo([0, 1]).unwrap();
+        puzzle.undo([0, 1], GwValue(3)).unwrap();
         puzzle.apply([0, 1], GwValue(6)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::NoViolation);

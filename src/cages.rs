@@ -1,6 +1,6 @@
 use crate::core::{empty_set, Error, Index, State, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::PartialStrategy;
+use crate::strategy::{DecisionPoint, PartialStrategy};
 use crate::sudoku::{SState, SVal};
 
 #[derive(Debug, Clone)]
@@ -73,7 +73,7 @@ pub struct CagePartialStrategy {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(Index, Vec<SVal<MIN, MAX>>), Error> {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<DecisionPoint<u8, SState<N, M, MIN, MAX>, std::vec::IntoIter<SVal<MIN, MAX>>>, Error> {
         for cage in &self.cages {
             let mut sum = 0;
             let mut first_empty: Option<Index> = None;
@@ -99,19 +99,20 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
                 let target = cage.target;
                 let remaining = target - sum;
                 if n_empty == 1 && MIN <= remaining && remaining <= MAX {
-                    return Ok((empty, vec![SVal::new(remaining)]));
+                    return Ok(DecisionPoint::unique(empty, SVal::new(remaining)));
                 }
-                return Ok((empty, (MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
+                let actions = (MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
                     let value = SVal::<MIN, MAX>::new(value);
                     return if seen.contains(value.to_uval()) {
                         None
                     } else {
                         Some(value)
                     };
-                }).collect::<Vec<SVal<MIN, MAX>>>()));
+                }).collect::<Vec<SVal<MIN, MAX>>>();
+                return Ok(DecisionPoint::new(empty, actions.into_iter()));
             }
         }
-        Ok(([0, 0], vec![]))
+        Ok(DecisionPoint::empty())
     }
 }
 
@@ -165,9 +166,9 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        let (index, actions) = cage_strategy.suggest_partial(&puzzle).unwrap();
-        assert_eq!(index, [0, 0]);
-        assert_eq!(actions, vec![SVal::new(1), SVal::new(2), SVal::new(3)]);
+        let d = cage_strategy.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [0, 0]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1), SVal::new(2), SVal::new(3)]);
     }
 
     #[test]
@@ -183,9 +184,9 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        let (index, actions) = cage_strategy.suggest_partial(&puzzle).unwrap();
-        assert_eq!(index, [0, 0]);
-        assert_eq!(actions, (1..=5).map(SVal::new).collect::<Vec<SVal<1, 6>>>());
+        let d = cage_strategy.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [0, 0]);
+        assert_eq!(d.into_vec(), (1..=5).map(SVal::new).collect::<Vec<SVal<1, 6>>>());
     }
 
     #[test]
@@ -201,8 +202,8 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        let (index, actions) = cage_strategy.suggest_partial(&puzzle).unwrap();
-        assert_eq!(index, [0, 1]);
-        assert_eq!(actions, vec![SVal::new(4)]);
+        let d = cage_strategy.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [0, 1]);
+        assert_eq!(d.into_vec(), vec![SVal::new(4)]);
     }
 }

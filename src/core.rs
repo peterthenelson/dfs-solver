@@ -54,7 +54,9 @@ impl UInt for u128 {
 // cardinality. Instead of directly exposing UInts, we use a wrapper to avoid
 // accidental misuse: These aren't the values you're looking for! They are just
 // for containers that need to store them!
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UValWrapped;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UValUnwrapped;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UVal<U: UInt, S> {
@@ -268,8 +270,9 @@ pub trait Stateful<U: UInt, V: Value<U>>: {
         let _ = value;
         Ok(())
     }
-    fn undo(&mut self, index: Index) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: V) -> Result<(), Error> {
         let _ = index;
+        let _ = value;
         Ok(())
     }
 }
@@ -284,7 +287,7 @@ pub trait State<U: UInt>: Clone + Debug {
     fn reset(&mut self);
     fn get(&self, index: Index) -> Option<Self::Value>;
     fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error>;
-    fn undo(&mut self, index: Index) -> Result<(), Error>;
+    fn undo(&mut self, index: Index, value: Self::Value) -> Result<(), Error>;
 }
 
 impl <U: UInt, S: State<U>> Stateful<U, S::Value> for S {}

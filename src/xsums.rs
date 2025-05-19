@@ -1,6 +1,6 @@
 use crate::core::{Error, Index, State};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::PartialStrategy;
+use crate::strategy::{DecisionPoint, PartialStrategy};
 use crate::sudoku::{SState, SVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -188,7 +188,7 @@ pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, con
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(Index, Vec<SVal<MIN, MAX>>), Error> {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<DecisionPoint<u8, SState<N, M, MIN, MAX>, std::vec::IntoIter<SVal<MIN, MAX>>>, Error> {
         for xsum in &self.xsums {
             match xsum.length(puzzle) {
                 Some((_, len)) => {
@@ -209,13 +209,13 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N,
                     if let Some(empty) = first_empty {
                         let target = xsum.target - sum;
                         if n_empty == 1 && MIN <= target && target <= MAX {
-                            return Ok((empty, vec![SVal::new(target)]));
+                            return Ok(DecisionPoint::unique(empty, SVal::new(target)));
                         }
                         let mut suggestions = Vec::new();
                         for v in MIN..=std::cmp::min(std::cmp::min(target, MAX), (M + 1) as u8) {
                             suggestions.push(SVal::new(v));
                         }
-                        return Ok((empty, suggestions));
+                        return Ok(DecisionPoint::new(empty, suggestions.into_iter()));
                     }
                 },
                 None => {
@@ -231,11 +231,11 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N,
                     for v in MIN..=max {
                         suggestions.push(SVal::new(v));
                     }
-                    return Ok((xsum.length_index(), suggestions));
+                    return Ok(DecisionPoint::new(xsum.length_index(), suggestions.into_iter()));
                 },
             }
         }
-        return Ok(([0, 0], vec![]));
+        return Ok(DecisionPoint::empty());
     }
 }
 
@@ -389,46 +389,40 @@ mod tests {
              ......\n\
              ......\n"
         ).unwrap();
-        assert_eq!(xsum_strategy1.suggest_partial(&puzzle).unwrap(), (
-            [1, 0],
-            vec![
-                SVal::new(1),
-                SVal::new(2),
-                SVal::new(3),
-            ],
-
-        ));
-        assert_eq!(xsum_strategy2.suggest_partial(&puzzle).unwrap(), (
-            [1, 5],
-            vec![
-                SVal::new(1),
-                SVal::new(2),
-                SVal::new(3),
-                SVal::new(4),
-            ],
-
-        ));
-        assert_eq!(xsum_strategy3.suggest_partial(&puzzle).unwrap(), (
-            [0, 1],
-            vec![
-                SVal::new(1),
-                SVal::new(2),
-                SVal::new(3),
-                SVal::new(4),
-                SVal::new(5),
-            ],
-        ));
-        assert_eq!(xsum_strategy4.suggest_partial(&puzzle).unwrap(), (
-            [5, 1],
-            vec![
-                SVal::new(1),
-                SVal::new(2),
-                SVal::new(3),
-                SVal::new(4),
-                SVal::new(5),
-                SVal::new(6),
-            ],
-        ));
+        let d = xsum_strategy1.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 0]);
+        assert_eq!(d.into_vec(), vec![
+            SVal::new(1),
+            SVal::new(2),
+            SVal::new(3),
+        ]);
+        let d = xsum_strategy2.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 5]);
+        assert_eq!(d.into_vec(), vec![
+            SVal::new(1),
+            SVal::new(2),
+            SVal::new(3),
+            SVal::new(4),
+        ]);
+        let d = xsum_strategy3.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [0, 1]);
+        assert_eq!(d.into_vec(), vec![
+            SVal::new(1),
+            SVal::new(2),
+            SVal::new(3),
+            SVal::new(4),
+            SVal::new(5),
+        ]);
+        let d = xsum_strategy4.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [5, 1]);
+        assert_eq!(d.into_vec(), vec![
+            SVal::new(1),
+            SVal::new(2),
+            SVal::new(3),
+            SVal::new(4),
+            SVal::new(5),
+            SVal::new(6),
+        ]);
     }
 
     #[test]
@@ -463,18 +457,18 @@ mod tests {
              ....3.\n\
              ....4.\n"
         ).unwrap();
-        assert_eq!(xsum_strategy1.suggest_partial(&puzzle).unwrap(), (
-            [1, 1], vec![SVal::new(1)],
-        ));
-        assert_eq!(xsum_strategy2.suggest_partial(&puzzle).unwrap(), (
-            [1, 1], vec![SVal::new(1)],
-        ));
-        assert_eq!(xsum_strategy3.suggest_partial(&puzzle).unwrap(), (
-            [2, 3], vec![SVal::new(4)],
-        ));
-        assert_eq!(xsum_strategy4.suggest_partial(&puzzle).unwrap(), (
-            [3, 4], vec![SVal::new(1)],
-        ));
+        let d = xsum_strategy1.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 1]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
+        let d = xsum_strategy2.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 1]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
+        let d = xsum_strategy3.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [2, 3]);
+        assert_eq!(d.into_vec(), vec![SVal::new(4)]);
+        let d = xsum_strategy4.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [3, 4]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
     }
 
     #[test]
@@ -509,24 +503,24 @@ mod tests {
              ......\n\
              ....3.\n"
         ).unwrap();
-        assert_eq!(xsum_strategy1.suggest_partial(&puzzle).unwrap(), (
-            [1, 1], vec![SVal::new(1)],
-        ));
-        assert_eq!(xsum_strategy2.suggest_partial(&puzzle).unwrap(), (
-            [1, 1], vec![SVal::new(1), SVal::new(2)],
-        ));
-        assert_eq!(xsum_strategy3.suggest_partial(&puzzle).unwrap(), (
-            [1, 4], vec![SVal::new(1), SVal::new(2), SVal::new(3), SVal::new(4)],
-        ));
-        assert_eq!(xsum_strategy4.suggest_partial(&puzzle).unwrap(), (
-            [4, 4], vec![
-                SVal::new(1),
-                SVal::new(2),
-                SVal::new(3),
-                SVal::new(4),
-                SVal::new(5),
-                SVal::new(6),
-            ],
-        ));
+        let d = xsum_strategy1.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 1]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
+        let d = xsum_strategy2.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 1]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1), SVal::new(2)]);
+        let d = xsum_strategy3.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [1, 4]);
+        assert_eq!(d.into_vec(), vec![SVal::new(1), SVal::new(2), SVal::new(3), SVal::new(4)]);
+        let d = xsum_strategy4.suggest_partial(&puzzle).unwrap();
+        assert_eq!(d.index, [4, 4]);
+        assert_eq!(d.into_vec(), vec![
+            SVal::new(1),
+            SVal::new(2),
+            SVal::new(3),
+            SVal::new(4),
+            SVal::new(5),
+            SVal::new(6),
+        ]);
     }
 }
