@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::puzzle::{PuzzleError, PuzzleIndex, PuzzleState, UInt};
+use crate::core::{Error, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintResult};
 use crate::strategy::Strategy;
 
@@ -15,11 +15,11 @@ pub enum DfsSolverState {
 }
 
 // A view on the state and associated data for the solver.
-pub trait DfsSolverView<const DIM: usize, U: UInt, P: PuzzleState<DIM, U>> {
+pub trait DfsSolverView<U: UInt, P: State<U>> {
     fn get_state(&self) -> DfsSolverState;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
-    fn get_violations(&self) -> ConstraintResult<DIM>;
+    fn get_violations(&self) -> ConstraintResult;
     fn get_puzzle(&self) -> &P;
 }
 
@@ -27,19 +27,19 @@ pub trait DfsSolverView<const DIM: usize, U: UInt, P: PuzzleState<DIM, U>> {
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
 /// if you are implementing a UI or debugging, this API may be useful.
-pub struct DfsSolver<'a, const DIM: usize, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+pub struct DfsSolver<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     puzzle: &'a mut P,
     strategy: &'a S,
     constraint: &'a C,
-    violation: ConstraintResult<DIM>,
-    stack: Vec<(PuzzleIndex<DIM>, <S as Strategy<DIM, U, P>>::ActionSet)>,
+    violation: ConstraintResult,
+    stack: Vec<(Index, <S as Strategy<U, P>>::ActionSet)>,
     state: DfsSolverState,
 }
 
-impl <'a, const DIM: usize, U, P, S, C> DfsSolverView<DIM, U, P>
-for DfsSolver<'a, DIM, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+impl <'a, U, P, S, C> DfsSolverView<U, P>
+for DfsSolver<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     fn get_state(&self) -> DfsSolverState {
         self.state
     }
@@ -52,7 +52,7 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
         self.violation.is_none()
     }
 
-    fn get_violations(&self) -> ConstraintResult<DIM> {
+    fn get_violations(&self) -> ConstraintResult {
         self.violation.clone()
     }
 
@@ -61,10 +61,10 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
     }
 }
 
-const PUZZLE_ALREADY_DONE: PuzzleError = PuzzleError::new_const("Puzzle already done");
+const PUZZLE_ALREADY_DONE: Error = Error::new_const(" already done");
  
-impl <'a, const DIM: usize, U, P, S, C> DfsSolver<'a, DIM, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+impl <'a, U, P, S, C> DfsSolver<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     pub fn new(
         puzzle: &'a mut P,
         strategy: &'a S,
@@ -80,7 +80,7 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
         }
     }
 
-    fn apply(&mut self, index: PuzzleIndex<DIM>, value: P::Value, alternatives: S::ActionSet, details: bool) -> Result<(), PuzzleError> {
+    fn apply(&mut self, index: Index, value: P::Value, alternatives: S::ActionSet, details: bool) -> Result<(), Error> {
         if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
         }
@@ -95,7 +95,7 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
         return Ok(());
     }
 
-    pub fn manual_step(&mut self, index: PuzzleIndex<DIM>, value: P::Value, details: bool) -> Result<(), PuzzleError> {
+    pub fn manual_step(&mut self, index: Index, value: P::Value, details: bool) -> Result<(), Error> {
         self.apply(index, value, S::empty_action_set(), details)
     }
 
@@ -107,7 +107,7 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
         true
     }
 
-    pub fn step(&mut self, details: bool) -> Result<(), PuzzleError> {
+    pub fn step(&mut self, details: bool) -> Result<(), Error> {
         match self.state {
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
@@ -152,21 +152,21 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
 }
 
 /// Find first solution to the puzzle using the given strategy and constraints.
-pub struct FindFirstSolution<'a, const DIM: usize, U, P, S, C>(DfsSolver<'a, DIM, U, P, S, C>, bool)
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P>;
+pub struct FindFirstSolution<'a, U, P, S, C>(DfsSolver<'a, U, P, S, C>, bool)
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P>;
 
-impl <'a, const DIM: usize, U, P, S, C> DfsSolverView<DIM, U, P>
-for FindFirstSolution<'a, DIM, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+impl <'a, U, P, S, C> DfsSolverView<U, P>
+for FindFirstSolution<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     fn get_state(&self) -> DfsSolverState { self.0.get_state() }
     fn is_done(&self) -> bool { self.0.is_done() }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violations(&self) -> ConstraintResult<DIM> { self.0.get_violations() }
+    fn get_violations(&self) -> ConstraintResult { self.0.get_violations() }
     fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
-impl <'a, const DIM: usize, U, P, S, C> FindFirstSolution<'a, DIM, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+impl <'a, U, P, S, C> FindFirstSolution<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     pub fn new(
         puzzle: &'a mut P,
         strategy: &'a S,
@@ -176,12 +176,12 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
         FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), details)
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<DIM, U, P>, PuzzleError> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, P>, Error> {
         self.0.step(self.1)?;
         Ok(&self.0)
     }
 
-    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<DIM, U, P>>, PuzzleError> {
+    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, P>>, Error> {
         while !self.0.is_done() {
             self.step()?;
         }
@@ -194,21 +194,21 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
 }
 
 /// Find all solutions to the puzzle using the given strategy and constraints.
-pub struct FindAllSolutions<'a, const DIM: usize, U, P, S, C>(DfsSolver<'a, DIM, U, P, S, C>, bool)
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P>;
+pub struct FindAllSolutions<'a, U, P, S, C>(DfsSolver<'a, U, P, S, C>, bool)
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P>;
 
-impl <'a, const DIM: usize, U, P, S, C> DfsSolverView<DIM, U, P>
-for FindAllSolutions<'a, DIM, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+impl <'a, U, P, S, C> DfsSolverView<U, P>
+for FindAllSolutions<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     fn get_state(&self) -> DfsSolverState { self.0.get_state() }
     fn is_done(&self) -> bool { self.0.get_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violations(&self) -> ConstraintResult<DIM> { self.0.get_violations() }
+    fn get_violations(&self) -> ConstraintResult { self.0.get_violations() }
     fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
 }
 
-impl <'a, const DIM: usize, U, P, S, C> FindAllSolutions<'a, DIM, U, P, S, C>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM, U, P> {
+impl <'a, U, P, S, C> FindAllSolutions<'a, U, P, S, C>
+where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     pub fn new(
         puzzle: &'a mut P,
         strategy: &'a S,
@@ -218,7 +218,7 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
         FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), details)
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<DIM, U, P>, PuzzleError> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, P>, Error> {
         if self.0.state == DfsSolverState::Solved {
             self.0.force_backtrack();
         }
@@ -230,36 +230,37 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P>, C: Constraint<DIM
 #[cfg(test)]
 mod test {
     use crate::constraint::ConstraintViolationDetail;
-    use crate::puzzle::PuzzleValue;
+    use crate::core::{to_value, Grid, UVal, UValUnwrapped, UValWrapped, Value};
     use crate::strategy::{CompositeStrategy, PartialStrategy};
     use super::*;
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     struct GwValue(pub u8);
-    impl PuzzleValue<u8> for GwValue {
-        fn cardinality() -> usize { 9 }
-        fn from_uint(u: u8) -> Self { GwValue(u) }
-        fn to_uint(self) -> u8 { self.0 }
+    impl Value<u8> for GwValue {
+        fn parse(_: &str) -> Result<Self, Error> { todo!() }
+        fn cardinality() -> usize { 10 }
+        fn from_uval(u: UVal<u8, UValUnwrapped>) -> Self { GwValue(u.value()) }
+        fn to_uval(self) -> UVal<u8, UValWrapped> { UVal::new(self.0) }
     }
 
     #[derive(Clone, Debug)]
     struct GwLine {
-        digits: [Option<u8>; 8],
+        digits: Grid<u8, 1, 8>,
     }
 
     impl GwLine {
         pub fn new() -> Self {
             GwLine {
-                digits: [None; 8],
+                digits: Grid::<u8, 1, 8>::new()
             }
         }
     }
 
     impl std::fmt::Display for GwLine {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            for i in 0..self.digits.len() {
-                if let Some(v) = self.digits[i] {
-                    write!(f, "{}", v)?;
+            for i in 0..8 {
+                if let Some(v) = self.digits.get([0, i]) {
+                    write!(f, "{}", to_value::<u8, GwValue>(v).0)?;
                 } else {
                     write!(f, ".")?;
                 }
@@ -268,62 +269,64 @@ mod test {
         }
     }
 
-    impl PuzzleState<1, u8> for GwLine {
+    impl State<u8> for GwLine {
         type Value = GwValue;
+        const ROWS: usize = 1;
+        const COLS: usize = 8;
 
         fn reset(&mut self) {
-            self.digits = [None; 8];
+            self.digits = Grid::<u8, 1, 8>::new();
         }
 
-        fn get(&self, index: PuzzleIndex<1>) -> Option<Self::Value> {
-            if index[0] >= 8 {
+        fn get(&self, index: Index) -> Option<Self::Value> {
+            if index[0] >= 1 || index[1] >= 8 {
                 return None;
             }
-            self.digits[index[0]].map(|v| GwValue(v))
+            self.digits.get(index).map(to_value)
         }
 
-        fn apply(&mut self, index: PuzzleIndex<1>, value: Self::Value) -> Result<(), PuzzleError> {
-            if index[0] >= 8 {
-                return Err(PuzzleError::new_const("Index out of bounds"));
+        fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+            if index[0] >= 1 || index[1] >= 8 {
+                return Err(Error::new_const("Index out of bounds"));
             }
-            if self.digits[index[0]].is_some() {
-                return Err(PuzzleError::new_const("Cell already filled"));
+            if self.digits.get(index).is_some() {
+                return Err(Error::new_const("Cell already filled"));
             }
-            self.digits[index[0]] = Some(value.to_uint());
+            self.digits.set(index, Some(value.to_uval()));
             Ok(())
         }
 
-        fn undo(&mut self, index: PuzzleIndex<1>) -> Result<(), PuzzleError> {
-            if index[0] >= 8 {
-                return Err(PuzzleError::new_const("Index out of bounds"));
+        fn undo(&mut self, index: Index) -> Result<(), Error> {
+            if index[0] >=1 || index[1] >= 8 {
+                return Err(Error::new_const("Index out of bounds"));
             }
-            if self.digits[index[0]].is_none() {
-                return Err(PuzzleError::new_const("No such action to undo"));
+            if self.digits.get(index).is_none() {
+                return Err(Error::new_const("No such action to undo"));
             }
-            self.digits[index[0]] = None;
+            self.digits.set(index, None);
             Ok(())
         }
     }
 
     struct GwLineConstraint {}
-    impl Constraint<1, u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, details: bool) -> ConstraintResult<1> {
+    impl Constraint<u8, GwLine> for GwLineConstraint {
+        fn check(&self, puzzle: &GwLine, details: bool) -> ConstraintResult {
             let mut violations = Vec::new();
-            for i in 0..puzzle.digits.len() {
-                if puzzle.digits[i].is_none() {
+            for i in 0..8 {
+                if puzzle.digits.get([0, i]).is_none() {
                     continue;
                 }
-                let i_val = puzzle.digits[i].unwrap();
-                for j in i+1..puzzle.digits.len() {
-                    if puzzle.digits[j].is_none() {
+                let i_val = to_value::<u8, GwValue>(puzzle.digits.get([0, i]).unwrap()).0;
+                for j in i+1..8 {
+                    if puzzle.digits.get([0, j]).is_none() {
                         continue;
                     }
-                    let j_val = puzzle.digits[j].unwrap();
+                    let j_val = to_value::<u8, GwValue>(puzzle.digits.get([0, j]).unwrap()).0;
                     if i_val == j_val {
                         if details {
                             violations.push(ConstraintViolationDetail {
                                 message: format!("Digits with duplicate value: [{}] == [{}] == {}", i, j, i_val),
-                                highlight: Some(vec![[i], [j]]),
+                                highlight: Some(vec![[0, i], [0, j]]),
                             });
                         } else {
                             return ConstraintResult::Simple("Duplicate digits");
@@ -334,7 +337,7 @@ mod test {
                         if details {
                             violations.push(ConstraintViolationDetail {
                                 message: format!("Adjacent digits too close: [{}]={} and [{}]={}", i, i_val, j, j_val),
-                                highlight: Some(vec![[i], [j]]),
+                                highlight: Some(vec![[0, i], [0, j]]),
                             });
                         } else {
                             return ConstraintResult::Simple("Adjacent digits too close");
@@ -351,16 +354,16 @@ mod test {
     }
 
     struct GwLineStrategy {}
-    impl Strategy<1, u8, GwLine> for GwLineStrategy {
+    impl Strategy<u8, GwLine> for GwLineStrategy {
         type ActionSet = std::vec::IntoIter<GwValue>;
 
-        fn suggest(&self, puzzle: &GwLine) -> Result<(PuzzleIndex<1>, Self::ActionSet), PuzzleError> {
-            for i in 0..puzzle.digits.len() {
-                if puzzle.digits[i].is_none() {
-                    return Ok(([i], vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().map(GwValue).collect::<Vec<_>>().into_iter()));
+        fn suggest(&self, puzzle: &GwLine) -> Result<(Index, Self::ActionSet), Error> {
+            for i in 0..8 {
+                if puzzle.digits.get([0, i]).is_none() {
+                    return Ok(([0, i], vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().map(GwValue).collect::<Vec<_>>().into_iter()));
                 }
             }
-            Ok(([0], Self::empty_action_set()))
+            Ok(([0, 0], Self::empty_action_set()))
         }
 
         fn empty_action_set() -> Self::ActionSet {
@@ -369,14 +372,14 @@ mod test {
     }
 
     struct GwLineStrategyPartial {}
-    impl PartialStrategy<1, u8, GwLine> for GwLineStrategyPartial {
-        fn suggest_partial(&self, puzzle: &GwLine) -> Result<(PuzzleIndex<1>, Vec<GwValue>), PuzzleError> {
+    impl PartialStrategy<u8, GwLine> for GwLineStrategyPartial {
+        fn suggest_partial(&self, puzzle: &GwLine) -> Result<(Index, Vec<GwValue>), Error> {
             // This is a partial strategy that only affects the first digit and
             // avoids guessing things that can't work.
-            if puzzle.digits[0].is_none() {
-                return Ok(([0], vec![4, 6].into_iter().map(GwValue).collect::<Vec<_>>()));
+            if puzzle.digits.get([0, 0]).is_none() {
+                return Ok(([0, 0], vec![4, 6].into_iter().map(GwValue).collect::<Vec<_>>()));
             }
-            Ok(([0], vec![]))
+            Ok(([0, 0], vec![]))
         }
     }
 
@@ -386,24 +389,25 @@ mod test {
         let constraint = GwLineConstraint {};
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::NoViolation);
-        puzzle.digits[0] = Some(1);
-        puzzle.digits[3] = Some(2);
+        puzzle.apply([0, 0], GwValue(1)).unwrap();
+        puzzle.apply([0, 3], GwValue(2)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::NoViolation);
-        puzzle.digits[5] = Some(1);
+        puzzle.apply([0, 5], GwValue(1)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::Simple("Duplicate digits"));
-        puzzle.digits[5] = None;
-        puzzle.digits[1] = Some(3);
+        puzzle.undo([0, 5]).unwrap();
+        puzzle.apply([0, 1], GwValue(3)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::Simple("Adjacent digits too close"));
-        puzzle.digits[1] = Some(6);
+        puzzle.undo([0, 1]).unwrap();
+        puzzle.apply([0, 1], GwValue(6)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::NoViolation);
     }
 
     #[test]
-    fn german_whispers_find() -> Result<(), PuzzleError> {
+    fn german_whispers_find() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
@@ -415,7 +419,7 @@ mod test {
     }
 
     #[test]
-    fn german_whispers_trace() -> Result<(), PuzzleError> {
+    fn german_whispers_trace() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
@@ -440,7 +444,7 @@ mod test {
     }
 
     #[test]
-    fn german_whispers_all() -> Result<(), PuzzleError> {
+    fn german_whispers_all() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let constraint = GwLineConstraint {};
@@ -458,7 +462,7 @@ mod test {
     }
 
     #[test]
-    fn german_whispers_all_fast() -> Result<(), PuzzleError> {
+    fn german_whispers_all_fast() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let partial = GwLineStrategyPartial {};
         let strategy = CompositeStrategy::new(GwLineStrategy {}, vec![&partial]);

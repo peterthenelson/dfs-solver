@@ -1,7 +1,6 @@
 use std::fmt::Display;
-use bit_set::BitSet;
 
-use crate::puzzle::{PuzzleError, PuzzleState, PuzzleValue};
+use crate::core::{empty_set, to_value, Error, Grid, Index, State, UVal, UValUnwrapped, UValWrapped, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{Strategy};
 
@@ -15,57 +14,63 @@ impl <const MIN: u8, const MAX: u8> SVal<MIN, MAX> {
         SVal(value)
     }
 
-    // This is the value! The to_uint() method probably has a different value!
-    pub fn value(&self) -> u8 {
+    pub fn val(self) -> u8 {
         self.0
     }
 }
 
-impl <const MIN: u8, const MAX: u8> PuzzleValue<u8> for SVal<MIN, MAX> {
+impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
+    fn parse(s: &str) -> Result<Self, Error> {
+        let value = s.parse::<u8>().map_err(|v| Error::new(format!("Invalid value: {}", v).to_string()))?;
+        if value < MIN || value > MAX {
+            return Err(Error::new(format!("Value out of bounds: {} ({}-{})", value, MIN, MAX)));
+        }
+        Ok(SVal(value))
+    }
+
     fn cardinality() -> usize {
         (MAX - MIN + 1) as usize
     }
 
-    fn from_uint(u: u8) -> Self {
-        SVal(u + MIN)
+    fn from_uval(u: UVal<u8, UValUnwrapped>) -> Self {
+        SVal(u.value() + MIN)
     }
 
-    fn to_uint(self) -> u8 {
-        self.0 - MIN
+    fn to_uval(self) -> UVal<u8, UValWrapped> {
+        UVal::new(self.0 - MIN)
     }
 }
-
 
 /// Standard rectangular Sudoku grid.
 #[derive(Debug, Clone)]
 pub struct SState<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
-    grid: [[Option<u8>; M]; N],
+    grid: Grid<u8, N, M>,
 } 
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M, MIN, MAX> {
     pub fn new() -> Self {
-        Self { grid: [[None; M]; N] }
+        Self { grid: Grid::new() }
     }
 
-    pub fn parse(s: &str) -> Result<Self, PuzzleError> {
-        let mut grid = [[None; M]; N];
+    pub fn parse(s: &str) -> Result<Self, Error> {
+        let mut grid = Grid::new();
         let lines: Vec<&str> = s.lines().collect();
         if lines.len() != N {
-            return Err(PuzzleError::new("Invalid number of rows".to_string()));
+            return Err(Error::new("Invalid number of rows".to_string()));
         }
         for i in 0..N {
             let line = lines[i].trim();
             if line.len() != M {
-                return Err(PuzzleError::new("Invalid number of columns".to_string()));
+                return Err(Error::new("Invalid number of columns".to_string()));
             }
             for j in 0..M {
                 let c = line.chars().nth(j).unwrap();
                 if c == '.' {
-                    grid[i][j] = None;
-                } else if c.is_digit(10) {
-                    grid[i][j] = Some(SVal::<MIN, MAX>::new(c.to_digit(10).unwrap() as u8).to_uint());
+                    // Already None
                 } else {
-                    return Err(PuzzleError::new("Invalid character in input".to_string()));
+                    let s = c.to_string();
+                    let v = SVal::<MIN, MAX>::parse(s.as_str())?;
+                    grid.set([i, j], Some(v.to_uval()));
                 }
             }
         }
@@ -74,10 +79,10 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M,
 
     pub fn serialize(&self) -> String {
         let mut result = String::new();
-        for row in &self.grid {
-            for &cell in row {
-                if let Some(value) = cell {
-                    result.push_str(SVal::<MIN, MAX>::from_uint(value).value().to_string().as_str());
+        for r in 0..N {
+            for c in 0..M {
+                if let Some(v) = self.grid.get([r, c]) {
+                    result.push_str(to_value::<u8, SVal<MIN, MAX>>(v).val().to_string().as_str());
                 } else {
                     result.push('.');
                 }
@@ -88,29 +93,29 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M,
     }
 }
 
-pub fn nine_standard_parse(s: &str) -> Result<SState<9, 9, 1, 9>, PuzzleError> {
+pub fn nine_standard_parse(s: &str) -> Result<SState<9, 9, 1, 9>, Error> {
     SState::<9, 9, 1, 9>::parse(s)
 }
 
-pub fn eight_standard_parse(s: &str) -> Result<SState<8, 8, 1, 8>, PuzzleError> {
+pub fn eight_standard_parse(s: &str) -> Result<SState<8, 8, 1, 8>, Error> {
     SState::<8, 8, 1, 8>::parse(s)
 }
 
-pub fn six_standard_parse(s: &str) -> Result<SState<6, 6, 1, 6>, PuzzleError> {
+pub fn six_standard_parse(s: &str) -> Result<SState<6, 6, 1, 6>, Error> {
     SState::<6, 6, 1, 6>::parse(s)
 }
 
-pub fn four_standard_parse(s: &str) -> Result<SState<4, 4, 1, 4>, PuzzleError> {
+pub fn four_standard_parse(s: &str) -> Result<SState<4, 4, 1, 4>, Error> {
     SState::<4, 4, 1, 4>::parse(s)
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Display
 for SState<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        for row in &self.grid {
-            for &cell in row {
-                if let Some(value) = cell {
-                    write!(f, "{}", SVal::<MIN, MAX>::from_uint(value).value())?;
+        for r in 0..N {
+            for c in 0..M {
+                if let Some(v) = self.grid.get([r, c]) {
+                    write!(f, "{}", to_value::<u8, SVal::<MIN, MAX>>(v).val())?;
                 } else {
                     write!(f, ".")?;
                 }
@@ -121,85 +126,87 @@ for SState<N, M, MIN, MAX> {
     }
 }
 
-pub const OUT_OF_BOUNDS_ERROR: PuzzleError = PuzzleError::new_const("Out of bounds");
-pub const ALREADY_FILLED_ERROR: PuzzleError = PuzzleError::new_const("Cell already filled");
-pub const NO_SUCH_ACTION_ERROR: PuzzleError = PuzzleError::new_const("No such action to undo");
+pub const OUT_OF_BOUNDS_ERROR: Error = Error::new_const("Out of bounds");
+pub const ALREADY_FILLED_ERROR: Error = Error::new_const("Cell already filled");
+pub const NO_SUCH_ACTION_ERROR: Error = Error::new_const("No such action to undo");
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> PuzzleState<2, u8> for SState<N, M, MIN, MAX> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> for SState<N, M, MIN, MAX> {
     type Value = SVal<MIN, MAX>;
+    const ROWS: usize = N;
+    const COLS: usize = M;
 
     fn reset(&mut self) {
-        self.grid = [[None; M]; N];
+        self.grid = Grid::new();
     }
 
-    fn get(&self, index: [usize; 2]) -> Option<Self::Value> {
+    fn get(&self, index: Index) -> Option<Self::Value> {
         if index[0] >= N || index[1] >= M {
             return None;
         }
-        self.grid[index[0]][index[1]].map(|v| SVal::from_uint(v))
+        self.grid.get(index).map(to_value)
     }
 
-    fn apply(&mut self, index: [usize; 2], value: Self::Value) -> Result<(), PuzzleError> {
+    fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
         if index[0] >= N || index[1] >= M {
             return Err(OUT_OF_BOUNDS_ERROR);
         }
-        if self.grid[index[0]][index[1]].is_some() {
+        if self.grid.get(index).is_some() {
             return Err(ALREADY_FILLED_ERROR);
         }
-        self.grid[index[0]][index[1]] = Some(value.to_uint());
+        self.grid.set(index, Some(value.to_uval()));
         Ok(())
     }
 
-    fn undo(&mut self, index: [usize; 2]) -> Result<(), PuzzleError> {
+    fn undo(&mut self, index: Index) -> Result<(), Error> {
         if index[0] >= N || index[1] >= M {
             return Err(OUT_OF_BOUNDS_ERROR);
         }
-        if self.grid[index[0]][index[1]].is_none() {
+        if self.grid.get(index).is_none() {
             return Err(NO_SUCH_ACTION_ERROR);
         }
-        self.grid[index[0]][index[1]] = None;
+        self.grid.set(index, None);
         Ok(())
     }
 }
 
 // TODO: Don't use the grid directly; use the API.
 pub struct RowColChecker {}
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<2, u8, SState<N, M, MIN, MAX>> for RowColChecker {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult<2> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
         let mut violations = vec![];
         for r in 0..N {
-            let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality() as usize);
+            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
             for c in 0..M {
                 if let Some(value) = puzzle.get([r, c]) {
-                    if seen.contains(value.to_uint() as usize) {
+                    if seen.contains(value.to_uval()) {
                         if details {
                             violations.push(ConstraintViolationDetail {
-                                message: format!("Duplicate value {} in row {}", value.value(), r),
+                                message: format!("Duplicate value {} in row {}", value.val(), r),
                                 highlight: Some(vec![[r, c]]),
                             })
                         } else {
                             return ConstraintResult::Simple("Duplicate value in row");
                         }
                     }
-                    seen.insert(value.to_uint() as usize);
+                    seen.insert(value.to_uval());
                 }
             }
         }
         for c in 0..M {
-            let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality() as usize);
+            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
             for r in 0..N {
                 if let Some(value) = puzzle.get([r, c]) {
-                    if seen.contains(value.to_uint() as usize) {
+                    if seen.contains(value.to_uval()) {
                         if details {
                             violations.push(ConstraintViolationDetail {
-                                message: format!("Duplicate value {} in col {}", value.value(), c),
+                                message: format!("Duplicate value {} in col {}", value.val(), c),
                                 highlight: Some(vec![[r, c]]),
                             })
                         } else {
                             return ConstraintResult::Simple("Duplicate value in col");
                         }
                     }
-                    seen.insert(value.to_uint() as usize);
+                    seen.insert(value.to_uval());
                 }
             }
         }
@@ -223,29 +230,29 @@ impl BoxChecker {
     }
 }
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<2, u8, SState<N, M, MIN, MAX>> for BoxChecker {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult<2> {
+Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
         _ = assert!(N == self.br * self.bh && M == self.bc * self.bw, "Sudoku dimensions do not match box dimensions");
         let mut violations = vec![];
         for box_row in 0..self.br {
             for box_col in 0..self.bc {
-                let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality() as usize);
+                let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
                 for r in 0..self.bh {
                     for c in 0..self.bw {
                         let row = box_row * self.bh + r;
                         let col = box_col * self.bw + c;
                         if let Some(value) = puzzle.get([row, col]) {
-                            if seen.contains(value.to_uint() as usize) {
+                            if seen.contains(value.to_uval()) {
                                 if details {
                                     violations.push(ConstraintViolationDetail {
-                                        message: format!("Duplicate value {} in box ({}, {})", value.value(), box_row, box_col),
+                                        message: format!("Duplicate value {} in box ({}, {})", value.val(), box_row, box_col),
                                         highlight: Some(vec![[row, col]]),
                                     })
                                 } else {
                                     return ConstraintResult::Simple("Duplicate value in box");
                                 }
                             }
-                            seen.insert(value.to_uint() as usize);
+                            seen.insert(value.to_uval());
                         }
                     }
                 }
@@ -265,12 +272,12 @@ impl NineBoxChecker {
         NineBoxChecker(BoxChecker::new(3, 3, 3, 3))
     }
 }
-impl Constraint<2, u8, SState<9, 9, 1, 9>> for NineBoxChecker {
-    fn check(&self, puzzle: &SState<9, 9, 1, 9>, details: bool) -> ConstraintResult<2> {
+impl Constraint<u8, SState<9, 9, 1, 9>> for NineBoxChecker {
+    fn check(&self, puzzle: &SState<9, 9, 1, 9>, details: bool) -> ConstraintResult {
         self.0.check(puzzle, details)
     }
 }
-pub type NineStandardChecker = ConstraintConjunction<2, u8, SState<9, 9, 1, 9>, RowColChecker, NineBoxChecker>;
+pub type NineStandardChecker = ConstraintConjunction<u8, SState<9, 9, 1, 9>, RowColChecker, NineBoxChecker>;
 pub fn nine_standard_checker() -> NineStandardChecker {
     NineStandardChecker::new(RowColChecker {}, NineBoxChecker::new())
 }
@@ -282,12 +289,12 @@ impl EightBoxChecker {
         EightBoxChecker(BoxChecker::new(4, 2, 2, 4))
     }
 }
-impl Constraint<2, u8, SState<8, 8, 1, 8>> for EightBoxChecker {
-    fn check(&self, puzzle: &SState<8, 8, 1, 8>, details: bool) -> ConstraintResult<2> {
+impl Constraint<u8, SState<8, 8, 1, 8>> for EightBoxChecker {
+    fn check(&self, puzzle: &SState<8, 8, 1, 8>, details: bool) -> ConstraintResult {
         self.0.check(puzzle, details)
     }
 }
-pub type EightStandardChecker = ConstraintConjunction<2, u8, SState<8, 8, 1, 8>, RowColChecker, EightBoxChecker>;
+pub type EightStandardChecker = ConstraintConjunction<u8, SState<8, 8, 1, 8>, RowColChecker, EightBoxChecker>;
 pub fn eight_standard_checker() -> EightStandardChecker {
     EightStandardChecker::new(RowColChecker {}, EightBoxChecker::new())
 }
@@ -299,12 +306,12 @@ impl SixBoxChecker {
         SixBoxChecker(BoxChecker::new(3, 2, 2, 3))
     }
 }
-impl Constraint<2, u8, SState<6, 6, 1, 6>> for SixBoxChecker {
-    fn check(&self, puzzle: &SState<6, 6, 1, 6>, details: bool) -> ConstraintResult<2> {
+impl Constraint<u8, SState<6, 6, 1, 6>> for SixBoxChecker {
+    fn check(&self, puzzle: &SState<6, 6, 1, 6>, details: bool) -> ConstraintResult {
         self.0.check(puzzle, details)
     }
 }
-pub type SixStandardChecker = ConstraintConjunction<2, u8, SState<6, 6, 1, 6>, RowColChecker, SixBoxChecker>;
+pub type SixStandardChecker = ConstraintConjunction<u8, SState<6, 6, 1, 6>, RowColChecker, SixBoxChecker>;
 pub fn six_standard_checker() -> SixStandardChecker {
     SixStandardChecker::new(RowColChecker {}, SixBoxChecker::new())
 }
@@ -315,21 +322,21 @@ impl FourBoxChecker {
         FourBoxChecker(BoxChecker::new(2, 2, 2, 2))
     }
 }
-impl Constraint<2, u8, SState<4, 4, 1, 4>> for FourBoxChecker {
-    fn check(&self, puzzle: &SState<4, 4, 1, 4>, details: bool) -> ConstraintResult<2> {
+impl Constraint<u8, SState<4, 4, 1, 4>> for FourBoxChecker {
+    fn check(&self, puzzle: &SState<4, 4, 1, 4>, details: bool) -> ConstraintResult {
         self.0.check(puzzle, details)
     }
 }
-pub type FourStandardChecker = ConstraintConjunction<2, u8, SState<4, 4, 1, 4>, RowColChecker, FourBoxChecker>;
+pub type FourStandardChecker = ConstraintConjunction<u8, SState<4, 4, 1, 4>, RowColChecker, FourBoxChecker>;
 pub fn four_standard_checker() -> FourStandardChecker {
     FourStandardChecker::new(RowColChecker {}, FourBoxChecker::new())
 }
 
 pub struct FirstEmptyStrategy {}
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<2, u8, SState<N, M, MIN, MAX>> for FirstEmptyStrategy {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8, SState<N, M, MIN, MAX>> for FirstEmptyStrategy {
     type ActionSet = std::vec::IntoIter<SVal<MIN, MAX>>;
 
-    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<([usize; 2], Self::ActionSet), PuzzleError> {
+    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(Index, Self::ActionSet), Error> {
         for i in 0..N {
             for j in 0..M {
                 if puzzle.get([i, j]).is_none() {

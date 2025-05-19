@@ -1,13 +1,13 @@
-use crate::puzzle::{PuzzleState, PuzzleError, PuzzleIndex, UInt};
+use crate::core::{State, Error, Index, UInt};
 
 /// Trait for enumerating the available actions at a particular decision point
 /// (preferably in an order that leads to a faster solve). Note that the
 /// posibilities must be exhaustive (e.g., if the puzzle is a sudoku, the first
 /// empty cell must be one of the 9 digits--if none of them work, then the
 /// puzzle has no solution).
-pub trait Strategy<const DIM: usize, U: UInt, P: PuzzleState<DIM, U>> {
+pub trait Strategy<U: UInt, P: State<U>> {
     type ActionSet: Iterator<Item = P::Value>;
-    fn suggest(&self, puzzle: &P) -> Result<(PuzzleIndex<DIM>, Self::ActionSet), PuzzleError>;
+    fn suggest(&self, puzzle: &P) -> Result<(Index, Self::ActionSet), Error>;
     fn empty_action_set() -> Self::ActionSet;
 }
 
@@ -15,14 +15,14 @@ pub trait Strategy<const DIM: usize, U: UInt, P: PuzzleState<DIM, U>> {
 /// other strategy to fall back on). This is useful for strategies that are
 /// specific to a particular constraint or puzzle type, but may not be able to
 /// enumerate all the possible actions.
-pub trait PartialStrategy<const DIM: usize, U: UInt, P: PuzzleState<DIM, U>> {
-    fn suggest_partial(&self, puzzle: &P) -> Result<(PuzzleIndex<DIM>, Vec<P::Value>), PuzzleError>;
+pub trait PartialStrategy<U: UInt, P: State<U>> {
+    fn suggest_partial(&self, puzzle: &P) -> Result<(Index, Vec<P::Value>), Error>;
 }
 
 /// All strategies are partial strategies.
-impl <const DIM: usize, U, P, S> PartialStrategy<DIM, U, P> for S
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
-    fn suggest_partial(&self, puzzle: &P) -> Result<(PuzzleIndex<DIM>, Vec<P::Value>), PuzzleError> {
+impl <U, P, S> PartialStrategy<U, P> for S
+where U: UInt, P: State<U>, S: Strategy<U, P> {
+    fn suggest_partial(&self, puzzle: &P) -> Result<(Index, Vec<P::Value>), Error> {
         match self.suggest(puzzle) {
             Ok((index, action_set)) => {
                 let mut actions = Vec::new();
@@ -37,17 +37,17 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
 }
 
 /// A composite strategy that combines multiple strategies into one.
-pub struct CompositeStrategy<'a, const DIM: usize, U, P, S>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
+pub struct CompositeStrategy<'a, U, P, S>
+where U: UInt, P: State<U>, S: Strategy<U, P> {
     default_strategy: S,
-    partial_strategies: Vec<&'a dyn PartialStrategy<DIM, U, P>>,
+    partial_strategies: Vec<&'a dyn PartialStrategy<U, P>>,
     p_u: std::marker::PhantomData<U>,
     p_p: std::marker::PhantomData<P>,
 }
 
-impl <'a, const DIM: usize, U, P, S> CompositeStrategy<'a, DIM, U, P, S>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
-    pub fn new(default_strategy: S, partial_strategies: Vec<&'a dyn PartialStrategy<DIM, U, P>>) -> Self {
+impl <'a, U, P, S> CompositeStrategy<'a, U, P, S>
+where U: UInt, P: State<U>, S: Strategy<U, P> {
+    pub fn new(default_strategy: S, partial_strategies: Vec<&'a dyn PartialStrategy<U, P>>) -> Self {
         CompositeStrategy {
             default_strategy,
             partial_strategies,
@@ -56,12 +56,12 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
         }
     }
 }
-impl <'a, const DIM: usize, U, P, S> Strategy<DIM, U, P>
-for CompositeStrategy<'a, DIM, U, P, S>
-where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
+impl <'a, U, P, S> Strategy<U, P>
+for CompositeStrategy<'a, U, P, S>
+where U: UInt, P: State<U>, S: Strategy<U, P> {
     type ActionSet = std::vec::IntoIter<P::Value>;
 
-    fn suggest(&self, puzzle: &P) -> Result<(PuzzleIndex<DIM>, Self::ActionSet), PuzzleError> {
+    fn suggest(&self, puzzle: &P) -> Result<(Index, Self::ActionSet), Error> {
         for strategy in &self.partial_strategies {
             match strategy.suggest_partial(puzzle) {
                 Ok((index, action_set)) => {
@@ -95,58 +95,60 @@ where U: UInt, P: PuzzleState<DIM, U>, S: Strategy<DIM, U, P> {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-
     use super::*;
-    use crate::puzzle::{PuzzleError, PuzzleState, PuzzleValue};
+    use std::vec;
+    use crate::core::{to_value, Error, Grid, State, Value, UVal, UValUnwrapped, UValWrapped};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
-    impl PuzzleValue<u8> for Val {
+    impl Value<u8> for Val {
+        fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 3 }
-        fn from_uint(u: u8) -> Self { Val(u) }
-        fn to_uint(self) -> u8 { self.0 }
+        fn from_uval(u: UVal<u8, UValUnwrapped>) -> Self { Val(u.value()) }
+        fn to_uval(self) -> UVal<u8, UValWrapped> { UVal::new(self.0) }
     }
 
     #[derive(Debug, Clone)]
     pub struct ThreeVals {
-        pub grid: [Option<Val>; 3]
+        pub grid: Grid<u8, 1, 3>,
     }
-    impl PuzzleState<1, u8> for ThreeVals {
+    impl State<u8> for ThreeVals {
         type Value = Val;
-        fn reset(&mut self) { self.grid = [None; 3]; }
-        fn get(&self, index: PuzzleIndex<1>) -> Option<Self::Value> { self.grid[index[0]] }
-        fn apply(&mut self, index: PuzzleIndex<1>, value: Self::Value) -> Result<(), PuzzleError> {
-            self.grid[index[0]] = Some(value);
+        const ROWS: usize = 1;
+        const COLS: usize = 3;
+        fn reset(&mut self) { self.grid = Grid::new(); }
+        fn get(&self, index: Index) -> Option<Self::Value> { self.grid.get(index).map(to_value) }
+        fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+            self.grid.set(index, Some(value.to_uval()));
             Ok(())
         }
-        fn undo(&mut self, index: PuzzleIndex<1>) -> Result<(), PuzzleError> {
-            self.grid[index[0]] = None;
+        fn undo(&mut self, index: Index) -> Result<(), Error> {
+            self.grid.set(index, None);
             Ok(())
         }
     }
 
     pub struct HardcodedSuggest(pub usize, pub u8);
-    impl PartialStrategy<1, u8, ThreeVals> for HardcodedSuggest {
-        fn suggest_partial(&self, puzzle: &ThreeVals) -> Result<(PuzzleIndex<1>, Vec<Val>), PuzzleError> {
-            if puzzle.grid[self.0].is_none() {
-                Ok(([self.0], vec![Val(self.1)]))
+    impl PartialStrategy<u8, ThreeVals> for HardcodedSuggest {
+        fn suggest_partial(&self, puzzle: &ThreeVals) -> Result<(Index, Vec<Val>), Error> {
+            if puzzle.grid.get([0, self.0]).is_none() {
+                Ok(([0, self.0], vec![Val(self.1)]))
             } else {
-                Ok(([0], vec![]))
+                Ok(([0, 0], vec![]))
             }
         }
     }
 
     pub struct FirstEmptyStrategy {}
-    impl Strategy<1, u8, ThreeVals> for FirstEmptyStrategy {
+    impl Strategy<u8, ThreeVals> for FirstEmptyStrategy {
         type ActionSet = std::vec::IntoIter<Val>;
-        fn suggest(&self, puzzle: &ThreeVals) -> Result<(PuzzleIndex<1>, Self::ActionSet), PuzzleError> {
+        fn suggest(&self, puzzle: &ThreeVals) -> Result<(Index, Self::ActionSet), Error> {
             for i in 0..3 {
-                if puzzle.grid[i].is_none() {
-                    return Ok(([i], vec![Val(1), Val(2), Val(3)].into_iter()));
+                if puzzle.grid.get([0, i]).is_none() {
+                    return Ok(([0, i], vec![Val(1), Val(2), Val(3)].into_iter()));
                 }
             }
-            return Ok(([0], vec![].into_iter()));
+            return Ok(([0, 0], vec![].into_iter()));
         }
         fn empty_action_set() -> Self::ActionSet {
             vec![].into_iter()
@@ -155,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_composite_strategy() {
-        let mut puzzle = ThreeVals { grid: [None, None, None] };
+        let mut puzzle = ThreeVals { grid: Grid::new() };
         let partial = HardcodedSuggest(2, 2);
         let strategy= CompositeStrategy::new(
             FirstEmptyStrategy {},
@@ -163,19 +165,19 @@ mod tests {
         );
         {
             let (index, action_set) = strategy.suggest(&puzzle).unwrap();
-            assert_eq!(index, [2]);
+            assert_eq!(index, [0, 2]);
             assert_eq!(action_set.collect::<Vec<_>>(), vec![Val(2)]);
             puzzle.apply(index, Val(2)).unwrap();
         }
         {
             let (index, action_set) = strategy.suggest(&puzzle).unwrap();
-            assert_eq!(index, [0]);
+            assert_eq!(index, [0, 0]);
             assert_eq!(action_set.collect::<Vec<_>>(), vec![Val(1), Val(2), Val(3)]);
             puzzle.apply(index, Val(1)).unwrap();
         }
         {
             let (index, action_set) = strategy.suggest(&puzzle).unwrap();
-            assert_eq!(index, [1]);
+            assert_eq!(index, [0, 1]);
             assert_eq!(action_set.collect::<Vec<_>>(), vec![Val(1), Val(2), Val(3)]);
         }
     }

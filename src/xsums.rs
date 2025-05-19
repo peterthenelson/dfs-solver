@@ -1,4 +1,4 @@
-use crate::puzzle::{PuzzleError, PuzzleIndex, PuzzleState};
+use crate::core::{Error, Index, State};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::PartialStrategy;
 use crate::sudoku::{SState, SVal};
@@ -37,7 +37,7 @@ impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumIter
 }
 
 impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator for XSumIter<'a, MIN, MAX, N, M> {
-    type Item = PuzzleIndex<2>;
+    type Item = Index;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.r < 0 || self.c < 0 {
@@ -82,7 +82,7 @@ impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MAX, N, M> {
-    pub fn length(&self, puzzle: &SState<N, M, MIN, MAX>) -> Option<(PuzzleIndex<2>, SVal<MIN, MAX>)> {
+    pub fn length(&self, puzzle: &SState<N, M, MIN, MAX>) -> Option<(Index, SVal<MIN, MAX>)> {
         match self.direction {
             XSumDirection::RR => if let Some(v) = puzzle.get([self.index, 0]) {
                 Some(([self.index, 0], v))
@@ -107,7 +107,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
         }
     }
 
-    pub fn length_index(&self) -> PuzzleIndex<2> {
+    pub fn length_index(&self) -> Index {
         match self.direction {
             XSumDirection::RR => [self.index, 0],
             XSumDirection::RL => [self.index, M - 1],
@@ -141,20 +141,20 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<2, u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult<2> {
+Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
         let mut violations = Vec::new();
         for xsum in self.xsums.iter() {
             if let Some((len_index, len)) = xsum.length(puzzle) {
-                let mut sum = len.value();
+                let mut sum = len.val();
                 let mut sum_highlight = Vec::new();
                 let mut has_empty = false;
                 if details {
                     sum_highlight.push(len_index);
                 }
-                for [r, c] in xsum.xrange(len.value()) {
+                for [r, c] in xsum.xrange(len.val()) {
                     if let Some(v) = puzzle.get([r, c]) {
-                        sum += v.value();
+                        sum += v.val();
                         if details {
                             sum_highlight.push([r, c]);
                         }
@@ -187,17 +187,17 @@ pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, con
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-PartialStrategy<2, u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(PuzzleIndex<2>, Vec<SVal<MIN, MAX>>), PuzzleError> {
+PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(Index, Vec<SVal<MIN, MAX>>), Error> {
         for xsum in &self.xsums {
             match xsum.length(puzzle) {
                 Some((_, len)) => {
-                    let mut sum = len.value();
-                    let mut first_empty: Option<[usize; 2]> = None;
+                    let mut sum = len.val();
+                    let mut first_empty: Option<Index> = None;
                     let mut n_empty = 0;
-                    for [r, c] in xsum.xrange(len.value()) {
+                    for [r, c] in xsum.xrange(len.val()) {
                         match puzzle.get([r, c]) {
-                            Some(v) => sum += v.value(),
+                            Some(v) => sum += v.val(),
                             None => {
                                 if first_empty.is_none() {
                                     first_empty = Some([r, c]);

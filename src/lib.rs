@@ -1,4 +1,4 @@
-pub mod puzzle;
+pub mod core;
 pub mod constraint;
 pub mod strategy;
 pub mod solver;

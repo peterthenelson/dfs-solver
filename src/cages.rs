@@ -1,13 +1,11 @@
-use bit_set::BitSet;
-
-use crate::puzzle::{PuzzleError, PuzzleIndex, PuzzleState, PuzzleValue};
+use crate::core::{empty_set, Error, Index, State, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::PartialStrategy;
 use crate::sudoku::{SState, SVal};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
-    pub cells: Vec<[usize; 2]>,
+    pub cells: Vec<Index>,
     pub target: u8,
     pub exclusive: bool,
 }
@@ -23,26 +21,26 @@ impl CageChecker {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<2, u8, SState<N, M, MIN, MAX>> for CageChecker {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult<2> {
+Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
         let mut violations = Vec::new();
         for cage in self.cages.iter() {
             let mut has_empty = false;
             let mut sum = 0;
-            let mut sum_highlight: Vec<PuzzleIndex<2>> = Vec::new();
-            let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality());
-            let mut seen_highlight: Vec<PuzzleIndex<2>> = Vec::new();
+            let mut sum_highlight: Vec<Index> = Vec::new();
+            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
+            let mut seen_highlight: Vec<Index> = Vec::new();
             for cell in &cage.cells {
                 if let Some(value) = puzzle.get(*cell) {
-                    sum += value.value();
-                    if cage.exclusive && seen.contains(value.to_uint() as usize) {
+                    sum += value.val();
+                    if cage.exclusive && seen.contains(value.to_uval()) {
                         if details {
                             seen_highlight.push(cell.clone());
                         } else {
                             return ConstraintResult::Simple("Cage exclusivity violation");
                         }
                     }
-                    seen.insert(value.to_uint() as usize);
+                    seen.insert(value.to_uval());
                     if details {
                         sum_highlight.push(cell.clone());
                     }
@@ -74,19 +72,19 @@ pub struct CagePartialStrategy {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-PartialStrategy<2, u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(PuzzleIndex<2>, Vec<SVal<MIN, MAX>>), PuzzleError> {
+PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<(Index, Vec<SVal<MIN, MAX>>), Error> {
         for cage in &self.cages {
             let mut sum = 0;
-            let mut first_empty: Option<[usize; 2]> = None;
+            let mut first_empty: Option<Index> = None;
             let mut n_empty = 0;
-            let mut seen = BitSet::with_capacity(SVal::<MIN, MAX>::cardinality());
+            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
             for cell in &cage.cells {
                 match puzzle.get(*cell) {
                     Some(value) => {
-                        sum += value.value();
+                        sum += value.val();
                         if cage.exclusive {
-                            seen.insert(value.to_uint() as usize);
+                            seen.insert(value.to_uval());
                         }
                     },
                     None => {
@@ -105,7 +103,7 @@ PartialStrategy<2, u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
                 }
                 return Ok((empty, (MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
                     let value = SVal::<MIN, MAX>::new(value);
-                    return if seen.contains(value.to_uint() as usize) {
+                    return if seen.contains(value.to_uval()) {
                         None
                     } else {
                         Some(value)
