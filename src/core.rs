@@ -205,6 +205,15 @@ impl<U: UInt, V: Value<U>> SetGrid<U, V> {
         }
     }
 
+    pub fn full(rows: usize, cols: usize) -> Self {
+        Self {
+            rows,
+            cols,
+            grid: vec![full_set::<U, V>(); rows * cols].into_boxed_slice(),
+            _p_v: PhantomData,
+        }
+    }
+
     pub fn get(&self, index: Index) -> &Set<U> {
         &self.grid[index[0] * self.cols + index[1]]
     }
@@ -219,6 +228,26 @@ impl<U: UInt, V: Value<U>> SetGrid<U, V> {
 
     pub fn cols(&self) -> usize {
         self.cols
+    }
+
+    pub fn intersect_with(&mut self, other: &SetGrid<U, V>) {
+        assert!(self.rows == other.rows && self.cols == other.cols,
+                "Cannot intersect grids of different sizes");
+        for i in 0..self.rows {
+            for j in 0..self.cols {
+                self.get_mut([i, j]).intersect_with(other.get([i, j]));
+            }
+        }
+    }
+
+    pub fn union_with(&mut self, other: &SetGrid<U, V>) {
+        assert!(self.rows == other.rows && self.cols == other.cols,
+                "Cannot union grids of different sizes");
+        for i in 0..self.rows {
+            for j in 0..self.cols {
+                self.get_mut([i, j]).union_with(other.get([i, j]));
+            }
+        }
     }
 }
 
