@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::core::{empty_set, to_value, Error, Index, State, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
+use crate::core::{empty_set, to_value, Error, Index, State, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{DecisionPoint, Strategy};
 
@@ -32,11 +32,11 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
         (MAX - MIN + 1) as usize
     }
 
-    fn from_uval(u: UVal<u8, UValUnwrapped>) -> Self {
+    fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self {
         SVal(u.value() + MIN)
     }
 
-    fn to_uval(self) -> UVal<u8, UValWrapped> {
+    fn to_uval(self) -> UVal<u8, UVWrapped> {
         UVal::new(self.0 - MIN)
     }
 }

@@ -234,7 +234,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
 #[cfg(test)]
 mod test {
     use crate::constraint::ConstraintViolationDetail;
-    use crate::core::{to_value, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
+    use crate::core::{to_value, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
     use crate::strategy::{CompositeStrategy, PartialStrategy};
     use super::*;
 
@@ -243,8 +243,8 @@ mod test {
     impl Value<u8> for GwValue {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 10 }
-        fn from_uval(u: UVal<u8, UValUnwrapped>) -> Self { GwValue(u.value()) }
-        fn to_uval(self) -> UVal<u8, UValWrapped> { UVal::new(self.0) }
+        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { GwValue(u.value()) }
+        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
     }
 
     #[derive(Clone, Debug)]

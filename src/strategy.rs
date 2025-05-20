@@ -146,15 +146,15 @@ where U: UInt, P: State<U>, S: Strategy<U, P> {
 mod tests {
     use super::*;
     use std::vec;
-    use crate::core::{to_value, Error, State, UVGrid, UVal, UValUnwrapped, UValWrapped, Value};
+    use crate::core::{to_value, Error, State, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
     impl Value<u8> for Val {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 3 }
-        fn from_uval(u: UVal<u8, UValUnwrapped>) -> Self { Val(u.value()) }
-        fn to_uval(self) -> UVal<u8, UValWrapped> { UVal::new(self.0) }
+        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()) }
+        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
     }
 
     #[derive(Debug, Clone)]

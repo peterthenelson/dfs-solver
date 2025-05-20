@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::{borrow::Cow, marker::PhantomData};
 use std::fmt::Debug;
 use bit_set::BitSet;
@@ -55,30 +57,29 @@ impl UInt for u128 {
 // accidental misuse: These aren't the values you're looking for! They are just
 // for containers that need to store them!
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UValWrapped;
+pub struct UVWrapped;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UValUnwrapped;
+pub struct UVUnwrapped;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UVal<U: UInt, S> {
     u: U,
     _state: PhantomData<S>,
 }
 
-impl <U: UInt> UVal<U, UValWrapped> {
+impl <U: UInt> UVal<U, UVWrapped> {
     pub fn new(v: U) -> Self {
         UVal { u: v, _state: PhantomData }
     }
-}
 
-impl <U: UInt> UVal<U, UValUnwrapped> {
-    pub fn value(&self) -> U {
-        self.u
+    pub(self) fn unwrap(self) -> UVal<U, UVUnwrapped> {
+        UVal { u: self.u, _state: PhantomData }
     }
 }
 
-impl <U: UInt> UVal<U, UValWrapped> {
-    pub(self) fn unwrap(self) -> UVal<U, UValUnwrapped> {
-        UVal { u: self.u, _state: PhantomData }
+impl <U: UInt> UVal<U, UVUnwrapped> {
+    pub fn value(&self) -> U {
+        self.u
     }
 }
 
@@ -89,8 +90,8 @@ pub trait Value<U: UInt>: Copy + Clone + Debug + PartialEq + Eq {
     fn cardinality() -> usize;
     fn parse(s: &str) -> Result<Self, Error>;
 
-    fn from_uval(u: UVal<U, UValUnwrapped>) -> Self;
-    fn to_uval(self) -> UVal<U, UValWrapped>;
+    fn from_uval(u: UVal<U, UVUnwrapped>) -> Self;
+    fn to_uval(self) -> UVal<U, UVWrapped>;
 }
 
 /// This is the underlying grid structure for a puzzle.
@@ -110,11 +111,11 @@ impl<U: UInt> UVGrid<U> {
         }
     }
 
-    pub fn get(&self, index: Index) -> Option<UVal<U, UValWrapped>> {
+    pub fn get(&self, index: Index) -> Option<UVal<U, UVWrapped>> {
         self.grid[index[0] * self.cols + index[1]].map(|v| UVal::new(v))
     }
 
-    pub fn set(&mut self, index: Index, value: Option<UVal<U, UValWrapped>>) {
+    pub fn set(&mut self, index: Index, value: Option<UVal<U, UVWrapped>>) {
         self.grid[index[0] * self.cols + index[1]] = value.map(|v| v.unwrap().value());
     }
 
@@ -154,15 +155,15 @@ pub fn full_set<U: UInt, V: Value<U>>() -> Set<U> {
 }
 
 impl <U: UInt> Set<U> {
-    pub fn insert(&mut self, value: UVal<U, UValWrapped>) {
+    pub fn insert(&mut self, value: UVal<U, UVWrapped>) {
         self.s.insert(value.unwrap().value().as_usize());
     }
 
-    pub fn remove(&mut self, value: UVal<U, UValWrapped>) {
+    pub fn remove(&mut self, value: UVal<U, UVWrapped>) {
         self.s.remove(value.unwrap().value().as_usize());
     }
 
-    pub fn contains(&self, value: UVal<U, UValWrapped>) -> bool {
+    pub fn contains(&self, value: UVal<U, UVWrapped>) -> bool {
         self.s.contains(value.unwrap().value().as_usize())
     }
 
@@ -174,7 +175,7 @@ impl <U: UInt> Set<U> {
         self.s.clear();
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = UVal<U, UValWrapped>> + 'a {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = UVal<U, UVWrapped>> + 'a {
         self.s.iter().map(|i| UVal::new(U::from_usize(i)))
     }
 
@@ -184,6 +185,178 @@ impl <U: UInt> Set<U> {
 
     pub fn union_with(&mut self, other: &Set<U>) {
         self.s.union_with(&other.s);
+    }
+}
+
+struct FeatureRegistry {
+    features: HashMap<&'static str, usize>,
+    next_id: usize,
+}
+
+impl FeatureRegistry {
+    pub fn register(&mut self, name: &'static str) -> usize {
+        if let Some(id) = self.features.get(name) {
+            *id
+        } else {
+            let id = self.next_id;
+            self.features.insert(name, id);
+            self.next_id += 1;
+            id
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref FEATURE_REGISTRY: Mutex<FeatureRegistry> = {
+        Mutex::new(FeatureRegistry {
+            features: HashMap::new(),
+            next_id: 0,
+        })
+    };
+}
+
+// NOTE: This is an expensive operation, so only use it for human-interface
+// purposes (e.g., debugging, logging, etc.) and not during the solving process.
+pub fn readable_feature(id: usize) -> Option<FeatureKey<FKWithId>> {
+    let registry = FEATURE_REGISTRY.lock().unwrap();
+    for (name, feature_id) in &registry.features {
+        if *feature_id == id {
+            return Some(FeatureKey { name, id: Some(id), _state: PhantomData});
+        }
+    }
+    None
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FKMaybeId;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FKWithId;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureKey<S>{
+    name: &'static str,
+    id: Option<usize>,
+    _state: PhantomData<S>,
+}
+
+impl <S> FeatureKey<S> {
+    pub fn get_name(&self) -> &'static str { self.name }
+}
+
+impl FeatureKey<FKMaybeId> {
+    // Features are lazily initialized; the id is set when it is first used.
+    pub fn new(name: &'static str) -> Self {
+        FeatureKey { name, id: None, _state: PhantomData }
+    }
+
+    pub fn unwrap(&mut self) -> FeatureKey<FKWithId> {
+        if let Some(id) = self.id {
+            return FeatureKey { name: self.name, id: Some(id), _state: PhantomData };
+        } else {
+            let id = FEATURE_REGISTRY.lock().unwrap().register(self.name);
+            self.id = Some(id);
+            return FeatureKey { name: self.name, id: Some(id), _state: PhantomData };
+        }
+    }
+}
+
+impl FeatureKey<FKWithId> {
+    pub fn get_id(&self) -> usize { self.id.unwrap() }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FVMaybeNormed;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FVNormed;
+
+pub struct FeatureVec<S> {
+    features: Vec<(usize, f64)>,
+    // Some methods only make sense when the features are sorted by id and
+    // duplicate ids are dropped or merged.
+    normalized: bool,
+    _p_s: PhantomData<S>,
+}
+
+impl FeatureVec<FVMaybeNormed> {
+    pub fn new() -> Self {
+        FeatureVec { features: Vec::new(), normalized: true, _p_s: PhantomData }
+    }
+
+    pub fn add(&mut self, key: &FeatureKey<FKWithId>, value: f64) {
+        let id = key.get_id();
+        self.features.push((id, value));
+        self.normalized = false;
+    }
+
+    pub fn extend(&mut self, other: &FeatureVec<FVMaybeNormed>) {
+        self.features.extend_from_slice(&other.features);
+        self.normalized = false;
+    }
+
+    pub fn normalize(&mut self, combine: fn(f64, f64) -> f64) {
+        if self.normalized {
+            return;
+        } else if self.features.is_empty() {
+            self.normalized = true;
+            return;
+        }
+        self.features.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut dst = 0;
+        let mut dst_id = self.features[dst].0;
+        for src in 1..self.features.len() {
+            let src_id = self.features[src].0;
+            if src_id == dst_id {
+                self.features[dst].1 = combine(self.features[dst].1, self.features[src].1);
+            } else {
+                dst += 1;
+                self.features[dst] = self.features[src];
+                dst_id = src_id;
+            }
+        }
+        self.features.truncate(dst + 1);
+        self.normalized = true;
+    }
+
+    pub fn try_normalized(&self) -> Result<&FeatureVec<FVNormed>, Error> {
+        if self.normalized {
+            Ok(unsafe { std::mem::transmute(self) })
+        } else {
+            Err(Error::new("FeatureVec is not normalized"))
+        }
+    }
+
+    pub fn normalize_and(&mut self, combine: fn(f64, f64) -> f64) -> &FeatureVec<FVNormed> {
+        self.normalize(combine);
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl FeatureVec<FVNormed> {
+    pub fn get(&self, key: &FeatureKey<FKWithId>) -> Option<f64> {
+        let id = key.get_id();
+        for (k, v) in &self.features {
+            if *k == id {
+                return Some(*v);
+            }
+        }
+        None
+    }
+
+    pub fn dot_product(&self, other: &FeatureVec<FVNormed>) -> f64 {
+        let mut sum = 0.0;
+        let mut i = 0;
+        let mut j = 0;
+        while i < self.features.len() && j < other.features.len() {
+            if self.features[i].0 == other.features[j].0 {
+                sum += self.features[i].1 * other.features[j].1;
+                i += 1;
+                j += 1;
+            } else if self.features[i].0 < other.features[j].0 {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+        sum
     }
 }
 
@@ -255,7 +428,7 @@ impl<U: UInt, V: Value<U>> SetGrid<U, V> {
 
 /// This converts an extracted item from a container a Value, making use of the
 /// private API to do so.
-pub fn to_value<U: UInt, V: Value<U>>(u: UVal<U, UValWrapped>) -> V {
+pub fn to_value<U: UInt, V: Value<U>>(u: UVal<U, UVWrapped>) -> V {
     V::from_uval(u.unwrap())
 }
 
