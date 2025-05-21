@@ -268,6 +268,7 @@ pub struct FVMaybeNormed;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FVNormed;
 
+#[derive(Debug, Clone)]
 pub struct FeatureVec<S> {
     features: Vec<(usize, f64)>,
     // Some methods only make sense when the features are sorted by id and
@@ -360,22 +361,40 @@ impl FeatureVec<FVNormed> {
     }
 }
 
-/// This is a grid of Sets of values. It is used to represent the
-/// not-yet-ruled-out values for each cell in the grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CertainDecision<U: UInt, V: Value<U>> {
+    index: Index,
+    value: V,
+    _p_u: PhantomData<U>,
+}
+
+/// Constraints and ranking both may return early if they hit upon either a
+/// contradiction or a certainty. This is a simple enum to represent this
+/// short-circuiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decision<U: UInt, V: Value<U>, O> {
+    Contradiction,
+    Certainty(CertainDecision<U, V>),
+    Other(O),
+}
+
+/// This is a grid of Sets and FeatureVecs. It is used to represent the
+/// not-yet-ruled-out values for each cell in the grid, along with features
+/// attached to each cell.
 #[derive(Debug, Clone)]
-pub struct SetGrid<U: UInt, V: Value<U>> {
+pub struct DecisionGrid<U: UInt, V: Value<U>> {
     rows: usize,
     cols: usize,
-    grid: Box<[Set<U>]>,
+    grid: Box<[(Set<U>, FeatureVec<FVMaybeNormed>)]>,
     _p_v: PhantomData<V>,
 }
 
-impl<U: UInt, V: Value<U>> SetGrid<U, V> {
+impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
     pub fn new(rows: usize, cols: usize) -> Self {
         Self {
             rows,
             cols,
-            grid: vec![empty_set::<U, V>(); rows * cols].into_boxed_slice(),
+            grid: vec![(empty_set::<U, V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
             _p_v: PhantomData,
         }
     }
@@ -384,16 +403,16 @@ impl<U: UInt, V: Value<U>> SetGrid<U, V> {
         Self {
             rows,
             cols,
-            grid: vec![full_set::<U, V>(); rows * cols].into_boxed_slice(),
+            grid: vec![(full_set::<U, V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
             _p_v: PhantomData,
         }
     }
 
-    pub fn get(&self, index: Index) -> &Set<U> {
+    pub fn get(&self, index: Index) -> &(Set<U>, FeatureVec<FVMaybeNormed>) {
         &self.grid[index[0] * self.cols + index[1]]
     }
 
-    pub fn get_mut(&mut self, index: Index) -> &mut Set<U> {
+    pub fn get_mut(&mut self, index: Index) -> &mut (Set<U>, FeatureVec<FVMaybeNormed>) {
         self.grid.get_mut(index[0] * self.cols + index[1]).unwrap()
     }
 
@@ -405,22 +424,17 @@ impl<U: UInt, V: Value<U>> SetGrid<U, V> {
         self.cols
     }
 
-    pub fn intersect_with(&mut self, other: &SetGrid<U, V>) {
+    /// Intersects the possible values of this grid with the possible values of
+    /// another grid. Also merges the features of the two grids.
+    pub fn combine_with(&mut self, other: &DecisionGrid<U, V>) {
         assert!(self.rows == other.rows && self.cols == other.cols,
-                "Cannot intersect grids of different sizes");
+                "Cannot combine grids of different sizes");
         for i in 0..self.rows {
             for j in 0..self.cols {
-                self.get_mut([i, j]).intersect_with(other.get([i, j]));
-            }
-        }
-    }
-
-    pub fn union_with(&mut self, other: &SetGrid<U, V>) {
-        assert!(self.rows == other.rows && self.cols == other.cols,
-                "Cannot union grids of different sizes");
-        for i in 0..self.rows {
-            for j in 0..self.cols {
-                self.get_mut([i, j]).union_with(other.get([i, j]));
+                let a = self.get_mut([i, j]);
+                let b = other.get([i, j]);
+                a.0.intersect_with(&b.0);
+                a.1.extend(&b.1);
             }
         }
     }
