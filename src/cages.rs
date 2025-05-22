@@ -1,6 +1,6 @@
 use crate::core::{empty_set, Error, Index, State, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::{DecisionPoint, PartialStrategy};
+use crate::strategy::{BranchPoint, PartialStrategy};
 use crate::sudoku::{SState, SVal};
 
 #[derive(Debug, Clone)]
@@ -73,7 +73,7 @@ pub struct CagePartialStrategy {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<DecisionPoint<u8, SState<N, M, MIN, MAX>, std::vec::IntoIter<SVal<MIN, MAX>>>, Error> {
+    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<BranchPoint<u8, SState<N, M, MIN, MAX>, std::vec::IntoIter<SVal<MIN, MAX>>>, Error> {
         for cage in &self.cages {
             let mut sum = 0;
             let mut first_empty: Option<Index> = None;
@@ -99,7 +99,7 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
                 let target = cage.target;
                 let remaining = target - sum;
                 if n_empty == 1 && MIN <= remaining && remaining <= MAX {
-                    return Ok(DecisionPoint::unique(empty, SVal::new(remaining)));
+                    return Ok(BranchPoint::unique(empty, SVal::new(remaining)));
                 }
                 let actions = (MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
                     let value = SVal::<MIN, MAX>::new(value);
@@ -109,10 +109,10 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
                         Some(value)
                     };
                 }).collect::<Vec<SVal<MIN, MAX>>>();
-                return Ok(DecisionPoint::new(empty, actions.into_iter()));
+                return Ok(BranchPoint::new(empty, actions.into_iter()));
             }
         }
-        Ok(DecisionPoint::empty())
+        Ok(BranchPoint::empty())
     }
 }
 

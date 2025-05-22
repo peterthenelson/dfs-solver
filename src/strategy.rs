@@ -11,23 +11,23 @@ impl <Item> ActionSet<Item> for std::vec::IntoIter<Item> {}
 /// chosen, as well as the index of the cell that was modified, as well as the
 /// alternative values that have not been tried yet.
 #[derive(Debug, Clone)]
-pub struct DecisionPoint<U: UInt, P: State<U>, A: ActionSet<P::Value>> {
+pub struct BranchPoint<U: UInt, P: State<U>, A: ActionSet<P::Value>> {
     pub chosen: Option<P::Value>,
     pub index: Index,
     pub alternatives: A,
 }
 
-impl <U: UInt, P: State<U>, A: ActionSet<P::Value>> DecisionPoint<U, P, A> {
+impl <U: UInt, P: State<U>, A: ActionSet<P::Value>> BranchPoint<U, P, A> {
     pub fn unique(index: Index, value: P::Value) -> Self {
-        DecisionPoint { chosen: Some(value), index, alternatives: A::default() }
+        BranchPoint { chosen: Some(value), index, alternatives: A::default() }
     }
 
     pub fn empty() -> Self {
-        DecisionPoint { chosen: None, index: [0, 0], alternatives: A::default() }
+        BranchPoint { chosen: None, index: [0, 0], alternatives: A::default() }
     }
 
     pub fn new(index: Index, alternatives: A) -> Self {
-        let mut d = DecisionPoint { chosen: None, index, alternatives };
+        let mut d = BranchPoint { chosen: None, index, alternatives };
         if d.alternatives.len() > 0 {
             d.chosen = Some(d.alternatives.next().unwrap());
         }
@@ -64,12 +64,12 @@ impl <U: UInt, P: State<U>, A: ActionSet<P::Value>> DecisionPoint<U, P, A> {
 /// (preferably in an order that leads to a faster solve). Note that the
 /// posibilities must be exhaustive (e.g., if the puzzle is a sudoku, the first
 /// empty cell must be one of the 9 digits--if none of them work, then the
-/// puzzle has no solution). Prefer to create your DecisionPoint using either
+/// puzzle has no solution). Prefer to create your BranchPoint using either
 /// the ::new, ::unique, and ::empty methods. The ::new method will take the
 /// first value from the iterator and set it as the chosen value.
 pub trait Strategy<U: UInt, P: State<U>> {
     type ActionSet: ActionSet<P::Value>;
-    fn suggest(&self, puzzle: &P) -> Result<DecisionPoint<U, P, Self::ActionSet>, Error>;
+    fn suggest(&self, puzzle: &P) -> Result<BranchPoint<U, P, Self::ActionSet>, Error>;
 }
 
 /// A partial strategy that can be used to suggest actions (but requires some
@@ -77,16 +77,16 @@ pub trait Strategy<U: UInt, P: State<U>> {
 /// specific to a particular constraint or puzzle type, but may not be able to
 /// enumerate all the possible actions.
 pub trait PartialStrategy<U: UInt, P: State<U>> {
-    fn suggest_partial(&self, puzzle: &P) -> Result<DecisionPoint<U, P, std::vec::IntoIter<P::Value>>, Error>;
+    fn suggest_partial(&self, puzzle: &P) -> Result<BranchPoint<U, P, std::vec::IntoIter<P::Value>>, Error>;
 }
 
 /// All strategies are partial strategies.
 impl <U, P, S> PartialStrategy<U, P> for S
 where U: UInt, P: State<U>, S: Strategy<U, P> {
-    fn suggest_partial(&self, puzzle: &P) -> Result<DecisionPoint<U, P, std::vec::IntoIter<P::Value>>, Error> {
+    fn suggest_partial(&self, puzzle: &P) -> Result<BranchPoint<U, P, std::vec::IntoIter<P::Value>>, Error> {
         match self.suggest(puzzle) {
             Ok(decision) => {
-                Ok(DecisionPoint::new(decision.index, decision.into_vec().into_iter()))
+                Ok(BranchPoint::new(decision.index, decision.into_vec().into_iter()))
             }
             Err(e) => Err(e),
         }
@@ -118,14 +118,14 @@ for CompositeStrategy<'a, U, P, S>
 where U: UInt, P: State<U>, S: Strategy<U, P> {
     type ActionSet = std::vec::IntoIter<P::Value>;
 
-    fn suggest(&self, puzzle: &P) -> Result<DecisionPoint<U, P, Self::ActionSet>, Error> {
+    fn suggest(&self, puzzle: &P) -> Result<BranchPoint<U, P, Self::ActionSet>, Error> {
         for strategy in &self.partial_strategies {
             match strategy.suggest_partial(puzzle) {
                 Ok(decision) => {
                     let index = decision.index;
                     let actions = decision.into_vec();
                     if !actions.is_empty() {
-                        return Ok(DecisionPoint::new(index, actions.into_iter()));
+                        return Ok(BranchPoint::new(index, actions.into_iter()));
                     }
                 }
                 Err(e) => return Err(e),
@@ -135,7 +135,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P> {
             Ok(decision) => {
                 let index = decision.index;
                 let actions = decision.into_vec();
-                return Ok(DecisionPoint::new(index, actions.into_iter()));
+                return Ok(BranchPoint::new(index, actions.into_iter()));
             }
             Err(e) => return Err(e),
         }
@@ -180,11 +180,11 @@ mod tests {
 
     pub struct HardcodedSuggest(pub usize, pub u8);
     impl PartialStrategy<u8, ThreeVals> for HardcodedSuggest {
-        fn suggest_partial(&self, puzzle: &ThreeVals) -> Result<DecisionPoint<u8, ThreeVals, std::vec::IntoIter<Val>>, Error> {
+        fn suggest_partial(&self, puzzle: &ThreeVals) -> Result<BranchPoint<u8, ThreeVals, std::vec::IntoIter<Val>>, Error> {
             if puzzle.grid.get([0, self.0]).is_none() {
-                Ok(DecisionPoint::new([0, self.0], vec![Val(self.1)].into_iter()))
+                Ok(BranchPoint::new([0, self.0], vec![Val(self.1)].into_iter()))
             } else {
-                Ok(DecisionPoint::new([0, 0], vec![].into_iter()))
+                Ok(BranchPoint::new([0, 0], vec![].into_iter()))
             }
         }
     }
@@ -192,13 +192,13 @@ mod tests {
     pub struct FirstEmptyStrategy {}
     impl Strategy<u8, ThreeVals> for FirstEmptyStrategy {
         type ActionSet = std::vec::IntoIter<Val>;
-        fn suggest(&self, puzzle: &ThreeVals) -> Result<DecisionPoint<u8, ThreeVals, Self::ActionSet>, Error> {
+        fn suggest(&self, puzzle: &ThreeVals) -> Result<BranchPoint<u8, ThreeVals, Self::ActionSet>, Error> {
             for i in 0..3 {
                 if puzzle.grid.get([0, i]).is_none() {
-                    return Ok(DecisionPoint::new([0, i], vec![Val(1), Val(2), Val(3)].into_iter()));
+                    return Ok(BranchPoint::new([0, i], vec![Val(1), Val(2), Val(3)].into_iter()));
                 }
             }
-            return Ok(DecisionPoint::new([0, 0], vec![].into_iter()));
+            return Ok(BranchPoint::new([0, 0], vec![].into_iter()));
         }
     }
 

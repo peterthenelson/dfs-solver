@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::core::{empty_set, to_value, Error, Index, State, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::{DecisionPoint, Strategy};
+use crate::strategy::{BranchPoint, Strategy};
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -341,11 +341,11 @@ pub struct FirstEmptyStrategy {}
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8, SState<N, M, MIN, MAX>> for FirstEmptyStrategy {
     type ActionSet = std::vec::IntoIter<SVal<MIN, MAX>>;
 
-    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<DecisionPoint<u8, SState<N, M, MIN, MAX>, Self::ActionSet>, Error> {
+    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<BranchPoint<u8, SState<N, M, MIN, MAX>, Self::ActionSet>, Error> {
         for i in 0..N {
             for j in 0..M {
                 if puzzle.get([i, j]).is_none() {
-                    return Ok(DecisionPoint::new(
+                    return Ok(BranchPoint::new(
                         [i, j],
                         (MIN..=MAX).map(|value| {
                             SVal::new(value)
@@ -354,7 +354,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8,
                 }
             }
         }
-        Ok(DecisionPoint::empty())
+        Ok(BranchPoint::empty())
     }
 }
 

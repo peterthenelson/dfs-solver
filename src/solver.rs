@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use crate::core::{Error, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintResult};
-use crate::strategy::{DecisionPoint, Strategy};
+use crate::strategy::{BranchPoint, Strategy};
 
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
@@ -33,7 +33,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     strategy: &'a S,
     constraint: &'a C,
     violation: ConstraintResult,
-    stack: Vec<DecisionPoint<U, P, S::ActionSet>>,
+    stack: Vec<BranchPoint<U, P, S::ActionSet>>,
     state: DfsSolverState,
 }
 
@@ -81,7 +81,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
         }
     }
 
-    fn apply(&mut self, decision: DecisionPoint<U, P, S::ActionSet>, details: bool) -> Result<(), Error> {
+    fn apply(&mut self, decision: BranchPoint<U, P, S::ActionSet>, details: bool) -> Result<(), Error> {
         if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
         } else if decision.chosen.is_none() {
@@ -99,7 +99,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     }
 
     pub fn manual_step(&mut self, index: Index, value: P::Value, details: bool) -> Result<(), Error> {
-        self.apply(DecisionPoint {
+        self.apply(BranchPoint {
             chosen: Some(value),
             index,
             alternatives: S::ActionSet::default(),
@@ -362,31 +362,31 @@ mod test {
     impl Strategy<u8, GwLine> for GwLineStrategy {
         type ActionSet = std::vec::IntoIter<GwValue>;
 
-        fn suggest(&self, puzzle: &GwLine) -> Result<DecisionPoint<u8, GwLine, Self::ActionSet>, Error> {
+        fn suggest(&self, puzzle: &GwLine) -> Result<BranchPoint<u8, GwLine, Self::ActionSet>, Error> {
             for i in 0..8 {
                 if puzzle.digits.get([0, i]).is_none() {
-                    return Ok(DecisionPoint::new(
+                    return Ok(BranchPoint::new(
                         [0, i],
                         vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().map(GwValue).collect::<Vec<_>>().into_iter())
                     );
                 }
             }
-            Ok(DecisionPoint::empty())
+            Ok(BranchPoint::empty())
         }
     }
 
     struct GwLineStrategyPartial {}
     impl PartialStrategy<u8, GwLine> for GwLineStrategyPartial {
-        fn suggest_partial(&self, puzzle: &GwLine) -> Result<DecisionPoint<u8, GwLine, std::vec::IntoIter<GwValue>>, Error> {
+        fn suggest_partial(&self, puzzle: &GwLine) -> Result<BranchPoint<u8, GwLine, std::vec::IntoIter<GwValue>>, Error> {
             // This is a partial strategy that only affects the first digit and
             // avoids guessing things that can't work.
             if puzzle.digits.get([0, 0]).is_none() {
-                return Ok(DecisionPoint::new(
+                return Ok(BranchPoint::new(
                     [0, 0],
                     vec![4, 6].into_iter().map(GwValue).collect::<Vec<_>>().into_iter())
                 );
             }
-            Ok(DecisionPoint::empty())
+            Ok(BranchPoint::empty())
         }
     }
 
