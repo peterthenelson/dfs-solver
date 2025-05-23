@@ -1,3 +1,4 @@
+/*
 use variant_sudoku_dfs::strategy::CompositeStrategy;
 use variant_sudoku_dfs::constraint::ConstraintConjunction;
 use variant_sudoku_dfs::solver::FindFirstSolution;
@@ -50,3 +51,5 @@ fn main() {
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
     println!("Solution:\n{}", maybe_solution.unwrap().get_puzzle().serialize());
 }
+*/
+pub fn main() {}

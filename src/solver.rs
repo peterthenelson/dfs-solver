@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use crate::core::{Error, Index, State, UInt};
-use crate::constraint::{Constraint, ConstraintResult};
+use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail, Possibilities};
 use crate::strategy::{BranchPoint, Strategy};
 
 /// The state of the DFS solver. At any point in time, the solver is either
@@ -15,32 +15,33 @@ pub enum DfsSolverState {
 }
 
 // A view on the state and associated data for the solver.
-pub trait DfsSolverView<U: UInt, P: State<U>> {
-    fn get_state(&self) -> DfsSolverState;
+pub trait DfsSolverView<U: UInt, S: State<U>> {
+    fn solver_state(&self) -> DfsSolverState;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
-    fn get_violations(&self) -> ConstraintResult;
-    fn get_puzzle(&self) -> &P;
+    fn check_constraints(&self) -> ConstraintResult<U, S::Value>;
+    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail>;
+    fn get_state(&self) -> &S;
 }
 
 /// DFS solver. If you want a lower-level API that allows for more control over
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
 /// if you are implementing a UI or debugging, this API may be useful.
-pub struct DfsSolver<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
-    puzzle: &'a mut P,
-    strategy: &'a S,
+pub struct DfsSolver<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    puzzle: &'a mut S,
+    strategy: &'a St,
     constraint: &'a C,
-    violation: ConstraintResult,
-    stack: Vec<BranchPoint<U, P, S::ActionSet>>,
+    check_result: ConstraintResult<U, S::Value>,
+    stack: Vec<BranchPoint<U, S, St::ActionSet>>,
     state: DfsSolverState,
 }
 
-impl <'a, U, P, S, C> DfsSolverView<U, P>
-for DfsSolver<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
-    fn get_state(&self) -> DfsSolverState {
+impl <'a, U, S, St, C> DfsSolverView<U, S>
+for DfsSolver<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    fn solver_state(&self) -> DfsSolverState {
         self.state
     }
 
@@ -49,14 +50,18 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
     }
 
     fn is_valid(&self) -> bool {
-        self.violation.is_none()
+        self.check_result.no_contradiction()
     }
 
-    fn get_violations(&self) -> ConstraintResult {
-        self.violation.clone()
+    fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
+        self.check_result.clone()
     }
 
-    fn get_puzzle(&self) -> &P {
+    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
+        self.constraint.explain_contradictions(self.get_state())
+    }
+
+    fn get_state(&self) -> &S {
         self.puzzle
     }
 }
@@ -64,24 +69,24 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
  
-impl <'a, U, P, S, C> DfsSolver<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
+impl <'a, U, S, St, C> DfsSolver<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     pub fn new(
-        puzzle: &'a mut P,
-        strategy: &'a S,
+        puzzle: &'a mut S,
+        strategy: &'a St,
         constraint: &'a C, 
     ) -> Self {
         DfsSolver {
             puzzle,
             strategy,
             constraint,
-            violation: ConstraintResult::NoViolation,
+            check_result: ConstraintResult::Other(Possibilities::Any),
             stack: Vec::new(),
             state: DfsSolverState::Advancing,
         }
     }
 
-    fn apply(&mut self, decision: BranchPoint<U, P, S::ActionSet>, details: bool) -> Result<(), Error> {
+    fn apply(&mut self, decision: BranchPoint<U, S, St::ActionSet>, details: bool) -> Result<(), Error> {
         if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
         } else if decision.chosen.is_none() {
@@ -89,8 +94,8 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
         }
         self.puzzle.apply(decision.index, decision.chosen.unwrap())?;
         self.stack.push(decision);
-        self.violation = self.constraint.check(self.puzzle, details);
-        self.state = if self.violation.is_none() {
+        self.check_result = self.constraint.check(self.puzzle, details);
+        self.state = if self.check_result.no_contradiction() {
             DfsSolverState::Advancing
         } else {
             DfsSolverState::Backtracking
@@ -98,11 +103,11 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
         return Ok(());
     }
 
-    pub fn manual_step(&mut self, index: Index, value: P::Value, details: bool) -> Result<(), Error> {
+    pub fn manual_step(&mut self, index: Index, value: S::Value, details: bool) -> Result<(), Error> {
         self.apply(BranchPoint {
             chosen: Some(value),
             index,
-            alternatives: S::ActionSet::default(),
+            alternatives: St::ActionSet::default(),
          }, details)
     }
 
@@ -149,24 +154,29 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
 
     pub fn reset(&mut self) {
         self.puzzle.reset();
-        self.violation = ConstraintResult::NoViolation;
+        self.check_result = ConstraintResult::Other(Possibilities::Any);
         self.stack.clear();
         self.state = DfsSolverState::Advancing;
     }
 }
 
 /// Find first solution to the puzzle using the given strategy and constraints.
-pub struct FindFirstSolution<'a, U, P, S, C>(DfsSolver<'a, U, P, S, C>, bool)
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P>;
+pub struct FindFirstSolution<'a, U, S, St, C>(DfsSolver<'a, U, S, St, C>, bool)
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S>;
 
-impl <'a, U, P, S, C> DfsSolverView<U, P>
-for FindFirstSolution<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
-    fn get_state(&self) -> DfsSolverState { self.0.get_state() }
+impl <'a, U, S, St, C> DfsSolverView<U, S>
+for FindFirstSolution<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    fn solver_state(&self) -> DfsSolverState { self.0.solver_state() }
     fn is_done(&self) -> bool { self.0.is_done() }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violations(&self) -> ConstraintResult { self.0.get_violations() }
-    fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
+    fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
+        self.0.check_constraints()
+    }
+    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
+        self.0.explain_contradiction()
+    }
+    fn get_state(&self) -> &S { self.0.get_state() }
 }
 
 impl <'a, U, P, S, C> FindFirstSolution<'a, U, P, S, C>
@@ -198,17 +208,22 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
 }
 
 /// Find all solutions to the puzzle using the given strategy and constraints.
-pub struct FindAllSolutions<'a, U, P, S, C>(DfsSolver<'a, U, P, S, C>, bool)
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P>;
+pub struct FindAllSolutions<'a, U, S, St, C>(DfsSolver<'a, U, S, St, C>, bool)
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S>;
 
-impl <'a, U, P, S, C> DfsSolverView<U, P>
-for FindAllSolutions<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
-    fn get_state(&self) -> DfsSolverState { self.0.get_state() }
-    fn is_done(&self) -> bool { self.0.get_state() == DfsSolverState::Exhausted }
+impl <'a, U, S, St, C> DfsSolverView<U, S>
+for FindAllSolutions<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    fn solver_state(&self) -> DfsSolverState { self.0.solver_state() }
+    fn is_done(&self) -> bool { self.0.solver_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.0.is_valid() }
-    fn get_violations(&self) -> ConstraintResult { self.0.get_violations() }
-    fn get_puzzle(&self) -> &P { self.0.get_puzzle() }
+    fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
+        self.0.check_constraints()
+    }
+    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
+        self.0.explain_contradiction()
+    }
+    fn get_state(&self) -> &S { self.0.get_state() }
 }
 
 impl <'a, U, P, S, C> FindAllSolutions<'a, U, P, S, C>
@@ -315,8 +330,7 @@ mod test {
 
     struct GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, details: bool) -> ConstraintResult {
-            let mut violations = Vec::new();
+        fn check(&self, puzzle: &GwLine, _: bool) -> ConstraintResult<u8, GwValue> {
             for i in 0..8 {
                 if puzzle.digits.get([0, i]).is_none() {
                     continue;
@@ -328,33 +342,18 @@ mod test {
                     }
                     let j_val = to_value::<u8, GwValue>(puzzle.digits.get([0, j]).unwrap()).0;
                     if i_val == j_val {
-                        if details {
-                            violations.push(ConstraintViolationDetail {
-                                message: format!("Digits with duplicate value: [{}] == [{}] == {}", i, j, i_val),
-                                highlight: Some(vec![[0, i], [0, j]]),
-                            });
-                        } else {
-                            return ConstraintResult::Simple("Duplicate digits");
-                        }
+                        return ConstraintResult::Contradiction;
                     }
                     let diff: i16 = (i_val as i16) - (j_val as i16);
                     if j == i+1 && diff.abs() < 5 {
-                        if details {
-                            violations.push(ConstraintViolationDetail {
-                                message: format!("Adjacent digits too close: [{}]={} and [{}]={}", i, i_val, j, j_val),
-                                highlight: Some(vec![[0, i], [0, j]]),
-                            });
-                        } else {
-                            return ConstraintResult::Simple("Adjacent digits too close");
-                        }
+                        return ConstraintResult::Contradiction;
                     }
                 }
             }
-            if violations.len() > 0 {
-                return ConstraintResult::Details(violations);
-            } else {
-                ConstraintResult::NoViolation
-            }
+            ConstraintResult::Other(Possibilities::Any)
+        }
+        fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
+            todo!()
         }
     }
 
@@ -395,22 +394,22 @@ mod test {
         let mut puzzle = GwLine::new();
         let constraint = GwLineConstraint {};
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::NoViolation);
+        assert_eq!(violation, ConstraintResult::Other(Possibilities::Any));
         puzzle.apply([0, 0], GwValue(1)).unwrap();
         puzzle.apply([0, 3], GwValue(2)).unwrap();
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::NoViolation);
+        assert_eq!(violation, ConstraintResult::Other(Possibilities::Any));
         puzzle.apply([0, 5], GwValue(1)).unwrap();
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::Simple("Duplicate digits"));
+        assert_eq!(violation, ConstraintResult::Contradiction);
         puzzle.undo([0, 5], GwValue(1)).unwrap();
         puzzle.apply([0, 1], GwValue(3)).unwrap();
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::Simple("Adjacent digits too close"));
+        assert_eq!(violation, ConstraintResult::Contradiction);
         puzzle.undo([0, 1], GwValue(3)).unwrap();
         puzzle.apply([0, 1], GwValue(6)).unwrap();
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::NoViolation);
+        assert_eq!(violation, ConstraintResult::Other(Possibilities::Any));
     }
 
     #[test]
@@ -421,7 +420,7 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, false);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
-        assert_eq!(maybe_solution.unwrap().get_puzzle().to_string(), "49382716");
+        assert_eq!(maybe_solution.unwrap().get_state().to_string(), "49382716");
         Ok(())
     }
 
@@ -432,21 +431,15 @@ mod test {
         let constraint = GwLineConstraint {};
         let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, true);
         let mut steps: usize = 0;
-        let mut violation_count: usize = 0;
+        let mut contradiction_count: usize = 0;
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
-            violation_count += match finder.get_violations() {
-                ConstraintResult::Simple(_) => 1,
-                ConstraintResult::Details(details) => {
-                    details.len()
-                },
-                ConstraintResult::NoViolation => 0,
-            }
+            contradiction_count += if finder.check_constraints().no_contradiction() { 0 } else { 1 };
         }
         assert!(finder.is_valid());
         assert!(steps > 100);
-        assert!(violation_count > 100);
+        assert!(contradiction_count > 100);
         Ok(())
     }
 
@@ -461,7 +454,7 @@ mod test {
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
-            solution_count += if finder.get_state() == DfsSolverState::Solved { 1 } else { 0 };
+            solution_count += if finder.solver_state() == DfsSolverState::Solved { 1 } else { 0 };
         }
         assert!(steps > 2500);
         assert_eq!(solution_count, 2);
@@ -480,7 +473,7 @@ mod test {
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
-            solution_count += if finder.get_state() == DfsSolverState::Solved { 1 } else { 0 };
+            solution_count += if finder.solver_state() == DfsSolverState::Solved { 1 } else { 0 };
         }
         assert!(steps < 1000);
         assert_eq!(solution_count, 2);

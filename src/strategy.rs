@@ -1,3 +1,5 @@
+// TODO: Delete this and replace with a Ranker
+
 use crate::core::{State, Error, Index, UInt};
 
 /// Possible values are represented using iterators that know their size and

@@ -130,7 +130,7 @@ impl<U: UInt> UVGrid<U> {
 
 /// This a set of values (e.g., that are possible, that have been seen, etc.).
 /// They are represented as a bitset of the possible values.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Set<U: UInt> {
     s: BitSet,
     _p_u: PhantomData<U>,
@@ -151,6 +151,12 @@ pub fn full_set<U: UInt, V: Value<U>>() -> Set<U> {
     };
     let mask: u64 = (((1 as u128) << V::cardinality()) - 1) as u64;
     s.s.union_with(&BitSet::from_bytes(&mask.to_ne_bytes()));
+    s
+}
+
+pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> Set<U> {
+    let mut s = empty_set::<U, V>();
+    s.insert(v.to_uval());
     s
 }
 
@@ -268,7 +274,7 @@ pub struct FVMaybeNormed;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FVNormed;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FeatureVec<S> {
     features: Vec<(usize, f64)>,
     // Some methods only make sense when the features are sorted by id and
@@ -381,7 +387,7 @@ pub enum Decision<U: UInt, V: Value<U>, O> {
 /// This is a grid of Sets and FeatureVecs. It is used to represent the
 /// not-yet-ruled-out values for each cell in the grid, along with features
 /// attached to each cell.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DecisionGrid<U: UInt, V: Value<U>> {
     rows: usize,
     cols: usize,
