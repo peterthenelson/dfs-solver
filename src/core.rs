@@ -177,6 +177,10 @@ impl <U: UInt> Set<U> {
         self.s.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.s.len()
+    }
+
     pub fn clear(&mut self) {
         self.s.clear();
     }
@@ -374,6 +378,12 @@ pub struct CertainDecision<U: UInt, V: Value<U>> {
     _p_u: PhantomData<U>,
 }
 
+impl <U: UInt, V: Value<U>> CertainDecision<U, V> {
+    pub fn new(index: Index, value: V) -> Self {
+        Self { index, value, _p_u: PhantomData }
+    }
+}
+
 /// Constraints and ranking both may return early if they hit upon either a
 /// contradiction or a certainty. This is a simple enum to represent this
 /// short-circuiting.
@@ -382,6 +392,22 @@ pub enum Decision<U: UInt, V: Value<U>, O> {
     Contradiction,
     Certainty(CertainDecision<U, V>),
     Other(O),
+}
+
+impl <U: UInt, V: Value<U>, O> Decision<U, V, O> {
+    pub fn is_contradiction(&self) -> bool {
+        match self {
+            Decision::Contradiction => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_certainty(&self) -> bool {
+        match self {
+            Decision::Certainty(_) => true,
+            _ => false,
+        }
+    }
 }
 
 /// This is a grid of Sets and FeatureVecs. It is used to represent the
@@ -473,14 +499,9 @@ pub trait Stateful<U: UInt, V: Value<U>>: {
 /// Trait for representing whatever puzzle is being solved in its current state
 /// of being (partially) filled in. Ultimately this is just wrapping a Grid, but
 /// it may impose additional meanings on the values of the grid.
-pub trait State<U: UInt>: Clone + Debug {
+pub trait State<U: UInt> where Self: Clone + Debug + Stateful<U, Self::Value> {
     type Value: Value<U>;
     const ROWS: usize;
     const COLS: usize;
-    fn reset(&mut self);
     fn get(&self, index: Index) -> Option<Self::Value>;
-    fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error>;
-    fn undo(&mut self, index: Index, value: Self::Value) -> Result<(), Error>;
 }
-
-impl <U: UInt, S: State<U>> Stateful<U, S::Value> for S {}

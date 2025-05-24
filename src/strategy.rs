@@ -148,7 +148,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P> {
 mod tests {
     use super::*;
     use std::vec;
-    use crate::core::{to_value, Error, State, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
+    use crate::core::{to_value, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
@@ -167,13 +167,15 @@ mod tests {
         type Value = Val;
         const ROWS: usize = 1;
         const COLS: usize = 3;
-        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
         fn get(&self, index: Index) -> Option<Self::Value> { self.grid.get(index).map(to_value) }
-        fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+    }
+    impl Stateful<u8, Val> for ThreeVals {
+        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
+        fn apply(&mut self, index: Index, value: Val) -> Result<(), Error> {
             self.grid.set(index, Some(value.to_uval()));
             Ok(())
         }
-        fn undo(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+        fn undo(&mut self, index: Index, value: Val) -> Result<(), Error> {
             self.grid.set(index, None);
             let _ = value;
             Ok(())

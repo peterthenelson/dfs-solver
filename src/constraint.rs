@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{Decision, DecisionGrid, Index, State, UInt, Value};
+use crate::core::{Decision, DecisionGrid, Index, State, Stateful, UInt, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Possibilities<U: UInt, V: Value<U>> {
@@ -29,6 +29,14 @@ impl <U: UInt, V: Value<U>> Possibilities<U, V> {
 pub type ConstraintResult<U, V> = Decision<U, V, Possibilities<U, V>>;
 
 impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
+    pub const fn any() -> Self {
+        Decision::Other(Possibilities::Any)
+    }
+
+    pub fn grid(grid: DecisionGrid<U, V>) -> Self {
+        Decision::Other(Possibilities::Grid(grid))
+    }
+
     pub fn no_contradiction(&self) -> bool {
         match self {
             Decision::Contradiction => false,
@@ -80,7 +88,7 @@ pub struct ConstraintViolationDetail {
 ///    cells that doesn't seem like a Constraint at all. It's find to also
 ///    implement these as Constraints that only ever return a certainty (if it
 ///    can be deduced) or Any (otherwise).
-pub trait Constraint<U: UInt, S: State<U>> {
+pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> {
     fn check(&self, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value>;
     fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail>;
 }
@@ -101,6 +109,21 @@ where
 {
     pub fn new(x: X, y: Y) -> Self {
         ConstraintConjunction { x, y, _p_u: std::marker::PhantomData, _p_s: std::marker::PhantomData }
+    }
+}
+
+impl <U, S, X, Y> Stateful<U, S::Value> for ConstraintConjunction<U, S, X, Y>
+where
+    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S> {
+    fn reset(&mut self) {
+        self.x.reset();
+        self.y.reset();
+    }
+
+    fn apply(&mut self, index: Index, value: S::Value) -> Result<(), crate::core::Error> {
+        let xres = self.x.apply(index, value);
+        let yres = self.y.apply(index, value);
+        if xres.is_err() { xres } else { yres }
     }
 }
 
@@ -136,7 +159,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{singleton_set, to_value, Error, State, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+    use crate::core::{singleton_set, to_value, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
@@ -155,14 +178,15 @@ mod tests {
         type Value = Val;
         const ROWS: usize = 1;
         const COLS: usize = 3;
-
-        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
         fn get(&self, index: Index) -> Option<Self::Value> { self.grid.get(index).map(to_value) }
-        fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+    }
+    impl Stateful<u8, Val> for ThreeVals {
+        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
+        fn apply(&mut self, index: Index, value: Val) -> Result<(), Error> {
             self.grid.set(index, Some(value.to_uval()));
             Ok(())
         }
-        fn undo(&mut self, index: Index, _: Self::Value) -> Result<(), Error> {
+        fn undo(&mut self, index: Index, _: Val) -> Result<(), Error> {
             self.grid.set(index, None);
             Ok(())
         }
@@ -170,6 +194,7 @@ mod tests {
 
     #[derive(Debug, Clone)]
     pub struct BlacklistedVal(pub u8);
+    impl Stateful<u8, Val> for BlacklistedVal {}
     impl Constraint<u8, ThreeVals> for BlacklistedVal {
         fn check(&self, puzzle: &ThreeVals, _: bool) -> ConstraintResult<u8, Val> {
             for j in 0..3 {
@@ -177,7 +202,7 @@ mod tests {
                     return Decision::Contradiction;
                 }
             }
-            ConstraintResult::Other(Possibilities::Any)
+            ConstraintResult::any()
         }
         
         fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
@@ -187,6 +212,7 @@ mod tests {
 
     #[derive(Debug, Clone)]
     pub struct Mod(pub u8, pub u8);
+    impl Stateful<u8, Val> for Mod {}
     impl Constraint<u8, ThreeVals> for Mod {
         fn check(&self, puzzle: &ThreeVals, _: bool) -> ConstraintResult<u8, Val> {
             let mut g = DecisionGrid::new(ThreeVals::ROWS, ThreeVals::COLS);
@@ -205,7 +231,7 @@ mod tests {
                     }
                 }
             }
-            ConstraintResult::Other(Possibilities::Grid(g))
+            ConstraintResult::grid(g)
         }
         
         fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
@@ -219,11 +245,11 @@ mod tests {
         let constraint1 = BlacklistedVal(1);
         let constraint2 = BlacklistedVal(2);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Other(Possibilities::Any));
+        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::any());
         puzzle.apply([0, 0], Val(1)).unwrap();
         assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Contradiction);
         puzzle.apply([0, 0], Val(3)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Other(Possibilities::Any));
+        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::any());
         puzzle.apply([0, 1], Val(2)).unwrap();
         assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Contradiction);
     }

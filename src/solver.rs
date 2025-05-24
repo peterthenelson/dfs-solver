@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use crate::core::{Error, Index, State, UInt};
-use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail, Possibilities};
+use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{BranchPoint, Strategy};
 
 /// The state of the DFS solver. At any point in time, the solver is either
@@ -32,7 +32,7 @@ pub struct DfsSolver<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     puzzle: &'a mut S,
     strategy: &'a St,
-    constraint: &'a C,
+    constraint: &'a mut C,
     check_result: ConstraintResult<U, S::Value>,
     stack: Vec<BranchPoint<U, S, St::ActionSet>>,
     state: DfsSolverState,
@@ -74,13 +74,13 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     pub fn new(
         puzzle: &'a mut S,
         strategy: &'a St,
-        constraint: &'a C, 
+        constraint: &'a mut C, 
     ) -> Self {
         DfsSolver {
             puzzle,
             strategy,
             constraint,
-            check_result: ConstraintResult::Other(Possibilities::Any),
+            check_result: ConstraintResult::any(),
             stack: Vec::new(),
             state: DfsSolverState::Advancing,
         }
@@ -92,7 +92,14 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         } else if decision.chosen.is_none() {
             return Err(NO_CHOICE);
         }
-        self.puzzle.apply(decision.index, decision.chosen.unwrap())?;
+        {
+            let v = decision.chosen.unwrap();
+            self.puzzle.apply(decision.index, v)?;
+            if let Err(e) = self.constraint.apply(decision.index, v) {
+                self.puzzle.undo(decision.index, v)?;
+                return Err(e);
+            }
+        }
         self.stack.push(decision);
         self.check_result = self.constraint.check(self.puzzle, details);
         self.state = if self.check_result.no_contradiction() {
@@ -101,6 +108,15 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
             DfsSolverState::Backtracking
         };
         return Ok(());
+    }
+
+    fn undo(&mut self, decision: &BranchPoint<U, S, St::ActionSet>) -> Result<(), Error> {
+        let v = decision.chosen.unwrap();
+        if let Err(e) = self.puzzle.undo(decision.index, v) {
+            self.constraint.undo(decision.index, v)?;
+            return Err(e);
+        }
+        self.constraint.undo(decision.index, v)
     }
 
     pub fn manual_step(&mut self, index: Index, value: S::Value, details: bool) -> Result<(), Error> {
@@ -140,7 +156,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
                 }
                 // Backtrack, attempting to advance an existing action set
                 let mut decision = self.stack.pop().unwrap();
-                self.puzzle.undo(decision.index, decision.chosen.unwrap())?;
+                self.undo(&decision)?;
                 match decision.advance() {
                     Some(_) => {
                         self.apply(decision, details)?;
@@ -154,7 +170,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
 
     pub fn reset(&mut self) {
         self.puzzle.reset();
-        self.check_result = ConstraintResult::Other(Possibilities::Any);
+        self.check_result = ConstraintResult::any();
         self.stack.clear();
         self.state = DfsSolverState::Advancing;
     }
@@ -179,23 +195,23 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn get_state(&self) -> &S { self.0.get_state() }
 }
 
-impl <'a, U, P, S, C> FindFirstSolution<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
+impl <'a, U, S, St, C> FindFirstSolution<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     pub fn new(
-        puzzle: &'a mut P,
-        strategy: &'a S,
-        constraint: &'a C,
+        puzzle: &'a mut S,
+        strategy: &'a St,
+        constraint: &'a mut C,
         details: bool,
     ) -> Self {
         FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), details)
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, P>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
         self.0.step(self.1)?;
         Ok(&self.0)
     }
 
-    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, P>>, Error> {
+    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
         while !self.0.is_done() {
             self.step()?;
         }
@@ -226,18 +242,18 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn get_state(&self) -> &S { self.0.get_state() }
 }
 
-impl <'a, U, P, S, C> FindAllSolutions<'a, U, P, S, C>
-where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
+impl <'a, U, S, St, C> FindAllSolutions<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     pub fn new(
-        puzzle: &'a mut P,
-        strategy: &'a S,
-        constraint: &'a C,
+        puzzle: &'a mut S,
+        strategy: &'a St,
+        constraint: &'a mut C,
         details: bool,
     ) -> Self {
         FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), details)
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, P>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
         if self.0.state == DfsSolverState::Solved {
             self.0.force_backtrack();
         }
@@ -249,7 +265,7 @@ where U: UInt, P: State<U>, S: Strategy<U, P>, C: Constraint<U, P> {
 #[cfg(test)]
 mod test {
     use crate::constraint::ConstraintViolationDetail;
-    use crate::core::{to_value, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
+    use crate::core::{to_value, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
     use crate::strategy::{CompositeStrategy, PartialStrategy};
     use super::*;
 
@@ -293,18 +309,20 @@ mod test {
         const ROWS: usize = 1;
         const COLS: usize = 8;
 
-        fn reset(&mut self) {
-            self.digits = UVGrid::<u8>::new(Self::ROWS, Self::COLS);
-        }
-
         fn get(&self, index: Index) -> Option<Self::Value> {
             if index[0] >= 1 || index[1] >= 8 {
                 return None;
             }
             self.digits.get(index).map(to_value)
         }
+    }
 
-        fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+    impl Stateful<u8, GwValue> for GwLine {
+        fn reset(&mut self) {
+            self.digits = UVGrid::<u8>::new(Self::ROWS, Self::COLS);
+        }
+
+        fn apply(&mut self, index: Index, value: GwValue) -> Result<(), Error> {
             if index[0] >= 1 || index[1] >= 8 {
                 return Err(Error::new_const("Index out of bounds"));
             }
@@ -329,6 +347,7 @@ mod test {
     }
 
     struct GwLineConstraint {}
+    impl Stateful<u8, GwValue> for GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {
         fn check(&self, puzzle: &GwLine, _: bool) -> ConstraintResult<u8, GwValue> {
             for i in 0..8 {
@@ -350,7 +369,7 @@ mod test {
                     }
                 }
             }
-            ConstraintResult::Other(Possibilities::Any)
+            ConstraintResult::any()
         }
         fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
             todo!()
@@ -394,11 +413,11 @@ mod test {
         let mut puzzle = GwLine::new();
         let constraint = GwLineConstraint {};
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::Other(Possibilities::Any));
+        assert_eq!(violation, ConstraintResult::any());
         puzzle.apply([0, 0], GwValue(1)).unwrap();
         puzzle.apply([0, 3], GwValue(2)).unwrap();
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::Other(Possibilities::Any));
+        assert_eq!(violation, ConstraintResult::any());
         puzzle.apply([0, 5], GwValue(1)).unwrap();
         let violation = constraint.check(&puzzle, false);
         assert_eq!(violation, ConstraintResult::Contradiction);
@@ -409,15 +428,15 @@ mod test {
         puzzle.undo([0, 1], GwValue(3)).unwrap();
         puzzle.apply([0, 1], GwValue(6)).unwrap();
         let violation = constraint.check(&puzzle, false);
-        assert_eq!(violation, ConstraintResult::Other(Possibilities::Any));
+        assert_eq!(violation, ConstraintResult::any());
     }
 
     #[test]
     fn german_whispers_find() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
-        let constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, false);
+        let mut constraint = GwLineConstraint {};
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, false);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
         assert_eq!(maybe_solution.unwrap().get_state().to_string(), "49382716");
@@ -428,8 +447,8 @@ mod test {
     fn german_whispers_trace() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
-        let constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, true);
+        let mut constraint = GwLineConstraint {};
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
         while !finder.is_done() {
@@ -447,8 +466,8 @@ mod test {
     fn german_whispers_all() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
-        let constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &constraint, false);
+        let mut constraint = GwLineConstraint {};
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
         let mut steps: usize = 0;
         let mut solution_count: usize = 0;
         while !finder.is_done() {
@@ -466,8 +485,8 @@ mod test {
         let mut puzzle = GwLine::new();
         let partial = GwLineStrategyPartial {};
         let strategy = CompositeStrategy::new(GwLineStrategy {}, vec![&partial]);
-        let constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &constraint, false);
+        let mut constraint = GwLineConstraint {};
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
         let mut steps: usize = 0;
         let mut solution_count: usize = 0;
         while !finder.is_done() {

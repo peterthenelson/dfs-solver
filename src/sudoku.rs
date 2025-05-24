@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::core::{empty_set, to_value, Error, Index, State, UVGrid, UVal, UVUnwrapped, UVWrapped, Value};
+use crate::core::{to_value, DecisionGrid, Error, Index, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{BranchPoint, Strategy};
 
@@ -130,24 +130,26 @@ pub const OUT_OF_BOUNDS_ERROR: Error = Error::new_const("Out of bounds");
 pub const ALREADY_FILLED_ERROR: Error = Error::new_const("Cell already filled");
 pub const NO_SUCH_ACTION_ERROR: Error = Error::new_const("No such action to undo");
 pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
+pub const ILLEGAL_ACTION: Error = Error::new_const("This move is already impossible");
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> for SState<N, M, MIN, MAX> {
     type Value = SVal<MIN, MAX>;
     const ROWS: usize = N;
     const COLS: usize = M;
-
-    fn reset(&mut self) {
-        self.grid = UVGrid::new(N, M);
-    }
-
     fn get(&self, index: Index) -> Option<Self::Value> {
         if index[0] >= N || index[1] >= M {
             return None;
         }
         self.grid.get(index).map(to_value)
     }
+}
 
-    fn apply(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for SState<N, M, MIN, MAX> {
+    fn reset(&mut self) {
+        self.grid = UVGrid::new(N, M);
+    }
+
+    fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
         if index[0] >= N || index[1] >= M {
             return Err(OUT_OF_BOUNDS_ERROR);
         }
@@ -158,7 +160,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> fo
         Ok(())
     }
 
-    fn undo(&mut self, index: Index, value: Self::Value) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
         if index[0] >= N || index[1] >= M {
             return Err(OUT_OF_BOUNDS_ERROR);
         }
@@ -175,166 +177,241 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> fo
     }
 }
 
-pub struct RowColChecker {}
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
-        let mut violations = vec![];
+pub struct RowColChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
+    row_grid: DecisionGrid<u8, SVal<MIN, MAX>>,
+    col_grid: DecisionGrid<u8, SVal<MIN, MAX>>,
+    known_contradiction: bool,
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> RowColChecker<N, M, MIN, MAX> {
+    pub fn new() -> Self {
+        return RowColChecker {
+            row_grid: DecisionGrid::full(N, M),
+            col_grid: DecisionGrid::full(N, M),
+            known_contradiction: false,
+        }
+    }
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for RowColChecker<N, M, MIN, MAX> {
+    fn reset(&mut self) {
+        self.row_grid = DecisionGrid::full(N, M);
+        self.col_grid = DecisionGrid::full(N, M);
+        self.known_contradiction = false;
+    }
+
+    fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+        let cur_r = self.row_grid.get_mut(index);
+        let cur_c = self.col_grid.get_mut(index);
+        let uv = value.to_uval();
+        // In theory we could be allow illegal moves and just invalidate and
+        // recalculate the grid or something, but it seems very messy.
+        if self.known_contradiction || !cur_r.0.contains(uv) || !cur_c.0.contains(uv) {
+            return Err(ILLEGAL_ACTION);
+        }
+        for c in 0..N {
+            let cell = self.row_grid.get_mut([index[0], c]);
+            cell.0.remove(uv);
+            if cell.0.is_empty() && c != index[1] {
+                self.known_contradiction = true
+            }
+        }
         for r in 0..N {
-            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
-            for c in 0..M {
-                if let Some(value) = puzzle.get([r, c]) {
-                    if seen.contains(value.to_uval()) {
-                        if details {
-                            violations.push(ConstraintViolationDetail {
-                                message: format!("Duplicate value {} in row {}", value.val(), r),
-                                highlight: Some(vec![[r, c]]),
-                            })
-                        } else {
-                            return ConstraintResult::Simple("Duplicate value in row");
-                        }
-                    }
-                    seen.insert(value.to_uval());
-                }
+            let cell = self.row_grid.get_mut([r, index[1]]);
+            cell.0.remove(uv);
+            if cell.0.is_empty() && r != index[0] {
+                self.known_contradiction = true
             }
         }
-        for c in 0..M {
-            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
-            for r in 0..N {
-                if let Some(value) = puzzle.get([r, c]) {
-                    if seen.contains(value.to_uval()) {
-                        if details {
-                            violations.push(ConstraintViolationDetail {
-                                message: format!("Duplicate value {} in col {}", value.val(), c),
-                                highlight: Some(vec![[r, c]]),
-                            })
-                        } else {
-                            return ConstraintResult::Simple("Duplicate value in col");
-                        }
-                    }
-                    seen.insert(value.to_uval());
-                }
-            }
+        Ok(())
+    }
+
+    fn undo(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+        self.known_contradiction = false;
+        let uv = value.to_uval();
+        for c in 0..N {
+            let cell = self.row_grid.get_mut([index[0], c]);
+            cell.0.insert(uv);
         }
-        if violations.len() > 0 {
-            return ConstraintResult::Details(violations)
-        } else {
-            return ConstraintResult::NoViolation;
+        for r in 0..N {
+            let cell = self.row_grid.get_mut([r, index[1]]);
+            cell.0.insert(uv);
         }
+        Ok(())
     }
 }
 
-pub struct BoxChecker {
-    pub br: usize,
-    pub bc: usize,
-    pub bh: usize,
-    pub bw: usize,
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker<N, M, MIN, MAX> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+        if self.known_contradiction && !force_grid {
+            return ConstraintResult::Contradiction;
+        }
+        let mut grid = self.row_grid.clone();
+        grid.combine_with(&self.col_grid);
+        ConstraintResult::grid(grid)
+    }
+
+    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
+        // TODO
+        todo!()
+    }
 }
-impl BoxChecker {
+
+pub struct BoxChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
+    bh: usize,
+    bw: usize,
+    grid: DecisionGrid<u8, SVal<MIN, MAX>>,
+    known_contradiction: bool,
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> BoxChecker<N, M, MIN, MAX> {
     pub fn new(br: usize, bc: usize, bh: usize, bw: usize) -> Self {
-        Self { br, bc, bh, bw }
+        if N != br*bh {
+            panic!("BoxChecker expected N == br*bh, but {} != {}*{}", N, br, bh);
+        } else if M != bc*bw {
+            panic!("BoxChecker expected M == bc*bw, but {} != {}*{}", M, bc, bw);
+        }
+        Self { bh, bw, grid: DecisionGrid::full(N, M), known_contradiction: false }
     }
-}
-impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
-        _ = assert!(N == self.br * self.bh && M == self.bc * self.bw, "Sudoku dimensions do not match box dimensions");
-        let mut violations = vec![];
-        for box_row in 0..self.br {
-            for box_col in 0..self.bc {
-                let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
-                for r in 0..self.bh {
-                    for c in 0..self.bw {
-                        let row = box_row * self.bh + r;
-                        let col = box_col * self.bw + c;
-                        if let Some(value) = puzzle.get([row, col]) {
-                            if seen.contains(value.to_uval()) {
-                                if details {
-                                    violations.push(ConstraintViolationDetail {
-                                        message: format!("Duplicate value {} in box ({}, {})", value.val(), box_row, box_col),
-                                        highlight: Some(vec![[row, col]]),
-                                    })
-                                } else {
-                                    return ConstraintResult::Simple("Duplicate value in box");
-                                }
-                            }
-                            seen.insert(value.to_uval());
-                        }
-                    }
-                }
-            }
-        }
-        if violations.len() > 0 {
-            ConstraintResult::Details(violations)
-        } else {
-            ConstraintResult::NoViolation
-        }
+
+    pub fn box_coords(&self, index: Index) -> Index {
+        [index[0] / self.bh, index[1] / self.bw]
     }
 }
 
-pub struct NineBoxChecker(BoxChecker);
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
+Stateful<u8, SVal<MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
+    fn reset(&mut self) {
+        self.grid = DecisionGrid::full(N, M);
+        self.known_contradiction = false;
+    }
+
+    fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+        let cur = self.grid.get_mut(index);
+        let uv = value.to_uval();
+        // In theory we could be allow illegal moves and just invalidate and
+        // recalculate the grid or something, but it seems very messy.
+        if self.known_contradiction || !cur.0.contains(uv) {
+            return Err(ILLEGAL_ACTION);
+        }
+        let box_index = self.box_coords(index);
+        for r in 0..self.bh {
+            for c in 0..self.bw {
+                let index2 = [box_index[0]*self.bh+r, box_index[1]*self.bw+c];
+                let cell = self.grid.get_mut(index2);
+                cell.0.remove(uv);
+                if cell.0.is_empty() && index != index2 {
+                    self.known_contradiction = true
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn undo(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+        self.known_contradiction = false;
+        let uv = value.to_uval();
+        let box_index = self.box_coords(index);
+        for r in 0..self.bh {
+            for c in 0..self.bw {
+                let index2 = [box_index[0]*self.bh+r, box_index[1]*self.bw+c];
+                let cell = self.grid.get_mut(index2);
+                cell.0.insert(uv);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
+Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+        if self.known_contradiction && !force_grid {
+            return ConstraintResult::Contradiction;
+        }
+        ConstraintResult::grid(self.grid.clone())
+    }
+
+    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
+        // TODO
+        todo!()
+    }
+}
+
+pub struct NineBoxChecker(BoxChecker<9, 9, 1, 9>);
 impl NineBoxChecker {
     pub fn new() -> Self {
         NineBoxChecker(BoxChecker::new(3, 3, 3, 3))
     }
 }
 impl Constraint<u8, SState<9, 9, 1, 9>> for NineBoxChecker {
-    fn check(&self, puzzle: &SState<9, 9, 1, 9>, details: bool) -> ConstraintResult {
-        self.0.check(puzzle, details)
+    fn check(&self, puzzle: &SState<9, 9, 1, 9>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 9>> {
+        self.0.check(puzzle, force_grid)
+    }
+    fn explain_contradictions(&self, puzzle: &SState<9, 9, 1, 9>) -> Vec<ConstraintViolationDetail> {
+        self.0.explain_contradictions(puzzle)
     }
 }
-pub type NineStandardChecker = ConstraintConjunction<u8, SState<9, 9, 1, 9>, RowColChecker, NineBoxChecker>;
+pub type NineStandardChecker = ConstraintConjunction<u8, SState<9, 9, 1, 9>, RowColChecker<9, 9, 1, 9>, NineBoxChecker>;
 pub fn nine_standard_checker() -> NineStandardChecker {
-    NineStandardChecker::new(RowColChecker {}, NineBoxChecker::new())
+    NineStandardChecker::new(RowColChecker::new(), NineBoxChecker::new())
 }
 
-
-pub struct EightBoxChecker(BoxChecker);
+pub struct EightBoxChecker(BoxChecker<8, 8, 1, 8>);
 impl EightBoxChecker {
     pub fn new() -> Self {
         EightBoxChecker(BoxChecker::new(4, 2, 2, 4))
     }
 }
 impl Constraint<u8, SState<8, 8, 1, 8>> for EightBoxChecker {
-    fn check(&self, puzzle: &SState<8, 8, 1, 8>, details: bool) -> ConstraintResult {
-        self.0.check(puzzle, details)
+    fn check(&self, puzzle: &SState<8, 8, 1, 8>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 8>> {
+        self.0.check(puzzle, force_grid)
+    }
+    fn explain_contradictions(&self, puzzle: &SState<8, 8, 1, 8>) -> Vec<ConstraintViolationDetail> {
+        self.0.explain_contradictions(puzzle)
     }
 }
-pub type EightStandardChecker = ConstraintConjunction<u8, SState<8, 8, 1, 8>, RowColChecker, EightBoxChecker>;
+pub type EightStandardChecker = ConstraintConjunction<u8, SState<8, 8, 1, 8>, RowColChecker<8, 8, 1, 8>, EightBoxChecker>;
 pub fn eight_standard_checker() -> EightStandardChecker {
-    EightStandardChecker::new(RowColChecker {}, EightBoxChecker::new())
+    EightStandardChecker::new(RowColChecker::new(), EightBoxChecker::new())
 }
 
-
-pub struct SixBoxChecker(BoxChecker);
+pub struct SixBoxChecker(BoxChecker<6, 6, 1, 6>);
 impl SixBoxChecker {
     pub fn new() -> Self {
         SixBoxChecker(BoxChecker::new(3, 2, 2, 3))
     }
 }
 impl Constraint<u8, SState<6, 6, 1, 6>> for SixBoxChecker {
-    fn check(&self, puzzle: &SState<6, 6, 1, 6>, details: bool) -> ConstraintResult {
-        self.0.check(puzzle, details)
+    fn check(&self, puzzle: &SState<6, 6, 1, 6>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 6>> {
+        self.0.check(puzzle, force_grid)
+    }
+    fn explain_contradictions(&self, puzzle: &SState<6, 6, 1, 6>) -> Vec<ConstraintViolationDetail> {
+        self.0.explain_contradictions(puzzle)
     }
 }
-pub type SixStandardChecker = ConstraintConjunction<u8, SState<6, 6, 1, 6>, RowColChecker, SixBoxChecker>;
+pub type SixStandardChecker = ConstraintConjunction<u8, SState<6, 6, 1, 6>, RowColChecker<6, 6, 1, 6>, SixBoxChecker>;
 pub fn six_standard_checker() -> SixStandardChecker {
-    SixStandardChecker::new(RowColChecker {}, SixBoxChecker::new())
+    SixStandardChecker::new(RowColChecker::new(), SixBoxChecker::new())
 }
 
-pub struct FourBoxChecker(BoxChecker);
+pub struct FourBoxChecker(BoxChecker<4, 4, 1, 4>);
 impl FourBoxChecker {
     pub fn new() -> Self {
         FourBoxChecker(BoxChecker::new(2, 2, 2, 2))
     }
 }
 impl Constraint<u8, SState<4, 4, 1, 4>> for FourBoxChecker {
-    fn check(&self, puzzle: &SState<4, 4, 1, 4>, details: bool) -> ConstraintResult {
-        self.0.check(puzzle, details)
+    fn check(&self, puzzle: &SState<4, 4, 1, 4>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 4>> {
+        self.0.check(puzzle, force_grid)
+    }
+    fn explain_contradictions(&self, puzzle: &SState<4, 4, 1, 4>) -> Vec<ConstraintViolationDetail> {
+        self.0.explain_contradictions(puzzle)
     }
 }
-pub type FourStandardChecker = ConstraintConjunction<u8, SState<4, 4, 1, 4>, RowColChecker, FourBoxChecker>;
+pub type FourStandardChecker = ConstraintConjunction<u8, SState<4, 4, 1, 4>, RowColChecker<4, 4, 1, 4>, FourBoxChecker>;
 pub fn four_standard_checker() -> FourStandardChecker {
-    FourStandardChecker::new(RowColChecker {}, FourBoxChecker::new())
+    FourStandardChecker::new(RowColChecker::new(), FourBoxChecker::new())
 }
 
 pub struct FirstEmptyStrategy {}
@@ -361,7 +438,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8,
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::solver::FindFirstSolution;
+    use crate::{core::UInt, solver::FindFirstSolution};
 
     #[test]
     fn test_sudoku_grid() {
@@ -376,58 +453,42 @@ mod test {
         assert_eq!(sudoku.get([8, 8]), None);
     }
 
+    fn apply<U: UInt, V: Value<U>>(s1: &mut dyn Stateful<U, V>, s2: &mut dyn Stateful<U, V>, index: Index, value: V) {
+        s1.apply(index, value).unwrap();
+        s2.apply(index, value).unwrap();
+    }
+
     #[test]
     fn test_sudoku_row_violation() {
         let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let checker = RowColChecker {};
+        let mut checker = RowColChecker::new();
         assert_eq!(sudoku.apply([5, 3], SVal(1)) , Ok(()));
         assert_eq!(sudoku.apply([5, 4], SVal(3)) , Ok(()));
-        assert!(checker.check(&sudoku, true).is_none());
+        assert!(!checker.check(&sudoku, false).is_contradiction());
         assert_eq!(sudoku.apply([5, 8], SVal(1)) , Ok(()));
-        match checker.check(&sudoku, true) {
-            ConstraintResult::Details(violations) => {
-                assert_eq!(violations.len(), 1);
-                assert_eq!(violations[0].message, "Duplicate value 1 in row 5");
-                assert_eq!(violations[0].highlight, Some(vec![[5, 8]]));
-            }
-            _ => panic!("Expected a detailed violation"),
-        }
+        assert!(checker.check(&sudoku, false).is_contradiction());
     }
 
     #[test]
     fn test_sudoku_col_violation() {
         let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let checker = RowColChecker {};
+        let mut checker = RowColChecker::new();
         assert_eq!(sudoku.apply([1, 3], SVal(2)) , Ok(()));
         assert_eq!(sudoku.apply([3, 3], SVal(7)) , Ok(()));
-        assert!(checker.check(&sudoku, true).is_none());
+        assert!(!checker.check(&sudoku, false).is_contradiction());
         assert_eq!(sudoku.apply([6, 3], SVal(2)) , Ok(()));
-        match checker.check(&sudoku, true) {
-            ConstraintResult::Details(violations) => {
-                assert_eq!(violations.len(), 1);
-                assert_eq!(violations[0].message, "Duplicate value 2 in col 3");
-                assert_eq!(violations[0].highlight, Some(vec![[6, 3]]));
-            }
-            _ => panic!("Expected a detailed violation"),
-        }
+        assert!(checker.check(&sudoku, false).is_contradiction());
     }
 
     #[test]
     fn test_sudoku_box_violation() {
         let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let checker = NineBoxChecker::new();
+        let mut checker = NineBoxChecker::new();
         assert_eq!(sudoku.apply([3, 0], SVal(8)) , Ok(()));
         assert_eq!(sudoku.apply([4, 1], SVal(2)) , Ok(()));
-        assert!(checker.check(&sudoku, true).is_none());
+        assert!(!checker.check(&sudoku, false).is_contradiction());
         assert_eq!(sudoku.apply([5, 2], SVal(8)) , Ok(()));
-        match checker.check(&sudoku, true) {
-            ConstraintResult::Details(violations) => {
-                assert_eq!(violations.len(), 1);
-                assert_eq!(violations[0].message, "Duplicate value 8 in box (1, 0)");
-                assert_eq!(violations[0].highlight, Some(vec![[5, 2]]));
-            }
-            _ => panic!("Expected a detailed violation"),
-        }
+        assert!(checker.check(&sudoku, false).is_contradiction());
     }
 
     #[test]
@@ -480,9 +541,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_puzzle().get([2, 2]), Some(SVal::new(2)));
-                assert_eq!(solved.get_puzzle().get([2, 3]), Some(SVal::new(9)));
-                assert_eq!(solved.get_puzzle().get([2, 4]), Some(SVal::new(1)));
+                assert_eq!(solved.get_state().get([2, 2]), Some(SVal::new(2)));
+                assert_eq!(solved.get_state().get([2, 3]), Some(SVal::new(9)));
+                assert_eq!(solved.get_state().get([2, 4]), Some(SVal::new(1)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
@@ -508,9 +569,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_puzzle().get([6, 4]), Some(SVal::new(2)));
-                assert_eq!(solved.get_puzzle().get([6, 5]), Some(SVal::new(5)));
-                assert_eq!(solved.get_puzzle().get([6, 6]), Some(SVal::new(4)));
+                assert_eq!(solved.get_state().get([6, 4]), Some(SVal::new(2)));
+                assert_eq!(solved.get_state().get([6, 5]), Some(SVal::new(5)));
+                assert_eq!(solved.get_state().get([6, 6]), Some(SVal::new(4)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
@@ -534,9 +595,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_puzzle().get([2, 0]), Some(SVal::new(6)));
-                assert_eq!(solved.get_puzzle().get([2, 1]), Some(SVal::new(5)));
-                assert_eq!(solved.get_puzzle().get([2, 2]), Some(SVal::new(3)));
+                assert_eq!(solved.get_state().get([2, 0]), Some(SVal::new(6)));
+                assert_eq!(solved.get_state().get([2, 1]), Some(SVal::new(5)));
+                assert_eq!(solved.get_state().get([2, 2]), Some(SVal::new(3)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
@@ -558,9 +619,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_puzzle().get([0, 0]), Some(SVal::new(1)));
-                assert_eq!(solved.get_puzzle().get([0, 1]), Some(SVal::new(2)));
-                assert_eq!(solved.get_puzzle().get([0, 2]), Some(SVal::new(3)));
+                assert_eq!(solved.get_state().get([0, 0]), Some(SVal::new(1)));
+                assert_eq!(solved.get_state().get([0, 1]), Some(SVal::new(2)));
+                assert_eq!(solved.get_state().get([0, 2]), Some(SVal::new(3)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
