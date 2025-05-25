@@ -38,6 +38,14 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     state: DfsSolverState,
 }
 
+impl <'a, U, S, St, C> Debug
+for DfsSolver<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "State:\n{:?}Constraint:\n{:?}\n", self.puzzle, self.constraint)
+    }
+}
+
 impl <'a, U, S, St, C> DfsSolverView<U, S>
 for DfsSolver<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
@@ -86,7 +94,10 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         }
     }
 
-    fn apply(&mut self, decision: BranchPoint<U, S, St::ActionSet>, details: bool) -> Result<(), Error> {
+    // TODO: Init the constraint by applying any initially present moves in the
+    // puzzle to it.
+
+    fn apply(&mut self, decision: BranchPoint<U, S, St::ActionSet>, force_grid: bool) -> Result<(), Error> {
         if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
         } else if decision.chosen.is_none() {
@@ -101,7 +112,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
             }
         }
         self.stack.push(decision);
-        self.check_result = self.constraint.check(self.puzzle, details);
+        self.check_result = self.constraint.check(self.puzzle, force_grid);
         self.state = if self.check_result.no_contradiction() {
             DfsSolverState::Advancing
         } else {
@@ -119,12 +130,12 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         self.constraint.undo(decision.index, v)
     }
 
-    pub fn manual_step(&mut self, index: Index, value: S::Value, details: bool) -> Result<(), Error> {
+    pub fn manual_step(&mut self, index: Index, value: S::Value, force_grid: bool) -> Result<(), Error> {
         self.apply(BranchPoint {
             chosen: Some(value),
             index,
             alternatives: St::ActionSet::default(),
-         }, details)
+         }, force_grid)
     }
 
     pub fn force_backtrack(&mut self) -> bool {
@@ -135,7 +146,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         true
     }
 
-    pub fn step(&mut self, details: bool) -> Result<(), Error> {
+    pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
         match self.state {
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
@@ -143,7 +154,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
                 // Take a new action
                 let decision = self.strategy.suggest(self.puzzle)?;
                 if decision.chosen.is_some() {
-                    self.apply(decision, details)?;
+                    self.apply(decision, force_grid)?;
                 } else {
                     self.state = DfsSolverState::Solved;
                 }
@@ -159,7 +170,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
                 self.undo(&decision)?;
                 match decision.advance() {
                     Some(_) => {
-                        self.apply(decision, details)?;
+                        self.apply(decision, force_grid)?;
                         Ok(())
                     }
                     None => Ok(()),
@@ -201,9 +212,9 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         puzzle: &'a mut S,
         strategy: &'a St,
         constraint: &'a mut C,
-        details: bool,
+        force_grid: bool,
     ) -> Self {
-        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), details)
+        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), force_grid)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
@@ -218,6 +229,20 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         if self.0.is_valid() {
             return Ok(Some(&self.0));
         } else {
+            return Ok(None);
+        }
+    }
+
+    pub fn solve_debug(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
+        while !self.0.is_done() {
+            print!("{:?}\n", self.0);
+            self.step()?;
+        }
+        if self.0.is_valid() {
+            print!("VALID:\n{:?}\n", self.0);
+            return Ok(Some(&self.0));
+        } else {
+            print!("UNSOLVABLE");
             return Ok(None);
         }
     }
@@ -248,9 +273,9 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         puzzle: &'a mut S,
         strategy: &'a St,
         constraint: &'a mut C,
-        details: bool,
+        force_grid: bool,
     ) -> Self {
-        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), details)
+        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), force_grid)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
@@ -346,6 +371,7 @@ mod test {
         }
     }
 
+    #[derive(Debug)]
     struct GwLineConstraint {}
     impl Stateful<u8, GwValue> for GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {

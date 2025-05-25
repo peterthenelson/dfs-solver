@@ -160,6 +160,10 @@ pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> Set<U> {
     s
 }
 
+pub fn unpack_values<U: UInt, V: Value<U>>(s: &Set<U>) -> Vec<V> {
+    s.iter().map(|u| { to_value::<U, V>(u) }).collect::<Vec<_>>()
+}
+
 impl <U: UInt> Set<U> {
     pub fn insert(&mut self, value: UVal<U, UVWrapped>) {
         self.s.insert(value.unwrap().value().as_usize());

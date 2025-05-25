@@ -88,7 +88,7 @@ pub struct ConstraintViolationDetail {
 ///    cells that doesn't seem like a Constraint at all. It's find to also
 ///    implement these as Constraints that only ever return a certainty (if it
 ///    can be deduced) or Any (otherwise).
-pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> {
+pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + Debug {
     fn check(&self, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value>;
     fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail>;
 }
@@ -109,6 +109,15 @@ where
 {
     pub fn new(x: X, y: Y) -> Self {
         ConstraintConjunction { x, y, _p_u: std::marker::PhantomData, _p_s: std::marker::PhantomData }
+    }
+}
+
+impl <U, S, X, Y> Debug for ConstraintConjunction<U, S, X, Y>
+where
+    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}\n{:?}", self.x, self.y)
     }
 }
 
@@ -159,7 +168,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{singleton_set, to_value, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+    use crate::core::{singleton_set, to_value, unpack_values, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
@@ -255,9 +264,7 @@ mod tests {
     }
 
     fn unpack_set(g: &DecisionGrid<u8, Val>, index: Index) -> Vec<u8> {
-        g.get(index).0.iter().map(|u| {
-            to_value::<u8, Val>(u).0
-        }).collect::<Vec<_>>()
+        unpack_values::<u8, Val>(&g.get(index).0).iter().map(|v| v.0).collect::<Vec<u8>>()
     }
 
     #[test]
