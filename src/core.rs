@@ -143,14 +143,24 @@ pub fn empty_set<U: UInt, V: Value<U>>() -> Set<U> {
     }
 }
 
+fn leading_ones(n: usize) -> Vec<u8> {
+    let full = n / 8;
+    let remaining = n % 8;
+    let mut result = vec![u8::MAX; full];
+    if remaining > 0 {
+        result.push(u8::MAX << (8 - remaining));
+    }
+    result
+}
+
 pub fn full_set<U: UInt, V: Value<U>>() -> Set<U> {
-    assert!(V::cardinality() <= 64, "Cardinality must be <= 64 for full_set");
+    let n = V::cardinality();
     let mut s = Set {
-        s: BitSet::with_capacity(V::cardinality()),
+        s: BitSet::with_capacity(n),
         _p_u: PhantomData,
     };
-    let mask: u64 = (((1 as u128) << V::cardinality()) - 1) as u64;
-    s.s.union_with(&BitSet::from_bytes(&mask.to_ne_bytes()));
+    let ones = leading_ones(n);
+    s.s.union_with(&BitSet::from_bytes(ones.as_slice()));
     s
 }
 
@@ -508,4 +518,15 @@ pub trait State<U: UInt> where Self: Clone + Debug + Stateful<U, Self::Value> {
     const ROWS: usize;
     const COLS: usize;
     fn get(&self, index: Index) -> Option<Self::Value>;
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    /// Unwrapping UVals is private to the core module, but it's valuable to
+    /// check that the to_uval/from_uval methods successfully round-trip values.
+    pub fn round_trip_value<U: UInt, V: Value<U>>(v: V) -> V {
+        let u: UVal<U, UVWrapped> = v.to_uval();
+        V::from_uval(u.unwrap())
+    }
 }

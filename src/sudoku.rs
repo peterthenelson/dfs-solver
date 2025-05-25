@@ -40,6 +40,10 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
     }
 }
 
+pub fn unpack_sval_vals<const MIN: u8, const MAX: u8>(s: &Set<u8>) -> Vec<u8> {
+    unpack_values::<u8, SVal<MIN, MAX>>(&s).iter().map(|v| v.val()).collect::<Vec<u8>>()
+}
+
 /// Standard rectangular Sudoku grid.
 #[derive(Clone)]
 pub struct SState<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
@@ -135,8 +139,8 @@ pub const OUT_OF_BOUNDS_ERROR: Error = Error::new_const("Out of bounds");
 pub const ALREADY_FILLED_ERROR: Error = Error::new_const("Cell already filled");
 pub const NO_SUCH_ACTION_ERROR: Error = Error::new_const("No such action to undo");
 pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
-// TODO
-pub const ILLEGAL_ACTION: Error = Error::new_const("This move is already impossible");
+pub const ILLEGAL_ACTION_RC: Error = Error::new_const("A row/col violation already exists; can't apply further actions.");
+pub const ILLEGAL_ACTION_BOX: Error = Error::new_const("A box violation already exists; can't apply further actions.");
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> for SState<N, M, MIN, MAX> {
     type Value = SVal<MIN, MAX>;
@@ -203,12 +207,12 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Debug for Ro
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
-            let vals = unpack_values::<u8, SVal<MIN, MAX>>(&self.row[r]).iter().map(|v| v.val()).collect::<Vec<u8>>();
+            let vals = unpack_sval_vals::<MIN, MAX>(&self.row[r]);
             write!(f, " {}: {:?}\n", r, vals)?;
         }
         write!(f, "Unused vals by col:\n")?;
         for c in 0..M {
-            let vals = unpack_values::<u8, SVal<MIN, MAX>>(&self.col[c]).iter().map(|v| v.val()).collect::<Vec<u8>>();
+            let vals = unpack_sval_vals::<MIN, MAX>(&self.col[c]);
             write!(f, " {}: {:?}\n", c, vals)?;
         }
         Ok(())
@@ -227,7 +231,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8,
         // In theory we could be allow multiple illegal moves and just
         // invalidate and recalculate the grid or something, but it seems hard.
         if self.illegal.is_some() {
-            return Err(ILLEGAL_ACTION);
+            return Err(ILLEGAL_ACTION_RC);
         }
         if !self.row[index[0]].contains(uv) || !self.col[index[1]].contains(uv) {
             self.illegal = Some((index, value));
@@ -311,7 +315,7 @@ Debug for BoxChecker<N, M, MIN, MAX> {
         for r in 0..self.br {
             for c in 0..self.bc {
                 let vals = unpack_values::<u8, SVal<MIN, MAX>>(&self.boxes[r*self.bh+c]).iter().map(|v| v.val()).collect::<Vec<u8>>();
-                write!(f, " {}: {:?}\n", r, vals)?;
+                write!(f, " {},{}: {:?}\n", r, c, vals)?;
             }
         }
         Ok(())
@@ -330,7 +334,7 @@ Stateful<u8, SVal<MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
         // In theory we could be allow multiple illegal moves and just
         // invalidate and recalculate the grid or something, but it seems hard.
         if self.illegal.is_some() {
-            return Err(ILLEGAL_ACTION);
+            return Err(ILLEGAL_ACTION_BOX);
         }
         let bindex = self.box_coords(index);
         if !self.boxes[bindex[0]*self.bh+bindex[1]].contains(uv) {
@@ -544,7 +548,40 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8,
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::UInt, solver::FindFirstSolution};
+    use crate::{core::{empty_set, UInt}, solver::FindFirstSolution};
+    use crate::core::test::round_trip_value;
+
+    #[test]
+    fn test_sval() {
+        // Closed interval, so it's 9-3+1
+        assert_eq!(SVal::<3, 9>::cardinality(), 7);
+        // Values get serialized in the range 0..=(MAX-MIN)
+        assert_eq!(SVal::<3, 9>(3).to_uval(), UVal::new(0));
+        assert_eq!(SVal::<3, 9>(6).to_uval(), UVal::new(3));
+        assert_eq!(SVal::<3, 9>(9).to_uval(), UVal::new(6));
+        // This round-trips
+        assert_eq!(round_trip_value(SVal::<3, 9>(3)).val(), 3);
+        assert_eq!(round_trip_value(SVal::<3, 9>(6)).val(), 6);
+        assert_eq!(round_trip_value(SVal::<3, 9>(9)).val(), 9);
+    }
+
+    #[test]
+    fn test_sval_set() {
+        let mut mostly_empty = empty_set::<u8, SVal<3, 9>>();
+        assert_eq!(unpack_sval_vals::<3, 9>(&mostly_empty), vec![]);
+        mostly_empty.insert(SVal::<3, 9>::new(4).to_uval());
+        assert_eq!(unpack_sval_vals::<3, 9>(&mostly_empty), vec![4]);
+        let mut mostly_full = full_set::<u8, SVal<3, 9>>();
+        assert_eq!(
+            unpack_sval_vals::<3, 9>(&mostly_full),
+            vec![3, 4, 5, 6, 7, 8, 9],
+        );
+        mostly_full.remove(SVal::<3, 9>::new(4).to_uval());
+        assert_eq!(
+            unpack_sval_vals::<3, 9>(&mostly_full),
+            vec![3, 5, 6, 7, 8, 9],
+        );
+    }
 
     #[test]
     fn test_sudoku_grid() {

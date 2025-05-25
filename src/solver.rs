@@ -8,6 +8,7 @@ use crate::strategy::{BranchPoint, Strategy};
 /// solved (has found a solution), or exhausted (no more actions to take).
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum DfsSolverState {
+    Init,
     Advancing,
     Backtracking,
     Solved,
@@ -74,6 +75,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     }
 }
 
+const NOT_INITIALIZED: Error = Error::new_const("Must call init() before stepping forward");
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
  
@@ -90,15 +92,26 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
             constraint,
             check_result: ConstraintResult::any(),
             stack: Vec::new(),
-            state: DfsSolverState::Advancing,
+            state: DfsSolverState::Init,
         }
     }
 
-    // TODO: Init the constraint by applying any initially present moves in the
-    // puzzle to it.
+    pub fn init(&mut self) -> Result<(), Error> {
+        for r in 0..S::ROWS {
+            for c in 0..S::COLS {
+                if let Some(v) = self.puzzle.get([r, c]) {
+                    self.constraint.apply([r, c], v)?;
+                }
+            }
+        }
+        self.state = DfsSolverState::Advancing;
+        Ok(())
+    }
 
     fn apply(&mut self, decision: BranchPoint<U, S, St::ActionSet>, force_grid: bool) -> Result<(), Error> {
-        if self.is_done() {
+        if self.state == DfsSolverState::Init {
+            return Err(NOT_INITIALIZED);
+        } else if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
         } else if decision.chosen.is_none() {
             return Err(NO_CHOICE);
@@ -148,6 +161,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
 
     pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
         match self.state {
+            DfsSolverState::Init => Err(NOT_INITIALIZED),
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing => {
@@ -217,12 +231,18 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), force_grid)
     }
 
+    pub fn init(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
+        self.0.init()?;
+        Ok(&self.0)
+    }
+
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
         self.0.step(self.1)?;
         Ok(&self.0)
     }
 
     pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
+        self.init()?;
         while !self.0.is_done() {
             self.step()?;
         }
@@ -234,6 +254,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     }
 
     pub fn solve_debug(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
+        self.init()?;
         while !self.0.is_done() {
             print!("{:?}\n", self.0);
             self.step()?;
@@ -276,6 +297,11 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         force_grid: bool,
     ) -> Self {
         FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), force_grid)
+    }
+
+    pub fn init(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
+        self.0.init()?;
+        Ok(&self.0)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
@@ -477,6 +503,7 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
+        finder.init().unwrap();
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
@@ -496,6 +523,7 @@ mod test {
         let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
         let mut steps: usize = 0;
         let mut solution_count: usize = 0;
+        finder.init().unwrap();
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
@@ -515,6 +543,7 @@ mod test {
         let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
         let mut steps: usize = 0;
         let mut solution_count: usize = 0;
+        finder.init().unwrap();
         while !finder.is_done() {
             finder.step()?;
             steps += 1;

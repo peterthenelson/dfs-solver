@@ -117,7 +117,7 @@ where
     U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}\n{:?}", self.x, self.y)
+        write!(f, "{:?}{:?}", self.x, self.y)
     }
 }
 
