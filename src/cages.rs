@@ -197,7 +197,7 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
 mod tests {
     use super::*;
     use std::vec;
-    use crate::constraint::test_util::{assert_contradiction_eq, replay_puzzle};
+    use crate::solver::test_util::{assert_contradiction_eq, replay_puzzle};
 
     #[test]
     fn test_cage_checker() {
@@ -277,4 +277,6 @@ mod tests {
         assert_eq!(d.index, [0, 1]);
         assert_eq!(d.into_vec(), vec![SVal::new(4)]);
     }
+
+    // TODO: Add an e2e cage example.
 }

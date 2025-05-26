@@ -358,7 +358,7 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N,
 mod tests {
     use super::*;
     use std::vec;
-    use crate::constraint::test_util::{assert_contradiction_eq, replay_puzzle};
+    use crate::solver::test_util::{assert_contradiction_eq, replay_puzzle};
 
     #[test]
     fn test_xsum_contains() {

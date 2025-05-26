@@ -175,60 +175,6 @@ where
 }
 
 #[cfg(test)]
-pub mod test_util {
-    use super::*;
-    use crate::core::GridIndex;
-
-    fn next_filled<U: UInt, S: State<U>>(index: Index, puzzle: &S) -> Option<(Index, S::Value)> {
-        let mut i = index;
-        while i.in_bounds(S::ROWS, S::COLS) {
-            let v = puzzle.get(i);
-            if v.is_some() {
-                return Some((i, v.unwrap()));
-            }
-            i.increment(S::ROWS, S::COLS);
-        }
-        None
-    }
-
-    // Replay all the existing actions in the puzzle against a constraint and
-    // report the final ConstraintResult (or a contradiction is detected during
-    // the replay).
-    pub fn replay_puzzle<U: UInt, S: State<U>>(constraint: &mut dyn Constraint<U, S>, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value> {
-        let mut index = [0, 0];
-        while index.in_bounds(S::ROWS, S::COLS) {
-            if let Some((mut i, v)) = next_filled(index, puzzle) {
-                constraint.apply(i, v).unwrap();
-                let check = constraint.check(puzzle, force_grid);
-                if check.has_contradiction(puzzle) {
-                    return check;
-                }
-                i.increment(S::ROWS, S::COLS);
-                index = i;
-            } else {
-                break;
-            }
-        }
-        constraint.check(puzzle, force_grid)
-    }
-
-    // Assertion for a contradiction or lack-thereof
-    pub fn assert_contradiction_eq<U: UInt, S: State<U>>(
-        constraint: &dyn Constraint<U, S>,
-        puzzle: &S,
-        result: &ConstraintResult<U, S::Value>,
-        expected_contradiction: bool,
-    ) {
-        let actual = result.has_contradiction(puzzle);
-        if expected_contradiction && !actual {
-            panic!("Expected contradiction; none found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
-        } else if actual && !expected_contradiction {
-            panic!("Expected no contradiction; one found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::{singleton_set, to_value, unpack_values, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};

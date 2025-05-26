@@ -26,6 +26,40 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
     fn get_state(&self) -> &S;
 }
 
+// Mostly for debugging purposes, a StepObserver allows the caller of various
+// solver methods to dump or otherwise inspect the state of the solver after
+// each step. This is unlikely to be sufficient to write a fully fledged
+// debugger (and certainly not sufficient for a UI), but when debugging failing
+// tests, it is much easier to inject a StepObserver than it is to invert
+// control and fully instrument the whole solving process.
+pub trait StepObserver<U: UInt, S: State<U>> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>);
+}
+
+pub struct DbgObserver<U: UInt, S: State<U>>(std::marker::PhantomData<(U, S)>);
+
+impl <U: UInt, S: State<U>> DbgObserver<U, S> {
+    pub fn new() -> Self {
+        DbgObserver(std::marker::PhantomData)
+    }
+}
+
+impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
+        if solver.is_initializing() {
+            print!("INITIALIZING:\n{:?}\n", solver.get_state());
+        } else if solver.is_done() {
+            if solver.is_valid() {
+                print!("VALID:\n{:?}\n", solver.get_state());
+            } else {
+                print!("UNSOLVABLE");
+            }
+        } else {
+            print!("STEP:\n{:?}\n", solver.get_state());
+        }
+    }
+}
+
 /// DFS solver. If you want a lower-level API that allows for more control over
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
@@ -224,23 +258,27 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
 }
 
 /// Find first solution to the puzzle using the given strategy and constraints.
-pub struct FindFirstSolution<'a, U, S, St, C>(DfsSolver<'a, U, S, St, C>, bool)
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S>;
+pub struct FindFirstSolution<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    solver: DfsSolver<'a, U, S, St, C>,
+    force_grid: bool,
+    observer: Option<&'a mut dyn StepObserver<U, S>>,
+}
 
 impl <'a, U, S, St, C> DfsSolverView<U, S>
 for FindFirstSolution<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
-    fn solver_state(&self) -> DfsSolverState { self.0.solver_state() }
-    fn is_initializing(&self) -> bool { self.0.is_initializing() }
-    fn is_done(&self) -> bool { self.0.is_done() }
-    fn is_valid(&self) -> bool { self.0.is_valid() }
+    fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
+    fn is_initializing(&self) -> bool { self.solver.is_initializing() }
+    fn is_done(&self) -> bool { self.solver.is_done() }
+    fn is_valid(&self) -> bool { self.solver.is_valid() }
     fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
-        self.0.check_constraints()
+        self.solver.check_constraints()
     }
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
-        self.0.explain_contradiction()
+        self.solver.explain_contradiction()
     }
-    fn get_state(&self) -> &S { self.0.get_state() }
+    fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
 impl <'a, U, S, St, C> FindFirstSolution<'a, U, S, St, C>
@@ -250,63 +288,57 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         strategy: &'a St,
         constraint: &'a mut C,
         force_grid: bool,
+        observer: Option<&'a mut dyn StepObserver<U, S>>,
     ) -> Self {
-        FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), force_grid)
+        FindFirstSolution {
+            solver: DfsSolver::new(puzzle, strategy, constraint),
+            force_grid,
+            observer,
+        }
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
-        self.0.step(self.1)?;
-        Ok(&self.0)
+        self.solver.step(self.force_grid)?;
+        Ok(&self.solver)
     }
 
     pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
-        while !self.0.is_done() {
+        while !self.solver.is_done() {
             self.step()?;
-        }
-        if self.0.is_valid() {
-            return Ok(Some(&self.0));
-        } else {
-            return Ok(None);
-        }
-    }
-
-    pub fn solve_debug(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
-        while !self.0.is_done() {
-            if self.0.is_initializing() {
-                print!("INITIALIZING:\n{:?}\n", self.0);
-            } else {
-                print!("STEP:\n{:?}\n", self.0);
+            if let Some(observer) = &mut self.observer {
+                observer.after_step(&self.solver);
             }
-            self.step()?;
         }
-        if self.0.is_valid() {
-            print!("VALID:\n{:?}\n", self.0);
-            return Ok(Some(&self.0));
+        if self.solver.is_valid() {
+            return Ok(Some(&self.solver));
         } else {
-            print!("UNSOLVABLE");
             return Ok(None);
         }
     }
 }
 
 /// Find all solutions to the puzzle using the given strategy and constraints.
-pub struct FindAllSolutions<'a, U, S, St, C>(DfsSolver<'a, U, S, St, C>, bool)
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S>;
+pub struct FindAllSolutions<'a, U, S, St, C>
+where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    solver: DfsSolver<'a, U, S, St, C>,
+    force_grid: bool,
+    observer: Option<&'a mut dyn StepObserver<U, S>>,
+}
 
 impl <'a, U, S, St, C> DfsSolverView<U, S>
 for FindAllSolutions<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
-    fn solver_state(&self) -> DfsSolverState { self.0.solver_state() }
-    fn is_initializing(&self) -> bool { self.0.is_initializing() }
-    fn is_done(&self) -> bool { self.0.solver_state() == DfsSolverState::Exhausted }
-    fn is_valid(&self) -> bool { self.0.is_valid() }
+    fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
+    fn is_initializing(&self) -> bool { self.solver.is_initializing() }
+    fn is_done(&self) -> bool { self.solver.solver_state() == DfsSolverState::Exhausted }
+    fn is_valid(&self) -> bool { self.solver.is_valid() }
     fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
-        self.0.check_constraints()
+        self.solver.check_constraints()
     }
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
-        self.0.explain_contradiction()
+        self.solver.explain_contradiction()
     }
-    fn get_state(&self) -> &S { self.0.get_state() }
+    fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
 impl <'a, U, S, St, C> FindAllSolutions<'a, U, S, St, C>
@@ -316,16 +348,94 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         strategy: &'a St,
         constraint: &'a mut C,
         force_grid: bool,
+        observer: Option<&'a mut dyn StepObserver<U, S>>,
     ) -> Self {
-        FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), force_grid)
+        FindAllSolutions {
+            solver: DfsSolver::new(puzzle, strategy, constraint),
+            force_grid,
+            observer,
+        }
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
-        if self.0.state == DfsSolverState::Solved {
-            self.0.force_backtrack();
+        if self.solver.state == DfsSolverState::Solved {
+            self.solver.force_backtrack();
         }
-        self.0.step(self.1)?;
-        Ok(&self.0)
+        self.solver.step(self.force_grid)?;
+        Ok(&self.solver)
+    }
+
+    // Returns the number of steps taken and the number of solutions found.
+    // Obviously unless you provided a StepObserver, you won't be able to see
+    // any of the solutions. Prefer directly hitting step() yourself if that
+    // is your use-case.
+    pub fn solve_all(&mut self) -> Result<(usize, usize), Error> {
+        let mut steps = 0;
+        let mut solution_count = 0;
+        while !self.is_done() {
+            self.step()?;
+            steps += 1;
+            solution_count += if self.solver_state() == DfsSolverState::Solved { 1 } else { 0 };
+            if let Some(observer) = &mut self.observer {
+                observer.after_step(&self.solver);
+            }
+        }
+        Ok((steps, solution_count))
+    }
+}
+
+#[cfg(test)]
+pub mod test_util {
+    use super::*;
+    use crate::core::GridIndex;
+
+    fn next_filled<U: UInt, S: State<U>>(index: Index, puzzle: &S) -> Option<(Index, S::Value)> {
+        let mut i = index;
+        while i.in_bounds(S::ROWS, S::COLS) {
+            let v = puzzle.get(i);
+            if v.is_some() {
+                return Some((i, v.unwrap()));
+            }
+            i.increment(S::ROWS, S::COLS);
+        }
+        None
+    }
+
+    // Replay all the existing actions in the puzzle against a constraint and
+    // report the final ConstraintResult (or a contradiction is detected during
+    // the replay).
+    // TODO: Update to use the StepObserver
+    pub fn replay_puzzle<U: UInt, S: State<U>>(constraint: &mut dyn Constraint<U, S>, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value> {
+        let mut index = [0, 0];
+        while index.in_bounds(S::ROWS, S::COLS) {
+            if let Some((mut i, v)) = next_filled(index, puzzle) {
+                constraint.apply(i, v).unwrap();
+                let check = constraint.check(puzzle, force_grid);
+                if check.has_contradiction(puzzle) {
+                    return check;
+                }
+                i.increment(S::ROWS, S::COLS);
+                index = i;
+            } else {
+                break;
+            }
+        }
+        constraint.check(puzzle, force_grid)
+    }
+
+    // Assertion for a contradiction or lack-thereof
+    pub fn assert_contradiction_eq<U: UInt, S: State<U>>(
+        constraint: &dyn Constraint<U, S>,
+        puzzle: &S,
+        result: &ConstraintResult<U, S::Value>,
+        expected_contradiction: bool,
+    ) {
+        let actual = result.has_contradiction(puzzle);
+        if expected_contradiction && !actual {
+            panic!("Expected contradiction; none found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
+        } else if actual && !expected_contradiction {
+            panic!("Expected no contradiction; one found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
+        }
     }
 }
 
@@ -477,7 +587,7 @@ mod test {
     }
 
     #[test]
-    fn german_whispers_constraint() {
+    fn test_german_whispers_constraint() {
         let mut puzzle = GwLine::new();
         let constraint = GwLineConstraint {};
         let violation = constraint.check(&puzzle, false);
@@ -500,11 +610,11 @@ mod test {
     }
 
     #[test]
-    fn german_whispers_find() -> Result<(), Error> {
+    fn test_german_whispers_find() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, false);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, false, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
         assert_eq!(maybe_solution.unwrap().get_state().to_string(), "49382716");
@@ -512,11 +622,11 @@ mod test {
     }
 
     #[test]
-    fn german_whispers_trace() -> Result<(), Error> {
+    fn test_german_whispers_trace_manual() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true, None);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
         while !finder.is_done() {
@@ -530,38 +640,49 @@ mod test {
         Ok(())
     }
 
+    struct ContraCounter(pub usize);
+    impl StepObserver<u8, GwLine> for ContraCounter {
+        fn after_step(&mut self, solver: &dyn DfsSolverView<u8, GwLine>) {
+            if !solver.is_valid() {
+                self.0 += 1;
+            }
+        }
+    }
+
     #[test]
-    fn german_whispers_all() -> Result<(), Error> {
+    fn test_german_whispers_trace_observer() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let strategy = GwLineStrategy {};
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
-        let mut steps: usize = 0;
-        let mut solution_count: usize = 0;
-        while !finder.is_done() {
-            finder.step()?;
-            steps += 1;
-            solution_count += if finder.solver_state() == DfsSolverState::Solved { 1 } else { 0 };
-        }
+        let mut counter = ContraCounter(0);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true, Some(&mut counter));
+        let _ = finder.solve()?;
+        assert!(finder.is_valid());
+        assert!(counter.0 > 100);
+        Ok(())
+    }
+    // TODO: trace w/observer
+
+    #[test]
+    fn test_german_whispers_all() -> Result<(), Error> {
+        let mut puzzle = GwLine::new();
+        let strategy = GwLineStrategy {};
+        let mut constraint = GwLineConstraint {};
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false, None);
+        let (steps, solution_count) = finder.solve_all()?;
         assert!(steps > 2500);
         assert_eq!(solution_count, 2);
         Ok(())
     }
 
     #[test]
-    fn german_whispers_all_fast() -> Result<(), Error> {
+    fn test_german_whispers_all_fast() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
         let partial = GwLineStrategyPartial {};
         let strategy = CompositeStrategy::new(GwLineStrategy {}, vec![&partial]);
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
-        let mut steps: usize = 0;
-        let mut solution_count: usize = 0;
-        while !finder.is_done() {
-            finder.step()?;
-            steps += 1;
-            solution_count += if finder.solver_state() == DfsSolverState::Solved { 1 } else { 0 };
-        }
+        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false, None);
+        let (steps, solution_count) = finder.solve_all()?;
         assert!(steps < 1000);
         assert_eq!(solution_count, 2);
         Ok(())

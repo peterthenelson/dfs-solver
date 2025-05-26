@@ -47,7 +47,7 @@ fn main() {
             &cage_strategy,
         ],
     );
-    let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, false);
+    let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, false, None);
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
     println!("Solution:\n{}", maybe_solution.unwrap().get_puzzle().serialize());
 }
