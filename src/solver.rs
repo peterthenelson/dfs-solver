@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{Error, Index, State, UInt};
+use crate::core::{Error, GridIndex, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{BranchPoint, Strategy};
 
@@ -8,7 +8,7 @@ use crate::strategy::{BranchPoint, Strategy};
 /// solved (has found a solution), or exhausted (no more actions to take).
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum DfsSolverState {
-    Init,
+    Init(Index),
     Advancing,
     Backtracking,
     Solved,
@@ -18,6 +18,7 @@ pub enum DfsSolverState {
 // A view on the state and associated data for the solver.
 pub trait DfsSolverView<U: UInt, S: State<U>> {
     fn solver_state(&self) -> DfsSolverState;
+    fn is_initializing(&self) -> bool;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
     fn check_constraints(&self) -> ConstraintResult<U, S::Value>;
@@ -54,12 +55,20 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         self.state
     }
 
+    fn is_initializing(&self) -> bool {
+        if let DfsSolverState::Init(_) = self.state {
+            true
+        } else {
+            false
+        }
+    }
+
     fn is_done(&self) -> bool {
         self.state == DfsSolverState::Solved || self.state == DfsSolverState::Exhausted
     }
 
     fn is_valid(&self) -> bool {
-        self.check_result.no_contradiction()
+        !self.check_result.has_contradiction(self.puzzle)
     }
 
     fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
@@ -78,6 +87,18 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
 const NOT_INITIALIZED: Error = Error::new_const("Must call init() before stepping forward");
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
+
+fn next_filled<U: UInt, S: State<U>>(index: Index, puzzle: &S) -> Option<(Index, S::Value)> {
+    let mut i = index;
+    while i.in_bounds(S::ROWS, S::COLS) {
+        let v = puzzle.get(i);
+        if v.is_some() {
+            return Some((i, v.unwrap()));
+        }
+        i.increment(S::ROWS, S::COLS);
+    }
+    None
+}
  
 impl <'a, U, S, St, C> DfsSolver<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
@@ -92,24 +113,12 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
             constraint,
             check_result: ConstraintResult::any(),
             stack: Vec::new(),
-            state: DfsSolverState::Init,
+            state: DfsSolverState::Init([0, 0]),
         }
-    }
-
-    pub fn init(&mut self) -> Result<(), Error> {
-        for r in 0..S::ROWS {
-            for c in 0..S::COLS {
-                if let Some(v) = self.puzzle.get([r, c]) {
-                    self.constraint.apply([r, c], v)?;
-                }
-            }
-        }
-        self.state = DfsSolverState::Advancing;
-        Ok(())
     }
 
     fn apply(&mut self, decision: BranchPoint<U, S, St::ActionSet>, force_grid: bool) -> Result<(), Error> {
-        if self.state == DfsSolverState::Init {
+        if self.is_initializing() {
             return Err(NOT_INITIALIZED);
         } else if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
@@ -126,7 +135,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         }
         self.stack.push(decision);
         self.check_result = self.constraint.check(self.puzzle, force_grid);
-        self.state = if self.check_result.no_contradiction() {
+        self.state = if self.is_valid() {
             DfsSolverState::Advancing
         } else {
             DfsSolverState::Backtracking
@@ -161,7 +170,20 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
 
     pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
         match self.state {
-            DfsSolverState::Init => Err(NOT_INITIALIZED),
+            DfsSolverState::Init(index) => {
+                if let Some((mut i, v)) = next_filled(index, self.puzzle) {
+                    self.constraint.apply(i, v)?;
+                    i.increment(S::ROWS, S::COLS);
+                    if !index.in_bounds(S::ROWS, S::COLS) {
+                        self.state = DfsSolverState::Advancing;
+                    } else {
+                        self.state = DfsSolverState::Init(i);
+                    }
+                } else {
+                    self.state = DfsSolverState::Advancing;
+                }
+                Ok(())
+            }
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing => {
@@ -209,6 +231,7 @@ impl <'a, U, S, St, C> DfsSolverView<U, S>
 for FindFirstSolution<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn solver_state(&self) -> DfsSolverState { self.0.solver_state() }
+    fn is_initializing(&self) -> bool { self.0.is_initializing() }
     fn is_done(&self) -> bool { self.0.is_done() }
     fn is_valid(&self) -> bool { self.0.is_valid() }
     fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
@@ -231,18 +254,12 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         FindFirstSolution(DfsSolver::new(puzzle, strategy, constraint), force_grid)
     }
 
-    pub fn init(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
-        self.0.init()?;
-        Ok(&self.0)
-    }
-
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
         self.0.step(self.1)?;
         Ok(&self.0)
     }
 
     pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
-        self.init()?;
         while !self.0.is_done() {
             self.step()?;
         }
@@ -254,9 +271,12 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     }
 
     pub fn solve_debug(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
-        self.init()?;
         while !self.0.is_done() {
-            print!("{:?}\n", self.0);
+            if self.0.is_initializing() {
+                print!("INITIALIZING:\n{:?}\n", self.0);
+            } else {
+                print!("STEP:\n{:?}\n", self.0);
+            }
             self.step()?;
         }
         if self.0.is_valid() {
@@ -277,6 +297,7 @@ impl <'a, U, S, St, C> DfsSolverView<U, S>
 for FindAllSolutions<'a, U, S, St, C>
 where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn solver_state(&self) -> DfsSolverState { self.0.solver_state() }
+    fn is_initializing(&self) -> bool { self.0.is_initializing() }
     fn is_done(&self) -> bool { self.0.solver_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.0.is_valid() }
     fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
@@ -297,11 +318,6 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         force_grid: bool,
     ) -> Self {
         FindAllSolutions(DfsSolver::new(puzzle, strategy, constraint), force_grid)
-    }
-
-    pub fn init(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
-        self.0.init()?;
-        Ok(&self.0)
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
@@ -503,11 +519,10 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
-        finder.init().unwrap();
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
-            contradiction_count += if finder.check_constraints().no_contradiction() { 0 } else { 1 };
+            contradiction_count += if finder.is_valid() { 0 } else { 1 };
         }
         assert!(finder.is_valid());
         assert!(steps > 100);
@@ -523,7 +538,6 @@ mod test {
         let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
         let mut steps: usize = 0;
         let mut solution_count: usize = 0;
-        finder.init().unwrap();
         while !finder.is_done() {
             finder.step()?;
             steps += 1;
@@ -543,7 +557,6 @@ mod test {
         let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false);
         let mut steps: usize = 0;
         let mut solution_count: usize = 0;
-        finder.init().unwrap();
         while !finder.is_done() {
             finder.step()?;
             steps += 1;

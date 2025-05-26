@@ -205,6 +205,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> RowColChecke
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Debug for RowColChecker<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((i, v)) = self.illegal {
+            write!(f, "Illegal move: {:?}; {:?}\n", i, v)?;
+        }
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
             let vals = unpack_sval_vals::<MIN, MAX>(&self.row[r]);
@@ -260,7 +263,10 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8,
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker<N, M, MIN, MAX> {
     fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
-        if self.illegal.is_some() && !force_grid {
+        if self.illegal.is_some() {
+            if force_grid {
+                return ConstraintResult::grid(DecisionGrid::new(N, M));
+            }
             return ConstraintResult::Contradiction;
         }
         let mut grid = DecisionGrid::new(N, M);
@@ -311,6 +317,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> BoxChecker<N
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Debug for BoxChecker<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((i, v)) = self.illegal {
+            write!(f, "Illegal move: {:?}; {:?}\n", i, v)?;
+        }
         write!(f, "Unused vals by box:\n")?;
         for r in 0..self.br {
             for c in 0..self.bc {
@@ -364,7 +373,10 @@ Stateful<u8, SVal<MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
     fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
-        if self.illegal.is_some() && !force_grid {
+        if self.illegal.is_some() {
+            if force_grid {
+                return ConstraintResult::grid(DecisionGrid::new(N, M));
+            }
             return ConstraintResult::Contradiction;
         }
         let mut grid = DecisionGrid::new(N, M);
@@ -549,7 +561,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8,
 mod test {
     use super::*;
     use crate::{core::{empty_set, UInt}, solver::FindFirstSolution};
-    use crate::core::test::round_trip_value;
+    use crate::core::test_util::round_trip_value;
 
     #[test]
     fn test_sval() {
@@ -758,7 +770,7 @@ mod test {
         let mut checker = four_standard_checker();
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &strategy, &mut checker, false);
-        match finder.solve_debug() {
+        match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();

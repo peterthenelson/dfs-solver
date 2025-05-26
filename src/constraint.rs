@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{Decision, DecisionGrid, Index, State, Stateful, UInt, Value};
+use crate::core::{Decision, DecisionGrid, Error, Index, State, Stateful, UInt, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Possibilities<U: UInt, V: Value<U>> {
@@ -37,22 +37,25 @@ impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
         Decision::Other(Possibilities::Grid(grid))
     }
 
-    pub fn no_contradiction(&self) -> bool {
+    pub fn has_contradiction<S: State<U, Value=V>>(&self, puzzle: &S) -> bool {
         match self {
-            Decision::Contradiction => false,
-            Decision::Certainty(_) => true,
+            Decision::Contradiction => true,
+            Decision::Certainty(_) => false,
             Decision::Other(p) => {
                 match p {
-                    Possibilities::Any => true,
+                    Possibilities::Any => false,
                     Possibilities::Grid(g) => {
                         for r in 0..g.rows() {
                             for c in 0..g.cols() {
-                                if g.get([r, c]).0.is_empty() {
-                                    return false;
+                                if puzzle.get([r, c]).is_none() {
+                                    let cell = &g.get([r, c]).0;
+                                    if cell.is_empty() {
+                                        return true;
+                                    }
                                 }
                             }
                         }
-                        true
+                        false
                     }
                 }
             }
@@ -129,9 +132,15 @@ where
         self.y.reset();
     }
 
-    fn apply(&mut self, index: Index, value: S::Value) -> Result<(), crate::core::Error> {
+    fn apply(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
         let xres = self.x.apply(index, value);
         let yres = self.y.apply(index, value);
+        if xres.is_err() { xres } else { yres }
+    }
+
+    fn undo(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+        let xres = self.x.undo(index, value);
+        let yres = self.y.undo(index, value);
         if xres.is_err() { xres } else { yres }
     }
 }
@@ -162,6 +171,45 @@ where
         violations.extend(self.x.explain_contradictions(puzzle));
         violations.extend(self.y.explain_contradictions(puzzle));
         violations
+    }
+}
+
+#[cfg(test)]
+pub mod test_util {
+    use super::*;
+    use crate::core::GridIndex;
+
+    fn next_filled<U: UInt, S: State<U>>(index: Index, puzzle: &S) -> Option<(Index, S::Value)> {
+        let mut i = index;
+        while i.in_bounds(S::ROWS, S::COLS) {
+            let v = puzzle.get(i);
+            if v.is_some() {
+                return Some((i, v.unwrap()));
+            }
+            i.increment(S::ROWS, S::COLS);
+        }
+        None
+    }
+
+    // Replay all the existing actions in the puzzle against a constraint and
+    // report the final ConstraintResult (or a contradiction is detected during
+    // the replay).
+    pub fn replay_puzzle<U: UInt, S: State<U>>(constraint: &mut dyn Constraint<U, S>, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value> {
+        let mut index = [0, 0];
+        while index.in_bounds(S::ROWS, S::COLS) {
+            if let Some((mut i, v)) = next_filled(index, puzzle) {
+                constraint.apply(i, v).unwrap();
+                let check = constraint.check(puzzle, force_grid);
+                if check.has_contradiction(puzzle) {
+                    return check;
+                }
+                i.increment(S::ROWS, S::COLS);
+                index = i;
+            } else {
+                break;
+            }
+        }
+        constraint.check(puzzle, force_grid)
     }
 }
 

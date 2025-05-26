@@ -26,7 +26,29 @@ impl Error {
 /// is always a rectangular grid of cells.)
 pub type Index = [usize; 2];
 
-pub trait UInt: PrimInt + Unsigned + TryInto<usize> {
+pub trait GridIndex {
+    // Is the index still valid or has it gone off the end of the grid?
+    fn in_bounds(&self, rows: usize, cols: usize) -> bool;
+    // Increment the index (supposing a grid of given dimensions).
+    fn increment(&mut self, rows: usize, cols: usize);
+}
+
+impl GridIndex for Index {
+    fn in_bounds(&self, rows: usize, cols: usize) -> bool {
+        self[0] < rows && self[1] < cols
+    }
+
+    fn increment(&mut self, rows: usize, cols: usize) {
+        let _ = rows;
+        self[1] += 1;
+        if self[1] >= cols {
+            self[1] = 0;
+            self[0] += 1;
+        }
+    }
+}
+
+pub trait UInt: PrimInt + Unsigned + TryInto<usize> + Debug {
     fn from_usize(u: usize) -> Self;
     fn as_usize(&self) -> usize;
 }
@@ -521,7 +543,7 @@ pub trait State<U: UInt> where Self: Clone + Debug + Stateful<U, Self::Value> {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod test_util {
     use super::*;
     /// Unwrapping UVals is private to the core module, but it's valuable to
     /// check that the to_uval/from_uval methods successfully round-trip values.
