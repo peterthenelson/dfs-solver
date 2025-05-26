@@ -197,7 +197,7 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
 mod tests {
     use super::*;
     use std::vec;
-    use crate::constraint::test_util::replay_puzzle;
+    use crate::constraint::test_util::{assert_contradiction_eq, replay_puzzle};
 
     #[test]
     fn test_cage_checker() {
@@ -220,12 +220,7 @@ mod tests {
         for (c, expected) in vec![(cage1, false), (cage2, true), (cage3, true), (cage4, false)] {
             let mut cage_checker = CageChecker::new(vec![c]);
             let result = replay_puzzle(&mut cage_checker, &puzzle, false);
-            let actual = result.has_contradiction(&puzzle);
-            if expected && !actual {
-                panic!("Expected contradiction; none found:\nPuzzle state:\n{:?}\n{:?}\n", puzzle, cage_checker);
-            } else if actual && !expected {
-                panic!("Expected no contradiction; one found:\nPuzzle state:\n{:?}\n{:?}\n", puzzle, cage_checker);
-            }
+            assert_contradiction_eq(&cage_checker, &puzzle, &result, expected);
         }
     }
 

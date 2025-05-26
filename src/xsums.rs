@@ -1,4 +1,5 @@
-use crate::core::{Error, Index, State};
+use std::fmt::Debug;
+use crate::core::{empty_set, DecisionGrid, Error, Index, State, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
 use crate::strategy::{BranchPoint, PartialStrategy};
 use crate::sudoku::{SState, SVal};
@@ -20,6 +21,17 @@ pub struct XSum<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
     pub target: u8,
     pub index: usize,
     pub direction: XSumDirection,
+}
+
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> Debug for XSum<MIN, MAX, N, M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "XSum({}, {:?}, {})", self.target, self.index, match self.direction {
+            XSumDirection::RR => "RR",
+            XSumDirection::RL => "RL",
+            XSumDirection::CD => "CD",
+            XSumDirection::CU => "CU",
+        })
+    }
 }
 
 pub struct XSumIter<'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
@@ -82,6 +94,38 @@ impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MAX, N, M> {
+    pub fn contains_with_len(&self, length: u8, index: Index) -> bool {
+        match self.direction {
+            XSumDirection::RR => {
+                index[0] == self.index && index[1] < length as usize
+            },
+            XSumDirection::RL => {
+                index[0] == self.index && (
+                    index[1] as i16 > (M as i16 - 1 - length as i16)
+                )
+            },
+            XSumDirection::CD => {
+                index[1] == self.index && index[0] < length as usize
+            },
+            XSumDirection::CU => {
+                index[1] == self.index && (
+                    index[0] as i16 > (N as i16 - 1 - length as i16)
+                )
+            },
+        }
+    }
+
+    pub fn contains(&self, puzzle: &SState<N, M, MIN, MAX>, index: Index) -> bool {
+        let length_index = self.length_index();
+        if index == length_index {
+            true
+        } else if let Some(v) = puzzle.get(length_index) {
+            self.contains_with_len(v.val(), index)
+        } else {
+            false
+        }
+    }
+
     pub fn length(&self, puzzle: &SState<N, M, MIN, MAX>) -> Option<(Index, SVal<MIN, MAX>)> {
         match self.direction {
             XSumDirection::RR => if let Some(v) = puzzle.get([self.index, 0]) {
@@ -130,55 +174,126 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
     }
 }
 
+// TODO: Tables for min/max sums for various lengths and vice versa
+
 pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
-    pub xsums: Vec<XSum<MIN, MAX, N, M>>,
+    xsums: Vec<XSum<MIN, MAX, N, M>>,
+    // Remaining to the target
+    xsums_remaining: Vec<i16>,
+    // Remaining empty NON-LENGTH cells, supposing length is already known
+    xsums_empty: Vec<Option<i16>>,
+    // To calculate remaining and empty when a length cell becomes known.
+    grid: Vec<Option<SVal<MIN, MAX>>>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
     pub fn new(xsums: Vec<XSum<MIN, MAX, N, M>>) -> Self {
-        XSumChecker { xsums }
+        let xsums_remaining = xsums.iter().map(|x| x.target as i16).collect();
+        let xsums_empty = vec![None; xsums.len()];
+        let grid = vec![None; N * M];
+        XSumChecker { xsums, xsums_remaining, xsums_empty, grid }
+    }
+}
+
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+Debug for XSumChecker<MIN, MAX, N, M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, x) in self.xsums.iter().enumerate() {
+            write!(f, " {:?}\n", x)?;
+            write!(f, " - Remaining to target: {}\n", self.xsums_remaining[i])?;
+            if let Some(empty) = self.xsums_empty[i] {
+                write!(f, " - Empty cells remaining: {}", empty)?;
+            } else {
+                write!(f, " - Length unknown")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+Stateful<u8, SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
+    fn reset(&mut self) {
+        self.xsums_remaining = self.xsums.iter().map(|x| x.target as i16).collect();
+        self.xsums_empty = vec![None; self.xsums.len()];
+        self.grid.fill(None);
+    }
+
+    fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+        self.grid[index[0] * M + index[1]] = Some(value);
+        for (i, xsum) in self.xsums.iter().enumerate() {
+            let len_index = xsum.length_index();
+            if index == len_index {
+                let mut remaining = xsum.target as i16;
+                let mut empty = value.val() as i16 - 1;
+                for i2 in xsum.xrange(value.val()) {
+                    if let Some(v) = self.grid[i2[0] * M + i2[1]] {
+                        remaining -= v.val() as i16;
+                        empty -= 1;
+                    }
+                }
+                self.xsums_remaining[i] = remaining;
+                self.xsums_empty[i] = Some(empty);
+            } else if let Some(len) = self.grid[len_index[0] * M + len_index[1]] {
+                if xsum.contains_with_len(len.val(), index) {
+                    self.xsums_remaining[i] -= value.val() as i16;
+                    self.xsums_empty[i] = self.xsums_empty[i].map(|e| e - 1);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn undo(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+        self.grid[index[0] * M + index[1]] = None;
+        for (i, xsum) in self.xsums.iter().enumerate() {
+            let len_index = xsum.length_index();
+            if index == len_index {
+                // Reset the state for xsum[i]
+                self.xsums_remaining[i] = xsum.target as i16;
+                self.xsums_empty[i] = None;
+            } else if let Some(len) = self.grid[len_index[0] * M + len_index[1]] {
+                if xsum.contains_with_len(len.val(), index) {
+                    self.xsums_remaining[i] += value.val() as i16;
+                    self.xsums_empty[i] = self.xsums_empty[i].map(|e| e + 1);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, details: bool) -> ConstraintResult {
-        let mut violations = Vec::new();
-        for xsum in self.xsums.iter() {
-            if let Some((len_index, len)) = xsum.length(puzzle) {
-                let mut sum = len.val();
-                let mut sum_highlight = Vec::new();
-                let mut has_empty = false;
-                if details {
-                    sum_highlight.push(len_index);
-                }
-                for [r, c] in xsum.xrange(len.val()) {
-                    if let Some(v) = puzzle.get([r, c]) {
-                        sum += v.val();
-                        if details {
-                            sum_highlight.push([r, c]);
-                        }
-                    } else {
-                        has_empty = true;
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+        let mut grid = DecisionGrid::full(N, M);
+        for (i, xsum) in self.xsums.iter().enumerate() {
+            if let Some(e) = self.xsums_empty[i] {
+                let r = self.xsums_remaining[i];
+                if r < 0 || (e == 0 && r != 0) {
+                    if !force_grid {
+                        return ConstraintResult::Contradiction;
                     }
+                    grid = DecisionGrid::new(N, M);
+                    break;
                 }
-                if sum > xsum.target || (!has_empty && sum != xsum.target) {
-                    if details {
-                        violations.push(ConstraintViolationDetail {
-                            message: format!("X sum violation: expected sum {} but got {}", xsum.target, sum),
-                            highlight: Some(sum_highlight),
-                        })
-                    } else {
-                        return ConstraintResult::Simple("X sum violation");
-                    }
+                // TODO: Can constrain this more
+                let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+                (MIN..=(r as u8)).for_each(|v| {
+                    set.insert(SVal::<MIN, MAX>::new(v).to_uval())
+                });
+                let len = xsum.length(puzzle).unwrap().1;
+                for i2 in xsum.xrange(len.val()) {
+                    grid.get_mut(i2).0 = set.clone();
                 }
             }
+            // TODO: else we can constrain length based on sums
         }
-        return if violations.is_empty() {
-            ConstraintResult::NoViolation
-        } else {
-            ConstraintResult::Details(violations)
-        }
+        ConstraintResult::grid(grid)
+    }
+
+    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
+        todo!()
     }
 }
 
@@ -241,8 +356,54 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N,
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
     use super::*;
+    use std::vec;
+    use crate::constraint::test_util::{assert_contradiction_eq, replay_puzzle};
+
+    #[test]
+    fn test_xsum_contains() {
+        let x1 = XSum { direction: XSumDirection::RR, index: 0, target: 5 };
+        let x2 = XSum { direction: XSumDirection::RL, index: 0, target: 5 };
+        let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
+        let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
+        let puzzle1 = SState::<4, 4, 1, 4>::parse(
+            "2..3\n\
+             ....\n\
+             ....\n\
+             4...\n"
+        ).unwrap();
+        // x1 contains two cells -- the length digit and the next
+        assert!(x1.contains(&puzzle1, [0, 0]));
+        assert!(x1.contains(&puzzle1, [0, 1]));
+        assert!(!x1.contains(&puzzle1, [0, 2]));
+        // x2 contains three cells -- the length digit and the prev 2
+        assert!(x2.contains(&puzzle1, [0, 3]));
+        assert!(x2.contains(&puzzle1, [0, 1]));
+        assert!(!x2.contains(&puzzle1, [0, 0]));
+        // x3 contains two cells -- the length digit and the next
+        assert!(x3.contains(&puzzle1, [0, 0]));
+        assert!(x3.contains(&puzzle1, [1, 0]));
+        assert!(!x3.contains(&puzzle1, [2, 0]));
+        // x3 contains four cells -- the length digit and the rest
+        assert!(x4.contains(&puzzle1, [3, 0]));
+        assert!(x4.contains(&puzzle1, [0, 0]));
+        let puzzle2 = SState::<4, 4, 1, 4>::parse(
+            "....\n\
+             .21.\n\
+             .43.\n\
+             ....\n"
+        ).unwrap();
+        // These all contain their length cell, but since it's empty, they don't
+        // contain any other cells.
+        assert!(x1.contains(&puzzle2, [0, 0]));
+        assert!(!x1.contains(&puzzle2, [0, 1]));
+        assert!(x2.contains(&puzzle2, [0, 3]));
+        assert!(!x2.contains(&puzzle2, [0, 2]));
+        assert!(x3.contains(&puzzle2, [0, 0]));
+        assert!(!x3.contains(&puzzle2, [1, 0]));
+        assert!(x4.contains(&puzzle2, [3, 0]));
+        assert!(!x4.contains(&puzzle2, [2, 0]));
+    }
 
     #[test]
     fn test_xsum_length() {
@@ -302,7 +463,6 @@ mod tests {
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RR, index: 3, target: 1 };
 
-        let xsum_checker = XSumChecker::new(vec![x1, x2, x3, x4, x5]);
         let puzzle = SState::<4, 4, 1, 4>::parse(
             "2134\n\
              ..4.\n\
@@ -310,17 +470,11 @@ mod tests {
              ....\n"
         ).unwrap();
 
-        let result = xsum_checker.check(&puzzle, true);
-        assert_eq!(result, ConstraintResult::Details(vec![
-            ConstraintViolationDetail {
-                message: "X sum violation: expected sum 10 but got 9".to_string(),
-                highlight: Some(vec![[0, 2], [1, 2], [2, 2]]),
-            },
-            ConstraintViolationDetail {
-                message: "X sum violation: expected sum 5 but got 9".to_string(),
-                highlight: Some(vec![[2, 0], [2, 1], [2, 2]]),
-            },
-        ]));
+        for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
+            let mut xsum_checker = XSumChecker::new(vec![x]);
+            let result = replay_puzzle(&mut xsum_checker, &puzzle, false);
+            assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
+        }
     }
 
     #[test]
@@ -336,7 +490,6 @@ mod tests {
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RL, index: 0, target: 1 };
 
-        let xsum_checker = XSumChecker::new(vec![x1, x2, x3, x4, x5]);
         let puzzle = SState::<4, 4, 1, 4>::parse(
             "....\n\
              .234\n\
@@ -344,17 +497,11 @@ mod tests {
              4312\n"
         ).unwrap();
 
-        let result = xsum_checker.check(&puzzle, true);
-        assert_eq!(result, ConstraintResult::Details(vec![
-            ConstraintViolationDetail {
-                message: "X sum violation: expected sum 10 but got 9".to_string(),
-                highlight: Some(vec![[3, 1], [2, 1], [1, 1]]),
-            },
-            ConstraintViolationDetail {
-                message: "X sum violation: expected sum 5 but got 9".to_string(),
-                highlight: Some(vec![[1, 3], [1, 2], [1, 1]]),
-            },
-        ]));
+        for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
+            let mut xsum_checker = XSumChecker::new(vec![x]);
+            let result = replay_puzzle(&mut xsum_checker, &puzzle, false);
+            assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
+        }
     }
 
     #[test]

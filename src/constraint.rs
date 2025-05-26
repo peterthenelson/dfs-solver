@@ -211,6 +211,21 @@ pub mod test_util {
         }
         constraint.check(puzzle, force_grid)
     }
+
+    // Assertion for a contradiction or lack-thereof
+    pub fn assert_contradiction_eq<U: UInt, S: State<U>>(
+        constraint: &dyn Constraint<U, S>,
+        puzzle: &S,
+        result: &ConstraintResult<U, S::Value>,
+        expected_contradiction: bool,
+    ) {
+        let actual = result.has_contradiction(puzzle);
+        if expected_contradiction && !actual {
+            panic!("Expected contradiction; none found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
+        } else if actual && !expected_contradiction {
+            panic!("Expected no contradiction; one found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
+        }
+    }
 }
 
 #[cfg(test)]
