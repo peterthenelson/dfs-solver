@@ -329,6 +329,14 @@ impl FeatureVec<FVMaybeNormed> {
         FeatureVec { features: Vec::new(), normalized: true, _p_s: PhantomData }
     }
 
+    pub fn from_pairs(weights: Vec<(&'static str, f64)>) -> Self {
+        let mut fv = FeatureVec::new();
+        for (k, v) in weights {
+            fv.add(&FeatureKey::new(k).unwrap(), v);
+        }
+        fv
+    }
+
     pub fn add(&mut self, key: &FeatureKey<FKWithId>, value: f64) {
         let id = key.get_id();
         self.features.push((id, value));
@@ -421,6 +429,7 @@ impl <U: UInt, V: Value<U>> CertainDecision<U, V> {
     }
 }
 
+// TODO: Just merge with ConstraintResult
 /// Constraints and ranking both may return early if they hit upon either a
 /// contradiction or a certainty. This is a simple enum to represent this
 /// short-circuiting.
@@ -431,18 +440,44 @@ pub enum Decision<U: UInt, V: Value<U>, O> {
     Other(O),
 }
 
-impl <U: UInt, V: Value<U>, O> Decision<U, V, O> {
-    pub fn is_contradiction(&self) -> bool {
-        match self {
-            Decision::Contradiction => true,
-            _ => false,
-        }
+/// A decision point in the puzzle. This includes the specific value that was
+/// chosen, as well as the index of the cell that was modified, as well as the
+/// alternative values that have not been tried yet.
+#[derive(Debug, Clone)]
+pub struct BranchPoint<U: UInt, S: State<U>> {
+    pub chosen: Option<S::Value>,
+    pub index: Index,
+    pub alternatives: std::vec::IntoIter<S::Value>,
+}
+
+impl <U: UInt, S: State<U>> BranchPoint<U, S> {
+    pub fn unique(index: Index, value: S::Value) -> Self {
+        BranchPoint { chosen: Some(value), index, alternatives: vec![].into_iter() }
     }
 
-    pub fn is_certainty(&self) -> bool {
-        match self {
-            Decision::Certainty(_) => true,
-            _ => false,
+    pub fn empty() -> Self {
+        BranchPoint { chosen: None, index: [0, 0], alternatives: vec![].into_iter() }
+    }
+
+    pub fn new(index: Index, alternatives: Vec<S::Value>) -> Self {
+        let mut d = BranchPoint { chosen: None, index, alternatives: alternatives.into_iter() };
+        if d.alternatives.len() > 0 {
+            d.chosen = Some(d.alternatives.next().unwrap());
+        }
+        d
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.chosen.is_none() && self.alternatives.len() == 0
+    }
+
+    pub fn advance(&mut self) -> Option<S::Value> {
+        if let Some(next) = self.alternatives.next() {
+            self.chosen = Some(next);
+            Some(next)
+        } else {
+            self.chosen = None;
+            None
         }
     }
 }

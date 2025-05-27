@@ -1,7 +1,6 @@
 use std::fmt::Debug;
-use crate::core::{empty_set, DecisionGrid, Error, Index, State, Stateful, Value};
+use crate::core::{empty_set, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::{BranchPoint, PartialStrategy};
 use crate::sudoku::{SState, SVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -176,6 +175,9 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
 
 // TODO: Tables for min/max sums for various lengths and vice versa
 
+pub const XSUM_HEAD_FEATURE: &str = "XSUM_HEAD";
+pub const XSUM_TAIL_FEATURE: &str = "XSUM_TAIL";
+
 pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
     xsums: Vec<XSum<MIN, MAX, N, M>>,
     // Remaining to the target
@@ -184,6 +186,8 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     xsums_empty: Vec<Option<i16>>,
     // To calculate remaining and empty when a length cell becomes known.
     grid: Vec<Option<SVal<MIN, MAX>>>,
+    xsum_head_feature: FeatureKey<FKWithId>,
+    xsum_tail_feature: FeatureKey<FKWithId>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
@@ -191,7 +195,9 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
         let xsums_remaining = xsums.iter().map(|x| x.target as i16).collect();
         let xsums_empty = vec![None; xsums.len()];
         let grid = vec![None; N * M];
-        XSumChecker { xsums, xsums_remaining, xsums_empty, grid }
+        let mut hf = FeatureKey::new(XSUM_HEAD_FEATURE);
+        let mut tf = FeatureKey::new(XSUM_TAIL_FEATURE);
+        XSumChecker { xsums, xsums_remaining, xsums_empty, grid, xsum_head_feature: hf.unwrap(), xsum_tail_feature: tf.unwrap() }
     }
 }
 
@@ -284,10 +290,15 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                 });
                 let len = xsum.length(puzzle).unwrap().1;
                 for i2 in xsum.xrange(len.val()) {
-                    grid.get_mut(i2).0 = set.clone();
+                    let g = &mut grid.get_mut(i2);
+                    g.0 = set.clone();
+                    g.1.add(&self.xsum_tail_feature, 1.0);
                 }
+            } else {
+                // TODO: else we can constrain length based on sums
+                let len_cell = xsum.length_index();
+                grid.get_mut(len_cell).1.add(&self.xsum_head_feature, 1.0);
             }
-            // TODO: else we can constrain length based on sums
         }
         ConstraintResult::grid(grid)
     }
@@ -297,68 +308,12 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
     }
 }
 
-pub struct XSumPartialStrategy<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
-    pub xsums: Vec<XSum<MIN, MAX, N, M>>,
-}
-
-impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N, M> {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<BranchPoint<u8, SState<N, M, MIN, MAX>, std::vec::IntoIter<SVal<MIN, MAX>>>, Error> {
-        for xsum in &self.xsums {
-            match xsum.length(puzzle) {
-                Some((_, len)) => {
-                    let mut sum = len.val();
-                    let mut first_empty: Option<Index> = None;
-                    let mut n_empty = 0;
-                    for [r, c] in xsum.xrange(len.val()) {
-                        match puzzle.get([r, c]) {
-                            Some(v) => sum += v.val(),
-                            None => {
-                                if first_empty.is_none() {
-                                    first_empty = Some([r, c]);
-                                }
-                                n_empty += 1;
-                            }
-                        }
-                    }
-                    if let Some(empty) = first_empty {
-                        let target = xsum.target - sum;
-                        if n_empty == 1 && MIN <= target && target <= MAX {
-                            return Ok(BranchPoint::unique(empty, SVal::new(target)));
-                        }
-                        let mut suggestions = Vec::new();
-                        for v in MIN..=std::cmp::min(std::cmp::min(target, MAX), (M + 1) as u8) {
-                            suggestions.push(SVal::new(v));
-                        }
-                        return Ok(BranchPoint::new(empty, suggestions.into_iter()));
-                    }
-                },
-                None => {
-                    let mut suggestions = Vec::new();
-                    let max = match xsum.direction {
-                        XSumDirection::RR | XSumDirection::RL => std::cmp::min(
-                            xsum.target,
-                            std::cmp::min(M as u8, MAX)),
-                        XSumDirection::CD | XSumDirection::CU => std::cmp::min(
-                            xsum.target,
-                            std::cmp::min(N as u8, MAX)),
-                    };
-                    for v in MIN..=max {
-                        suggestions.push(SVal::new(v));
-                    }
-                    return Ok(BranchPoint::new(xsum.length_index(), suggestions.into_iter()));
-                },
-            }
-        }
-        return Ok(BranchPoint::empty());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::vec;
-    use crate::{solver::test_util::{assert_contradiction_eq, PuzzleReplay}, sudoku::FirstEmptyStrategy};
+    use crate::solver::test_util::{assert_contradiction_eq, PuzzleReplay};
+    use crate::ranker::LinearRanker;
 
     #[test]
     fn test_xsum_contains() {
@@ -472,10 +427,9 @@ mod tests {
 
         for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
             let mut puzzle = puzzle.clone();
-            // TODO: remove these irrelevant strategies
-            let strategy = FirstEmptyStrategy {};
+            let ranker = LinearRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
-            let result = PuzzleReplay::new(&mut puzzle, &strategy, &mut xsum_checker, false, None).replay().unwrap();
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, false, None).replay().unwrap();
             assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
         }
     }
@@ -502,178 +456,10 @@ mod tests {
 
         for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
             let mut puzzle = puzzle.clone();
-            // TODO: remove these irrelevant strategies
-            let strategy = FirstEmptyStrategy {};
+            let ranker = LinearRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
-            let result = PuzzleReplay::new(&mut puzzle, &strategy, &mut xsum_checker, false, None).replay().unwrap();
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, false, None).replay().unwrap();
             assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
         }
-    }
-
-    #[test]
-    fn test_xsum_partial_strategy_no_first_digit() {
-        // All are missing the first digit, so suggestions range from 1 to the
-        // target (or MAX).
-        let xsum_strategy1 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::RR, index: 1, target: 3 },
-            ],
-        };
-        let xsum_strategy2 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::RL, index: 1, target: 4 },
-            ],
-        };
-        let xsum_strategy3 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::CD, index: 1, target: 5 },
-            ],
-        };
-        let xsum_strategy4 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::CU, index: 1, target: 7 },
-            ],
-        };
-        let puzzle = SState::<6, 6, 1, 6>::parse(
-            "......\n\
-             .2....\n\
-             .3....\n\
-             ......\n\
-             ......\n\
-             ......\n"
-        ).unwrap();
-        let d = xsum_strategy1.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 0]);
-        assert_eq!(d.into_vec(), vec![
-            SVal::new(1),
-            SVal::new(2),
-            SVal::new(3),
-        ]);
-        let d = xsum_strategy2.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 5]);
-        assert_eq!(d.into_vec(), vec![
-            SVal::new(1),
-            SVal::new(2),
-            SVal::new(3),
-            SVal::new(4),
-        ]);
-        let d = xsum_strategy3.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [0, 1]);
-        assert_eq!(d.into_vec(), vec![
-            SVal::new(1),
-            SVal::new(2),
-            SVal::new(3),
-            SVal::new(4),
-            SVal::new(5),
-        ]);
-        let d = xsum_strategy4.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [5, 1]);
-        assert_eq!(d.into_vec(), vec![
-            SVal::new(1),
-            SVal::new(2),
-            SVal::new(3),
-            SVal::new(4),
-            SVal::new(5),
-            SVal::new(6),
-        ]);
-    }
-
-    #[test]
-    fn test_xsum_partial_strategy_first_digit_one_empty() {
-        // Each of these has a first digit and one empty cell, so suggest the
-        // exact answer.
-        let xsum_strategy1 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::RR, index: 1, target: 3 },
-            ],
-        };
-        let xsum_strategy2 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::CD, index: 1, target: 3 },
-            ],
-        };
-        let xsum_strategy3 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::RL, index: 2, target: 9 },
-            ],
-        };
-        let xsum_strategy4 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::CU, index: 4, target: 10 },
-            ],
-        };
-        let puzzle = SState::<6, 6, 1, 6>::parse(
-            ".2....\n\
-             2.....\n\
-             ....23\n\
-             ......\n\
-             ....3.\n\
-             ....4.\n"
-        ).unwrap();
-        let d = xsum_strategy1.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 1]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
-        let d = xsum_strategy2.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 1]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
-        let d = xsum_strategy3.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [2, 3]);
-        assert_eq!(d.into_vec(), vec![SVal::new(4)]);
-        let d = xsum_strategy4.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [3, 4]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
-    }
-
-    #[test]
-    fn test_xsum_partial_strategy_first_digit_multiple_remaining() {
-        // Each of these has a first digit and multiple empty cells, so suggest
-        // 1 to the target-current (or MAX) for the first empty cell.
-        let xsum_strategy1 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::RR, index: 1, target: 5 },
-            ],
-        };
-        let xsum_strategy2 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::CD, index: 1, target: 6 },
-            ],
-        };
-        let xsum_strategy3 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::RL, index: 1, target: 7 },
-            ],
-        };
-        let xsum_strategy4 = XSumPartialStrategy {
-            xsums: vec![
-                XSum { direction: XSumDirection::CU, index: 4, target: 12 },
-            ],
-        };
-        let puzzle = SState::<6, 6, 1, 6>::parse(
-            ".4....\n\
-             4....3\n\
-             ......\n\
-             ......\n\
-             ......\n\
-             ....3.\n"
-        ).unwrap();
-        let d = xsum_strategy1.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 1]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1)]);
-        let d = xsum_strategy2.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 1]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1), SVal::new(2)]);
-        let d = xsum_strategy3.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [1, 4]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1), SVal::new(2), SVal::new(3), SVal::new(4)]);
-        let d = xsum_strategy4.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [4, 4]);
-        assert_eq!(d.into_vec(), vec![
-            SVal::new(1),
-            SVal::new(2),
-            SVal::new(3),
-            SVal::new(4),
-            SVal::new(5),
-            SVal::new(6),
-        ]);
     }
 }

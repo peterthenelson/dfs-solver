@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{empty_set, full_set, DecisionGrid, Error, Index, Set, State, Stateful, Value};
+use crate::core::{full_set, DecisionGrid, Error, FKWithId, FeatureKey, Index, Set, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::{BranchPoint, PartialStrategy};
 use crate::sudoku::{unpack_sval_vals, SState, SVal};
 
 #[derive(Debug, Clone)]
@@ -20,11 +19,13 @@ impl Cage {
 
 pub const ILLEGAL_ACTION_CAGE: Error = Error::new_const("A cage violation already exists; can't apply further actions.");
 pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
+pub const CAGE_FEATURE: &str = "CAGE";
 
 pub struct CageChecker <const MIN: u8, const MAX: u8> {
     cages: Vec<Cage>,
     remaining: Vec<u8>,
     cage_sets: Vec<Set<u8>>,
+    cage_feature: FeatureKey<FKWithId>,
     illegal: Option<(Index, SVal<MIN, MAX>)>,
 }
 
@@ -42,7 +43,8 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         }
         let remaining = cages.iter().map(|c| c.target).collect();
         let cage_sets = vec![full_set::<u8, SVal<MIN, MAX>>(); cages.len()];
-        CageChecker { cages, remaining, cage_sets, illegal: None }
+        let mut cage_feature = FeatureKey::new(CAGE_FEATURE);
+        CageChecker { cages, remaining, cage_sets, illegal: None, cage_feature: cage_feature.unwrap() }
     }
 }
 
@@ -133,7 +135,9 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
                 set.remove(SVal::<MIN, MAX>::new(v).to_uval());
             }
             for cell in &c.cells {
-                grid.get_mut(*cell).0 = set.clone();
+                let g = &mut grid.get_mut(*cell);
+                g.0 = set.clone();
+                g.1.add(&self.cage_feature, 1.0);
             }
         }
         ConstraintResult::grid(grid)
@@ -144,60 +148,11 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
     }
 }
 
-pub struct CagePartialStrategy {
-    pub cages: Vec<Cage>,
-}
-
-impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
-    fn suggest_partial(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<BranchPoint<u8, SState<N, M, MIN, MAX>, std::vec::IntoIter<SVal<MIN, MAX>>>, Error> {
-        for cage in &self.cages {
-            let mut sum = 0;
-            let mut first_empty: Option<Index> = None;
-            let mut n_empty = 0;
-            let mut seen = empty_set::<u8, SVal<MIN, MAX>>();
-            for cell in &cage.cells {
-                match puzzle.get(*cell) {
-                    Some(value) => {
-                        sum += value.val();
-                        if cage.exclusive {
-                            seen.insert(value.to_uval());
-                        }
-                    },
-                    None => {
-                        if first_empty.is_none() {
-                            first_empty = Some(cell.clone());
-                        }
-                        n_empty += 1;
-                    }
-                }
-            }
-            if let Some(empty) = first_empty {
-                let target = cage.target;
-                let remaining = target - sum;
-                if n_empty == 1 && MIN <= remaining && remaining <= MAX {
-                    return Ok(BranchPoint::unique(empty, SVal::new(remaining)));
-                }
-                let actions = (MIN..(std::cmp::min(remaining, MAX) + 1)).filter_map(|value| {
-                    let value = SVal::<MIN, MAX>::new(value);
-                    return if seen.contains(value.to_uval()) {
-                        None
-                    } else {
-                        Some(value)
-                    };
-                }).collect::<Vec<SVal<MIN, MAX>>>();
-                return Ok(BranchPoint::new(empty, actions.into_iter()));
-            }
-        }
-        Ok(BranchPoint::empty())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::vec;
-    use crate::{solver::test_util::{assert_contradiction_eq, PuzzleReplay}, sudoku::FirstEmptyStrategy};
+    use crate::{ranker::LinearRanker, solver::test_util::{assert_contradiction_eq, PuzzleReplay}};
 
     #[test]
     fn test_cage_checker() {
@@ -219,66 +174,11 @@ mod tests {
 
         for (c, expected) in vec![(cage1, false), (cage2, true), (cage3, true), (cage4, false)] {
             let mut puzzle = puzzle.clone();
-            // TODO: remove these irrelevant strategies
-            let strategy = FirstEmptyStrategy {};
+            let ranker = LinearRanker::default();
             let mut cage_checker = CageChecker::new(vec![c]);
-            let result = PuzzleReplay::new(&mut puzzle, &strategy, &mut cage_checker, false, None).replay().unwrap();
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut cage_checker, false, None).replay().unwrap();
             assert_contradiction_eq(&cage_checker, &puzzle, &result, expected);
         }
-    }
-
-    #[test]
-    fn test_cage_partial_strategy_exclusive() {
-        let cage_strategy = CagePartialStrategy {
-            cages: vec![Cage { cells: vec![[0, 0], [0, 1], [0, 2]], target: 7, exclusive: true }],
-        };
-        let puzzle = SState::<6, 6, 1, 6>::parse(
-            "..4...\n\
-             ......\n\
-             ......\n\
-             ......\n\
-             ......\n\
-             ......\n"
-        ).unwrap();
-        let d = cage_strategy.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [0, 0]);
-        assert_eq!(d.into_vec(), vec![SVal::new(1), SVal::new(2), SVal::new(3)]);
-    }
-
-    #[test]
-    fn test_cage_partial_strategy_nonexclusive() {
-        let cage_strategy = CagePartialStrategy {
-            cages: vec![Cage { cells: vec![[0, 0], [0, 1], [1, 0]], target: 7, exclusive: false }],
-        };
-        let puzzle = SState::<6, 6, 1, 6>::parse(
-            "......\n\
-             2.....\n\
-             ......\n\
-             ......\n\
-             ......\n\
-             ......\n"
-        ).unwrap();
-        let d = cage_strategy.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [0, 0]);
-        assert_eq!(d.into_vec(), (1..=5).map(SVal::new).collect::<Vec<SVal<1, 6>>>());
-    }
-
-    #[test]
-    fn test_cage_partial_strategy_last_digit() {
-        let cage_strategy = CagePartialStrategy {
-            cages: vec![Cage { cells: vec![[0, 0], [0, 1]], target: 6, exclusive: true }],
-        };
-        let puzzle = SState::<6, 6, 1, 6>::parse(
-            "2.....\n\
-             ......\n\
-             ......\n\
-             ......\n\
-             ......\n\
-             ......\n"
-        ).unwrap();
-        let d = cage_strategy.suggest_partial(&puzzle).unwrap();
-        assert_eq!(d.index, [0, 1]);
-        assert_eq!(d.into_vec(), vec![SVal::new(4)]);
     }
 
     // TODO: Add an e2e cage example.

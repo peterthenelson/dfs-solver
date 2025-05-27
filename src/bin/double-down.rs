@@ -1,9 +1,10 @@
-use variant_sudoku_dfs::strategy::CompositeStrategy;
+use variant_sudoku_dfs::core::FeatureVec;
+use variant_sudoku_dfs::ranker::{LinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::ConstraintConjunction;
-use variant_sudoku_dfs::solver::FindFirstSolution;
-use variant_sudoku_dfs::sudoku::{nine_standard_checker, FirstEmptyStrategy, SState};
-use variant_sudoku_dfs::cages::{Cage, CageChecker, CagePartialStrategy};
-use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSumPartialStrategy};
+use variant_sudoku_dfs::solver::{FindFirstSolution, SamplingDbgObserver};
+use variant_sudoku_dfs::sudoku::{nine_standard_checker, SState};
+use variant_sudoku_dfs::cages::{Cage, CageChecker, CAGE_FEATURE};
+use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 fn main() {
@@ -37,16 +38,14 @@ fn main() {
     let mut constraint = ConstraintConjunction::new(
         sudoku_constraint,
         ConstraintConjunction::new(cage_constraint, xsum_constraint),);
-    let cage_strategy = CagePartialStrategy { cages: cages.clone() };
-    let xsum_strategy = XSumPartialStrategy { xsums: xsums.clone() };
-    let strategy = CompositeStrategy::new(
-        FirstEmptyStrategy {},
-        vec![
-            &xsum_strategy,
-            &cage_strategy,
-        ],
-    );
-    let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, false, None);
+    let ranker = LinearRanker::new(FeatureVec::from_pairs(vec![
+        (NUM_POSSIBLE_FEATURE, -100.0),
+        (XSUM_TAIL_FEATURE, 10.0),
+        (XSUM_HEAD_FEATURE, 5.0),
+        (CAGE_FEATURE, 1.0)
+    ]));
+    let mut dbg = SamplingDbgObserver::new(0.001);
+    let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, false, Some(&mut dbg));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
     println!("Solution:\n{}", maybe_solution.unwrap().get_state().serialize());
 }

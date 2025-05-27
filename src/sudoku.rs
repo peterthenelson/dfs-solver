@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 use crate::core::{full_set, to_value, unpack_values, DecisionGrid, Error, Index, Set, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
-use crate::strategy::{BranchPoint, Strategy};
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -285,7 +284,6 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
-        // TODO
         todo!()
     }
 }
@@ -395,7 +393,6 @@ Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
-        // TODO
         todo!()
     }
 }
@@ -540,31 +537,10 @@ pub fn four_standard_checker() -> FourStandardChecker {
     FourStandardChecker::new(RowColChecker::new(), FourBoxChecker::new())
 }
 
-pub struct FirstEmptyStrategy {}
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Strategy<u8, SState<N, M, MIN, MAX>> for FirstEmptyStrategy {
-    type ActionSet = std::vec::IntoIter<SVal<MIN, MAX>>;
-
-    fn suggest(&self, puzzle: &SState<N, M, MIN, MAX>) -> Result<BranchPoint<u8, SState<N, M, MIN, MAX>, Self::ActionSet>, Error> {
-        for i in 0..N {
-            for j in 0..M {
-                if puzzle.get([i, j]).is_none() {
-                    return Ok(BranchPoint::new(
-                        [i, j],
-                        (MIN..=MAX).map(|value| {
-                            SVal::new(value)
-                        }).collect::<Vec<_>>().into_iter()
-                    ));
-                }
-            }
-        }
-        Ok(BranchPoint::empty())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::{empty_set, UInt}, solver::FindFirstSolution};
+    use crate::{core::{empty_set, UInt}, ranker::LinearRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
 
     #[test]
@@ -623,9 +599,9 @@ mod test {
         let mut checker = RowColChecker::new();
         apply(&mut sudoku, &mut checker, [5, 3], SVal(1));
         apply(&mut sudoku, &mut checker, [5, 4], SVal(3));
-        assert!(!checker.check(&sudoku, false).is_contradiction());
+        assert!(!checker.check(&sudoku, false).has_contradiction(&sudoku));
         apply(&mut sudoku, &mut checker, [5, 8], SVal(1));
-        assert!(checker.check(&sudoku, false).is_contradiction());
+        assert!(checker.check(&sudoku, false).has_contradiction(&sudoku));
     }
 
     #[test]
@@ -634,9 +610,9 @@ mod test {
         let mut checker = RowColChecker::new();
         apply(&mut sudoku, &mut checker, [1, 3], SVal(2));
         apply(&mut sudoku, &mut checker, [3, 3], SVal(7));
-        assert!(!checker.check(&sudoku, false).is_contradiction());
+        assert!(!checker.check(&sudoku, false).has_contradiction(&sudoku));
         apply(&mut sudoku, &mut checker, [6, 3], SVal(2));
-        assert!(checker.check(&sudoku, false).is_contradiction());
+        assert!(checker.check(&sudoku, false).has_contradiction(&sudoku));
     }
 
     #[test]
@@ -645,20 +621,9 @@ mod test {
         let mut checker = NineBoxChecker::new();
         apply(&mut sudoku, &mut checker, [3, 0], SVal(8));
         apply(&mut sudoku, &mut checker, [4, 1], SVal(2));
-        assert!(!checker.check(&sudoku, false).is_contradiction());
+        assert!(!checker.check(&sudoku, false).has_contradiction(&sudoku));
         apply(&mut sudoku, &mut checker, [5, 2], SVal(8));
-        assert!(checker.check(&sudoku, false).is_contradiction());
-    }
-
-    #[test]
-    fn test_first_empty_strategy() {
-        let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let strategy = FirstEmptyStrategy {};
-        assert_eq!(sudoku.apply([0, 0], SVal(3)) , Ok(()));
-        assert_eq!(sudoku.apply([1, 1], SVal(3)) , Ok(()));
-        let d = strategy.suggest(&sudoku).unwrap();
-        assert_eq!(d.index, [0, 1]);
-        assert_eq!(d.into_vec(), (1..=9).map(|v| SVal(v)).collect::<Vec<_>>());
+        assert!(checker.check(&sudoku, false).has_contradiction(&sudoku));
     }
 
     #[test]
@@ -692,10 +657,10 @@ mod test {
                            .3.7.1495\n\
                            567429.13\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
-        let strategy = FirstEmptyStrategy {};
+        let ranker = LinearRanker::default();
         let mut checker = nine_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, false, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -720,10 +685,10 @@ mod test {
                            .713...6\n\
                            46..8...\n";
         let mut sudoku = eight_standard_parse(input).unwrap();
-        let strategy = FirstEmptyStrategy {};
+        let ranker = LinearRanker::default();
         let mut checker = eight_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, false, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -746,10 +711,10 @@ mod test {
                            .64.31\n\
                            ..1.46\n";
         let mut sudoku = six_standard_parse(input).unwrap();
-        let strategy = FirstEmptyStrategy {};
+        let ranker = LinearRanker::default();
         let mut checker = six_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, false, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -770,10 +735,10 @@ mod test {
                            2..3\n\
                            4.12\n";
         let mut sudoku = four_standard_parse(input).unwrap();
-        let strategy = FirstEmptyStrategy {};
+        let ranker = LinearRanker::default();
         let mut checker = four_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &strategy, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, false, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());

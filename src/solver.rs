@@ -1,7 +1,9 @@
 use std::fmt::Debug;
-use crate::core::{Error, GridIndex, Index, State, UInt};
+use rand::distr::Distribution;
+
+use crate::core::{unpack_values, BranchPoint, DecisionGrid, Error, GridIndex, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail, Possibilities};
-use crate::strategy::{BranchPoint, Strategy};
+use crate::ranker::Ranker;
 
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
@@ -52,9 +54,10 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             },
             ConstraintResult::Other(Possibilities::Any) => "Any".to_string(),
             ConstraintResult::Other(Possibilities::Grid(_)) => {
-                // TODO: Also get certainties out of grid
                 if result.has_contradiction(puzzle) {
                     "Grid with Contradiction".to_string()
+                } else if let Some(d) = result.has_certainty(puzzle) {
+                    format!("Grid with Certainty({:?}, {:?})", d.index, d.value).to_string()
                 } else {
                     "Grid[...]".to_string()
                 }
@@ -92,31 +95,55 @@ impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
     }
 }
 
+pub struct SamplingDbgObserver<U: UInt, S: State<U>> {
+    dbg: DbgObserver<U, S>,
+    rng: rand::rngs::ThreadRng,
+    dist: rand::distr::Bernoulli,
+}
+
+impl <U: UInt, S: State<U>> SamplingDbgObserver<U, S> {
+    pub fn new(rate: f64) -> Self {
+        Self {
+            dbg: DbgObserver::new(),
+            rng: rand::rng(),
+            dist: rand::distr::Bernoulli::new(rate).unwrap(),
+        }
+    }
+}
+
+impl <U: UInt, S: State<U>> StepObserver<U, S> for SamplingDbgObserver<U, S> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
+        if self.dist.sample(&mut self.rng) {
+            self.dbg.after_step(solver);
+        }
+    }
+}
+
 /// DFS solver. If you want a lower-level API that allows for more control over
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
 /// if you are implementing a UI or debugging, this API may be useful.
-pub struct DfsSolver<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+pub struct DfsSolver<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     puzzle: &'a mut S,
-    strategy: &'a St,
+    ranker: &'a R,
     constraint: &'a mut C,
     check_result: ConstraintResult<U, S::Value>,
-    stack: Vec<BranchPoint<U, S, St::ActionSet>>,
+    stack: Vec<BranchPoint<U, S>>,
     state: DfsSolverState,
 }
 
-impl <'a, U, S, St, C> Debug
-for DfsSolver<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> Debug
+for DfsSolver<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State:\n{:?}Constraint:\n{:?}\n", self.puzzle, self.constraint)
     }
 }
 
-impl <'a, U, S, St, C> DfsSolverView<U, S>
-for DfsSolver<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> DfsSolverView<U, S>
+for DfsSolver<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn solver_state(&self) -> DfsSolverState {
         self.state
     }
@@ -189,16 +216,16 @@ fn next_filled<U: UInt, S: State<U>>(index: Option<Index>, puzzle: &S) -> Option
     None
 }
  
-impl <'a, U, S, St, C> DfsSolver<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> DfsSolver<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     pub fn new(
         puzzle: &'a mut S,
-        strategy: &'a St,
+        ranker: &'a R,
         constraint: &'a mut C, 
     ) -> Self {
         DfsSolver {
             puzzle,
-            strategy,
+            ranker,
             constraint,
             check_result: ConstraintResult::any(),
             stack: Vec::new(),
@@ -206,7 +233,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         }
     }
 
-    fn apply(&mut self, decision: BranchPoint<U, S, St::ActionSet>, force_grid: bool) -> Result<(), Error> {
+    fn apply(&mut self, decision: BranchPoint<U, S>, force_grid: bool) -> Result<(), Error> {
         if self.is_initializing() {
             return Err(NOT_INITIALIZED);
         } else if self.is_done() {
@@ -232,7 +259,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         return Ok(());
     }
 
-    fn undo(&mut self, decision: &BranchPoint<U, S, St::ActionSet>) -> Result<(), Error> {
+    fn undo(&mut self, decision: &BranchPoint<U, S>) -> Result<(), Error> {
         let v = decision.chosen.unwrap();
         if let Err(e) = self.puzzle.undo(decision.index, v) {
             self.constraint.undo(decision.index, v)?;
@@ -241,12 +268,24 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         self.constraint.undo(decision.index, v)
     }
 
+    fn suggest(&self) -> BranchPoint<U, S> {
+        if let Some(d) = self.check_result.has_certainty(self.puzzle) {
+            return BranchPoint::unique(d.index, d.value);
+        }
+        let g: DecisionGrid<U, S::Value> = match &self.check_result {
+            ConstraintResult::Other(Possibilities::Any) => DecisionGrid::full(S::ROWS, S::COLS),
+            ConstraintResult::Other(Possibilities::Grid(g)) => g.clone(),
+            _ => panic!("Unexpected check_result: {:?}", self.check_result),
+        };
+        if let Some(i) = self.ranker.top(&g, self.puzzle) {
+            BranchPoint::new(i, unpack_values(&g.get(i).0))
+        } else {
+            BranchPoint::empty()
+        }
+    }
+
     pub fn manual_step(&mut self, index: Index, value: S::Value, force_grid: bool) -> Result<(), Error> {
-        self.apply(BranchPoint {
-            chosen: Some(value),
-            index,
-            alternatives: St::ActionSet::default(),
-         }, force_grid)
+        self.apply(BranchPoint::unique(index, value), force_grid)
     }
 
     pub fn force_backtrack(&mut self) -> bool {
@@ -273,7 +312,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing => {
                 // Take a new action
-                let decision = self.strategy.suggest(self.puzzle)?;
+                let decision = self.suggest();
                 if decision.chosen.is_some() {
                     self.apply(decision, force_grid)?;
                 } else {
@@ -308,17 +347,17 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     }
 }
 
-/// Find first solution to the puzzle using the given strategy and constraints.
-pub struct FindFirstSolution<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
-    solver: DfsSolver<'a, U, S, St, C>,
+/// Find first solution to the puzzle using the given ranker and constraints.
+pub struct FindFirstSolution<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    solver: DfsSolver<'a, U, S, R, C>,
     force_grid: bool,
     observer: Option<&'a mut dyn StepObserver<U, S>>,
 }
 
-impl <'a, U, S, St, C> DfsSolverView<U, S>
-for FindFirstSolution<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> DfsSolverView<U, S>
+for FindFirstSolution<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.is_done() }
@@ -338,17 +377,17 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
-impl <'a, U, S, St, C> FindFirstSolution<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> FindFirstSolution<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     pub fn new(
         puzzle: &'a mut S,
-        strategy: &'a St,
+        ranker: &'a R,
         constraint: &'a mut C,
         force_grid: bool,
         observer: Option<&'a mut dyn StepObserver<U, S>>,
     ) -> Self {
         FindFirstSolution {
-            solver: DfsSolver::new(puzzle, strategy, constraint),
+            solver: DfsSolver::new(puzzle, ranker, constraint),
             force_grid,
             observer,
         }
@@ -374,17 +413,17 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     }
 }
 
-/// Find all solutions to the puzzle using the given strategy and constraints.
-pub struct FindAllSolutions<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
-    solver: DfsSolver<'a, U, S, St, C>,
+/// Find all solutions to the puzzle using the given ranker and constraints.
+pub struct FindAllSolutions<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    solver: DfsSolver<'a, U, S, R, C>,
     force_grid: bool,
     observer: Option<&'a mut dyn StepObserver<U, S>>,
 }
 
-impl <'a, U, S, St, C> DfsSolverView<U, S>
-for FindAllSolutions<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> DfsSolverView<U, S>
+for FindAllSolutions<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.solver_state() == DfsSolverState::Exhausted }
@@ -404,17 +443,17 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
-impl <'a, U, S, St, C> FindAllSolutions<'a, U, S, St, C>
-where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+impl <'a, U, S, R, C> FindAllSolutions<'a, U, S, R, C>
+where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     pub fn new(
         puzzle: &'a mut S,
-        strategy: &'a St,
+        ranker: &'a R,
         constraint: &'a mut C,
         force_grid: bool,
         observer: Option<&'a mut dyn StepObserver<U, S>>,
     ) -> Self {
         FindAllSolutions {
-            solver: DfsSolver::new(puzzle, strategy, constraint),
+            solver: DfsSolver::new(puzzle, ranker, constraint),
             force_grid,
             observer,
         }
@@ -454,16 +493,16 @@ pub mod test_util {
     /// Replayer for a partially or wholly complete puzzle. This is helpful if
     /// you'd like to test a constraint and would prefer to specify the state
     /// after a number of actions, rather than as a sequence of actions.
-    pub struct PuzzleReplay<'a, U, S, St, C>
-    where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
-        solver: DfsSolver<'a, U, S, St, C>,
+    pub struct PuzzleReplay<'a, U, S, R, C>
+    where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+        solver: DfsSolver<'a, U, S, R, C>,
         force_grid: bool,
         observer: Option<&'a mut dyn StepObserver<U, S>>,
     }
 
-    impl <'a, U, S, St, C> DfsSolverView<U, S>
-    for PuzzleReplay<'a, U, S, St, C>
-    where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    impl <'a, U, S, R, C> DfsSolverView<U, S>
+    for PuzzleReplay<'a, U, S, R, C>
+    where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
         fn is_initializing(&self) -> bool { self.solver.is_initializing() }
         fn is_done(&self) -> bool { self.solver.is_done() }
@@ -483,17 +522,17 @@ pub mod test_util {
         fn get_state(&self) -> &S { self.solver.get_state() }
     }
 
-    impl <'a, U, S, St, C> PuzzleReplay<'a, U, S, St, C>
-    where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+    impl <'a, U, S, R, C> PuzzleReplay<'a, U, S, R, C>
+    where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         pub fn new(
             puzzle: &'a mut S,
-            strategy: &'a St,
+            ranker: &'a R,
             constraint: &'a mut C,
             force_grid: bool,
             observer: Option<&'a mut dyn StepObserver<U, S>>,
         ) -> Self {
             Self {
-                solver: DfsSolver::new(puzzle, strategy, constraint),
+                solver: DfsSolver::new(puzzle, ranker, constraint),
                 force_grid,
                 observer,
             }
@@ -542,20 +581,20 @@ pub mod test_util {
 mod test {
     use crate::constraint::ConstraintViolationDetail;
     use crate::core::{to_value, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
-    use crate::strategy::{CompositeStrategy, PartialStrategy};
+    use crate::ranker::LinearRanker;
     use super::*;
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     struct GwValue(pub u8);
     impl Value<u8> for GwValue {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
-        fn cardinality() -> usize { 10 }
+        fn cardinality() -> usize { 9 }
         fn possiblities() -> Vec<Self> { (1..10).map(GwValue).collect() }
-        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { GwValue(u.value()) }
-        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
+        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { GwValue(u.value()+1) }
+        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0-1) }
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone)]
     struct GwLine {
         digits: UVGrid<u8>,
     }
@@ -565,6 +604,12 @@ mod test {
             GwLine {
                 digits: UVGrid::<u8>::new(Self::ROWS, Self::COLS),
             }
+        }
+    }
+
+    impl std::fmt::Debug for GwLine {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}\n", self.to_string())
         }
     }
 
@@ -654,35 +699,33 @@ mod test {
         }
     }
 
-    struct GwLineStrategy {}
-    impl Strategy<u8, GwLine> for GwLineStrategy {
-        type ActionSet = std::vec::IntoIter<GwValue>;
-
-        fn suggest(&self, puzzle: &GwLine) -> Result<BranchPoint<u8, GwLine, Self::ActionSet>, Error> {
+    #[derive(Debug)]
+    struct GwSmartLineConstraint {}
+    impl Stateful<u8, GwValue> for GwSmartLineConstraint {}
+    impl Constraint<u8, GwLine> for GwSmartLineConstraint {
+        fn check(&self, puzzle: &GwLine, _: bool) -> ConstraintResult<u8, GwValue> {
+            let mut grid = DecisionGrid::<u8, GwValue>::full(1, 8);
             for i in 0..8 {
-                if puzzle.digits.get([0, i]).is_none() {
-                    return Ok(BranchPoint::new(
-                        [0, i],
-                        vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().map(GwValue).collect::<Vec<_>>().into_iter())
-                    );
+                if let Some(u) = puzzle.digits.get([0, i]) {
+                    let v = to_value::<u8, GwValue>(u);
+                    (0..8).for_each(|j| { grid.get_mut([0, j]).0.remove(u) });
+                    (1..=9).for_each(|w| {
+                        if (w < v.0 && v.0-w >= 5) || (w > v.0 && w-v.0 >= 5) {
+                            return;
+                        }
+                        if i > 0 {
+                            grid.get_mut([0, i-1]).0.remove(GwValue(w).to_uval());
+                        }
+                        if i < 7 {
+                            grid.get_mut([0, i+1]).0.remove(GwValue(w).to_uval());
+                        }
+                    });
                 }
             }
-            Ok(BranchPoint::empty())
+            ConstraintResult::grid(grid)
         }
-    }
-
-    struct GwLineStrategyPartial {}
-    impl PartialStrategy<u8, GwLine> for GwLineStrategyPartial {
-        fn suggest_partial(&self, puzzle: &GwLine) -> Result<BranchPoint<u8, GwLine, std::vec::IntoIter<GwValue>>, Error> {
-            // This is a partial strategy that only affects the first digit and
-            // avoids guessing things that can't work.
-            if puzzle.digits.get([0, 0]).is_none() {
-                return Ok(BranchPoint::new(
-                    [0, 0],
-                    vec![4, 6].into_iter().map(GwValue).collect::<Vec<_>>().into_iter())
-                );
-            }
-            Ok(BranchPoint::empty())
+        fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
+            todo!()
         }
     }
 
@@ -712,9 +755,9 @@ mod test {
     #[test]
     fn test_german_whispers_find() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let strategy = GwLineStrategy {};
+        let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, false, None);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, false, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
         assert_eq!(maybe_solution.unwrap().get_state().to_string(), "49382716");
@@ -724,9 +767,9 @@ mod test {
     #[test]
     fn test_german_whispers_trace_manual() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let strategy = GwLineStrategy {};
+        let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true, None);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, true, None);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
         while !finder.is_done() {
@@ -752,23 +795,22 @@ mod test {
     #[test]
     fn test_german_whispers_trace_observer() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let strategy = GwLineStrategy {};
+        let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
         let mut counter = ContraCounter(0);
-        let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, true, Some(&mut counter));
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, true, Some(&mut counter));
         let _ = finder.solve()?;
         assert!(finder.is_valid());
         assert!(counter.0 > 100);
         Ok(())
     }
-    // TODO: trace w/observer
 
     #[test]
     fn test_german_whispers_all() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let strategy = GwLineStrategy {};
+        let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false, None);
+        let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, false, None);
         let (steps, solution_count) = finder.solve_all()?;
         assert!(steps > 2500);
         assert_eq!(solution_count, 2);
@@ -778,12 +820,11 @@ mod test {
     #[test]
     fn test_german_whispers_all_fast() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let partial = GwLineStrategyPartial {};
-        let strategy = CompositeStrategy::new(GwLineStrategy {}, vec![&partial]);
-        let mut constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &strategy, &mut constraint, false, None);
+        let ranker = LinearRanker::default();
+        let mut constraint = GwSmartLineConstraint {};
+        let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, false, None);
         let (steps, solution_count) = finder.solve_all()?;
-        assert!(steps < 1000);
+        assert!(steps < 500);
         assert_eq!(solution_count, 2);
         Ok(())
     }

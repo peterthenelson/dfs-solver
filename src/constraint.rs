@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{Decision, DecisionGrid, Error, Index, State, Stateful, UInt, Value};
+use crate::core::{unpack_values, CertainDecision, Decision, DecisionGrid, Error, Index, State, Stateful, UInt, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Possibilities<U: UInt, V: Value<U>> {
@@ -37,10 +37,32 @@ impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
         Decision::Other(Possibilities::Grid(grid))
     }
 
+    pub fn has_certainty<S: State<U, Value=V>>(&self, puzzle: &S) -> Option<CertainDecision<U, V>> {
+        match self {
+            ConstraintResult::Contradiction => None,
+            ConstraintResult::Certainty(d) => Some(*d),
+            Decision::Other(Possibilities::Any) => None,
+            Decision::Other(Possibilities::Grid(g)) => {
+                for r in 0..g.rows() {
+                    for c in 0..g.cols() {
+                        if puzzle.get([r, c]).is_none() {
+                            let cell = &g.get([r, c]).0;
+                            if cell.len() == 1 {
+                                let v = unpack_values::<U, V>(cell)[0];
+                                return Some(CertainDecision::new([r, c], v))
+                            }
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
     pub fn has_contradiction<S: State<U, Value=V>>(&self, puzzle: &S) -> bool {
         match self {
-            Decision::Contradiction => true,
-            Decision::Certainty(_) => false,
+            ConstraintResult::Contradiction => true,
+            ConstraintResult::Certainty(_) => false,
             Decision::Other(p) => {
                 match p {
                     Possibilities::Any => false,
