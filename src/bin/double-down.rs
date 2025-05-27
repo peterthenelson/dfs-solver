@@ -1,4 +1,3 @@
-/*
 use variant_sudoku_dfs::strategy::CompositeStrategy;
 use variant_sudoku_dfs::constraint::ConstraintConjunction;
 use variant_sudoku_dfs::solver::FindFirstSolution;
@@ -35,7 +34,7 @@ fn main() {
     let sudoku_constraint = nine_standard_checker();
     let cage_constraint = CageChecker::new(cages.clone());
     let xsum_constraint = XSumChecker::new(xsums.clone());
-    let constraint = ConstraintConjunction::new(
+    let mut constraint = ConstraintConjunction::new(
         sudoku_constraint,
         ConstraintConjunction::new(cage_constraint, xsum_constraint),);
     let cage_strategy = CagePartialStrategy { cages: cages.clone() };
@@ -47,9 +46,7 @@ fn main() {
             &cage_strategy,
         ],
     );
-    let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &constraint, false, None);
+    let mut finder = FindFirstSolution::new(&mut puzzle, &strategy, &mut constraint, false, None);
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
-    println!("Solution:\n{}", maybe_solution.unwrap().get_puzzle().serialize());
+    println!("Solution:\n{}", maybe_solution.unwrap().get_state().serialize());
 }
-*/
-pub fn main() {}

@@ -184,6 +184,7 @@ mod tests {
     impl Value<u8> for Val {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { /* actually a lie, but zero is wasted */ 10 }
+        fn possiblities() -> Vec<Self> { (1..=9).map(Val).collect() }
         fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()) }
         fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
     }

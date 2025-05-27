@@ -52,7 +52,7 @@ impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
             write!(f, "Illegal move: {:?}; {:?}\n", i, v)?;
         }
         for (i, c) in self.cages.iter().enumerate() {
-            write!(f, " Cage[{:?}]\n", c.cells)?;
+            write!(f, " Cage{:?}\n", c.cells)?;
             write!(f, " - Remaining to target: {}\n", self.remaining[i])?;
             if c.exclusive {
                 let vals = unpack_sval_vals::<MIN, MAX>(&self.cage_sets[i]);
@@ -197,7 +197,7 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for CagePartialStrategy {
 mod tests {
     use super::*;
     use std::vec;
-    use crate::solver::test_util::{assert_contradiction_eq, replay_puzzle};
+    use crate::{solver::test_util::{assert_contradiction_eq, PuzzleReplay}, sudoku::FirstEmptyStrategy};
 
     #[test]
     fn test_cage_checker() {
@@ -218,8 +218,11 @@ mod tests {
         ).unwrap();
 
         for (c, expected) in vec![(cage1, false), (cage2, true), (cage3, true), (cage4, false)] {
+            let mut puzzle = puzzle.clone();
+            // TODO: remove these irrelevant strategies
+            let strategy = FirstEmptyStrategy {};
             let mut cage_checker = CageChecker::new(vec![c]);
-            let result = replay_puzzle(&mut cage_checker, &puzzle, false);
+            let result = PuzzleReplay::new(&mut puzzle, &strategy, &mut cage_checker, false, None).replay().unwrap();
             assert_contradiction_eq(&cage_checker, &puzzle, &result, expected);
         }
     }

@@ -1,6 +1,6 @@
 // TODO: Delete this and replace with a Ranker
 
-use crate::core::{State, Error, Index, UInt};
+use crate::core::{State, Error, Index, UInt, Value};
 
 /// Possible values are represented using iterators that know their size and
 /// for which empty ones can be instantiated.
@@ -72,6 +72,38 @@ impl <U: UInt, P: State<U>, A: ActionSet<P::Value>> BranchPoint<U, P, A> {
 pub trait Strategy<U: UInt, P: State<U>> {
     type ActionSet: ActionSet<P::Value>;
     fn suggest(&self, puzzle: &P) -> Result<BranchPoint<U, P, Self::ActionSet>, Error>;
+}
+
+/// Simplest strategy: choose the first empty cell and try all possible values.
+pub struct FirstEmptyStrategy<U, P>
+where U: UInt, P: State<U> {
+    p_u: std::marker::PhantomData<U>,
+    p_p: std::marker::PhantomData<P>,
+}
+impl <U, P> FirstEmptyStrategy<U, P>
+where U: UInt, P: State<U> {
+    pub fn new() -> Self {
+        FirstEmptyStrategy {
+            p_u: std::marker::PhantomData,
+            p_p: std::marker::PhantomData,
+        }
+    }
+}
+impl <U, P> Strategy<U, P> for FirstEmptyStrategy<U, P>
+where U: UInt, P: State<U> {
+    type ActionSet = std::vec::IntoIter<P::Value>;
+    fn suggest(&self, puzzle: &P) -> Result<BranchPoint<U, P, Self::ActionSet>, Error> {
+        for i in 0..P::ROWS {
+            for j in 0..P::COLS {
+                let index = [i, j];
+                if let Some(_) = puzzle.get(index) {
+                    continue;
+                }
+                return Ok(BranchPoint::new(index, P::Value::possiblities().into_iter()));
+            }
+        }
+        Ok(BranchPoint::empty())
+    }
 }
 
 /// A partial strategy that can be used to suggest actions (but requires some
@@ -155,6 +187,7 @@ mod tests {
     impl Value<u8> for Val {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 3 }
+        fn possiblities() -> Vec<Self> { vec![Val(1), Val(2), Val(3)] }
         fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()) }
         fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
     }

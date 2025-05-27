@@ -110,6 +110,7 @@ impl <U: UInt> UVal<U, UVUnwrapped> {
 /// and Constraint implementations to interpret them.
 pub trait Value<U: UInt>: Copy + Clone + Debug + PartialEq + Eq {
     fn cardinality() -> usize;
+    fn possiblities() -> Vec<Self>;
     fn parse(s: &str) -> Result<Self, Error>;
 
     fn from_uval(u: UVal<U, UVUnwrapped>) -> Self;
@@ -409,8 +410,8 @@ impl FeatureVec<FVNormed> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CertainDecision<U: UInt, V: Value<U>> {
-    index: Index,
-    value: V,
+    pub index: Index,
+    pub value: V,
     _p_u: PhantomData<U>,
 }
 

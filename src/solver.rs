@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use crate::core::{Error, GridIndex, Index, State, UInt};
-use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
+use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail, Possibilities};
 use crate::strategy::{BranchPoint, Strategy};
 
 /// The state of the DFS solver. At any point in time, the solver is either
@@ -8,7 +8,7 @@ use crate::strategy::{BranchPoint, Strategy};
 /// solved (has found a solution), or exhausted (no more actions to take).
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum DfsSolverState {
-    Init(Index),
+    Init(Option<Index>),
     Advancing,
     Backtracking,
     Solved,
@@ -21,7 +21,9 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
     fn is_initializing(&self) -> bool;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
-    fn check_constraints(&self) -> ConstraintResult<U, S::Value>;
+    fn most_recent_action(&self) -> Option<(Index, S::Value)>;
+    fn get_constraint(&self) -> &dyn Constraint<U, S>;
+    fn constraint_result(&self) -> ConstraintResult<U, S::Value>;
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail>;
     fn get_state(&self) -> &S;
 }
@@ -42,20 +44,50 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
     pub fn new() -> Self {
         DbgObserver(std::marker::PhantomData)
     }
+    fn short_result(result: &ConstraintResult<U, S::Value>, puzzle: &S) -> String {
+        match result {
+            ConstraintResult::Contradiction => "Contradiction".to_string(),
+            ConstraintResult::Certainty(d) => {
+                format!("Certainty({:?}, {:?})", d.index, d.value).to_string()
+            },
+            ConstraintResult::Other(Possibilities::Any) => "Any".to_string(),
+            ConstraintResult::Other(Possibilities::Grid(_)) => {
+                // TODO: Also get certainties out of grid
+                if result.has_contradiction(puzzle) {
+                    "Grid with Contradiction".to_string()
+                } else {
+                    "Grid[...]".to_string()
+                }
+            }
+        }
+    }
 }
 
 impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
     fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
+        let state = solver.get_state();
         if solver.is_initializing() {
-            print!("INITIALIZING:\n{:?}\n", solver.get_state());
+            print!(
+                "INITIALIZING: {:?}\n{:?}{:?}{}\n",
+                solver.most_recent_action(), state, solver.get_constraint(),
+                DbgObserver::short_result(&solver.constraint_result(), state),
+            );
         } else if solver.is_done() {
             if solver.is_valid() {
-                print!("VALID:\n{:?}\n", solver.get_state());
+                print!(
+                    "SOLVED: {:?}\n{:?}{:?}{}\n",
+                    solver.most_recent_action(), state, solver.get_constraint(),
+                    DbgObserver::short_result(&solver.constraint_result(), state),
+                );
             } else {
                 print!("UNSOLVABLE");
             }
         } else {
-            print!("STEP:\n{:?}\n", solver.get_state());
+            print!(
+                "STEP: {:?}\n{:?}{:?}{}\n",
+                solver.most_recent_action(), state, solver.get_constraint(),
+                DbgObserver::short_result(&solver.constraint_result(), state),
+            );
         }
     }
 }
@@ -105,7 +137,24 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
         !self.check_result.has_contradiction(self.puzzle)
     }
 
-    fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
+    fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+        if let Some(b) = self.stack.last() {
+            Some((b.index, b.chosen.unwrap()))
+        } else {
+            match self.state {
+                DfsSolverState::Init(Some(index)) => {
+                    Some((index, self.puzzle.get(index).unwrap()))
+                },
+                _ => None,
+            }
+        }
+    }
+
+    fn get_constraint(&self) -> &dyn Constraint<U, S> {
+        self.constraint
+    }
+
+    fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
         self.check_result.clone()
     }
 
@@ -122,8 +171,14 @@ const NOT_INITIALIZED: Error = Error::new_const("Must call init() before steppin
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
 
-fn next_filled<U: UInt, S: State<U>>(index: Index, puzzle: &S) -> Option<(Index, S::Value)> {
-    let mut i = index;
+fn next_filled<U: UInt, S: State<U>>(index: Option<Index>, puzzle: &S) -> Option<(Index, S::Value)> {
+    let mut i = if index.is_none() {
+        [0, 0]
+    } else {
+        let mut i2 = index.unwrap();
+        i2.increment(S::ROWS, S::COLS);
+        i2
+    };
     while i.in_bounds(S::ROWS, S::COLS) {
         let v = puzzle.get(i);
         if v.is_some() {
@@ -147,7 +202,7 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
             constraint,
             check_result: ConstraintResult::any(),
             stack: Vec::new(),
-            state: DfsSolverState::Init([0, 0]),
+            state: DfsSolverState::Init(None),
         }
     }
 
@@ -205,14 +260,10 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
         match self.state {
             DfsSolverState::Init(index) => {
-                if let Some((mut i, v)) = next_filled(index, self.puzzle) {
+                if let Some((i, v)) = next_filled(index, self.puzzle) {
                     self.constraint.apply(i, v)?;
-                    i.increment(S::ROWS, S::COLS);
-                    if !index.in_bounds(S::ROWS, S::COLS) {
-                        self.state = DfsSolverState::Advancing;
-                    } else {
-                        self.state = DfsSolverState::Init(i);
-                    }
+                    self.check_result = self.constraint.check(self.puzzle, force_grid);
+                    self.state = DfsSolverState::Init(Some(i));
                 } else {
                     self.state = DfsSolverState::Advancing;
                 }
@@ -272,8 +323,14 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.is_done() }
     fn is_valid(&self) -> bool { self.solver.is_valid() }
-    fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
-        self.solver.check_constraints()
+    fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+        self.solver.most_recent_action()
+    }
+    fn get_constraint(&self) -> &dyn Constraint<U, S> {
+        self.solver.get_constraint()
+    }
+    fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+        self.solver.constraint_result()
     }
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
         self.solver.explain_contradiction()
@@ -332,8 +389,14 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.solver_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.solver.is_valid() }
-    fn check_constraints(&self) -> ConstraintResult<U, S::Value> {
-        self.solver.check_constraints()
+    fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+        self.solver.most_recent_action()
+    }
+    fn get_constraint(&self) -> &dyn Constraint<U, S> {
+        self.solver.get_constraint()
+    }
+    fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+        self.solver.constraint_result()
     }
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
         self.solver.explain_contradiction()
@@ -387,40 +450,76 @@ where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
 #[cfg(test)]
 pub mod test_util {
     use super::*;
-    use crate::core::GridIndex;
 
-    fn next_filled<U: UInt, S: State<U>>(index: Index, puzzle: &S) -> Option<(Index, S::Value)> {
-        let mut i = index;
-        while i.in_bounds(S::ROWS, S::COLS) {
-            let v = puzzle.get(i);
-            if v.is_some() {
-                return Some((i, v.unwrap()));
-            }
-            i.increment(S::ROWS, S::COLS);
-        }
-        None
+    /// Replayer for a partially or wholly complete puzzle. This is helpful if
+    /// you'd like to test a constraint and would prefer to specify the state
+    /// after a number of actions, rather than as a sequence of actions.
+    pub struct PuzzleReplay<'a, U, S, St, C>
+    where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+        solver: DfsSolver<'a, U, S, St, C>,
+        force_grid: bool,
+        observer: Option<&'a mut dyn StepObserver<U, S>>,
     }
 
-    // Replay all the existing actions in the puzzle against a constraint and
-    // report the final ConstraintResult (or a contradiction is detected during
-    // the replay).
-    // TODO: Update to use the StepObserver
-    pub fn replay_puzzle<U: UInt, S: State<U>>(constraint: &mut dyn Constraint<U, S>, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value> {
-        let mut index = [0, 0];
-        while index.in_bounds(S::ROWS, S::COLS) {
-            if let Some((mut i, v)) = next_filled(index, puzzle) {
-                constraint.apply(i, v).unwrap();
-                let check = constraint.check(puzzle, force_grid);
-                if check.has_contradiction(puzzle) {
-                    return check;
-                }
-                i.increment(S::ROWS, S::COLS);
-                index = i;
-            } else {
-                break;
+    impl <'a, U, S, St, C> DfsSolverView<U, S>
+    for PuzzleReplay<'a, U, S, St, C>
+    where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+        fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
+        fn is_initializing(&self) -> bool { self.solver.is_initializing() }
+        fn is_done(&self) -> bool { self.solver.is_done() }
+        fn is_valid(&self) -> bool { self.solver.is_valid() }
+        fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+            self.solver.most_recent_action()
+        }
+        fn get_constraint(&self) -> &dyn Constraint<U, S> {
+            self.solver.get_constraint()
+        }
+        fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+            self.solver.constraint_result()
+        }
+        fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
+            self.solver.explain_contradiction()
+        }
+        fn get_state(&self) -> &S { self.solver.get_state() }
+    }
+
+    impl <'a, U, S, St, C> PuzzleReplay<'a, U, S, St, C>
+    where U: UInt, S: State<U>, St: Strategy<U, S>, C: Constraint<U, S> {
+        pub fn new(
+            puzzle: &'a mut S,
+            strategy: &'a St,
+            constraint: &'a mut C,
+            force_grid: bool,
+            observer: Option<&'a mut dyn StepObserver<U, S>>,
+        ) -> Self {
+            Self {
+                solver: DfsSolver::new(puzzle, strategy, constraint),
+                force_grid,
+                observer,
             }
         }
-        constraint.check(puzzle, force_grid)
+
+        pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
+            self.solver.step(self.force_grid)?;
+            Ok(&self.solver)
+        }
+
+        /// Replay all the existing actions in the puzzle against a constraint
+        /// and report the final ConstraintResult (or a contradiction is
+        /// detected during the replay).
+        pub fn replay(&mut self) -> Result<ConstraintResult<U, S::Value>, Error> {
+            while self.solver.is_initializing() {
+                self.step()?;
+                if let Some(observer) = &mut self.observer {
+                    observer.after_step(&self.solver);
+                }
+                let result = self.solver.constraint_result();
+                if result.has_contradiction(self.solver.get_state()) {
+                    return Ok(result);
+                }
+            }
+            return Ok(self.solver.constraint_result());
+        }
     }
 
     // Assertion for a contradiction or lack-thereof
@@ -451,6 +550,7 @@ mod test {
     impl Value<u8> for GwValue {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 10 }
+        fn possiblities() -> Vec<Self> { (1..10).map(GwValue).collect() }
         fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { GwValue(u.value()) }
         fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
     }

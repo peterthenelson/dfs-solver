@@ -202,9 +202,9 @@ Debug for XSumChecker<MIN, MAX, N, M> {
             write!(f, " {:?}\n", x)?;
             write!(f, " - Remaining to target: {}\n", self.xsums_remaining[i])?;
             if let Some(empty) = self.xsums_empty[i] {
-                write!(f, " - Empty cells remaining: {}", empty)?;
+                write!(f, " - Empty cells remaining: {}\n", empty)?;
             } else {
-                write!(f, " - Length unknown")?;
+                write!(f, " - Length unknown\n")?;
             }
         }
         Ok(())
@@ -224,7 +224,7 @@ Stateful<u8, SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
         for (i, xsum) in self.xsums.iter().enumerate() {
             let len_index = xsum.length_index();
             if index == len_index {
-                let mut remaining = xsum.target as i16;
+                let mut remaining = xsum.target as i16 - value.val() as i16;
                 let mut empty = value.val() as i16 - 1;
                 for i2 in xsum.xrange(value.val()) {
                     if let Some(v) = self.grid[i2[0] * M + i2[1]] {
@@ -279,7 +279,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                 }
                 // TODO: Can constrain this more
                 let mut set = empty_set::<u8, SVal<MIN, MAX>>();
-                (MIN..=(r as u8)).for_each(|v| {
+                (MIN..=std::cmp::min(MAX, r as u8)).for_each(|v| {
                     set.insert(SVal::<MIN, MAX>::new(v).to_uval())
                 });
                 let len = xsum.length(puzzle).unwrap().1;
@@ -358,7 +358,7 @@ PartialStrategy<u8, SState<N, M, MIN, MAX>> for XSumPartialStrategy<MIN, MAX, N,
 mod tests {
     use super::*;
     use std::vec;
-    use crate::solver::test_util::{assert_contradiction_eq, replay_puzzle};
+    use crate::{solver::test_util::{assert_contradiction_eq, PuzzleReplay}, sudoku::FirstEmptyStrategy};
 
     #[test]
     fn test_xsum_contains() {
@@ -471,8 +471,11 @@ mod tests {
         ).unwrap();
 
         for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
+            let mut puzzle = puzzle.clone();
+            // TODO: remove these irrelevant strategies
+            let strategy = FirstEmptyStrategy {};
             let mut xsum_checker = XSumChecker::new(vec![x]);
-            let result = replay_puzzle(&mut xsum_checker, &puzzle, false);
+            let result = PuzzleReplay::new(&mut puzzle, &strategy, &mut xsum_checker, false, None).replay().unwrap();
             assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
         }
     }
@@ -498,8 +501,11 @@ mod tests {
         ).unwrap();
 
         for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
+            let mut puzzle = puzzle.clone();
+            // TODO: remove these irrelevant strategies
+            let strategy = FirstEmptyStrategy {};
             let mut xsum_checker = XSumChecker::new(vec![x]);
-            let result = replay_puzzle(&mut xsum_checker, &puzzle, false);
+            let result = PuzzleReplay::new(&mut puzzle, &strategy, &mut xsum_checker, false, None).replay().unwrap();
             assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
         }
     }
