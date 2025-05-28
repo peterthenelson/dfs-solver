@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::sync::{LazyLock, Mutex};
 use crate::core::{full_set, to_value, unpack_values, DecisionGrid, Error, Index, Set, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
 
@@ -45,6 +47,82 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
 
 pub fn unpack_sval_vals<const MIN: u8, const MAX: u8>(s: &Set<u8>) -> Vec<u8> {
     unpack_values::<u8, SVal<MIN, MAX>>(&s).iter().map(|v| v.val()).collect::<Vec<u8>>()
+}
+
+/// Tables of useful sums in Sudoku.
+static SVAL_LEN_TO_SUM: LazyLock<Mutex<HashMap<(u8, u8), HashMap<u8, Option<(u8, u8)>>>>> = LazyLock::new(|| {
+    Mutex::new(HashMap::new())
+});
+static SVAL_SUM_TO_LEN: LazyLock<Mutex<HashMap<(u8, u8), HashMap<u8, Option<(u8, u8)>>>>> = LazyLock::new(|| {
+    Mutex::new(HashMap::new())
+});
+
+// Useful utility for working with sums of ranges of numbers. Returns the range
+// of sums that are possible to from len exclusive numbers drawn from the range
+// min..=max.
+pub fn min_max_sum(min: u8, max: u8, len: u8) -> Option<(u8, u8)> {
+    // TODO: Use n(n+1)/2 formula instead of loops
+    if min + len - 1 > max {
+        None
+    } else {
+        Some(((min..=(min+len-1)).sum(), ((max+1-len)..=max).sum()))
+    }
+}
+
+// Not efficient, but hey it's subset sum, so what are you going to do.
+fn sum_feasible(min: u8, max: u8, k: u8, sum: u8) -> bool {
+    if k == 0 {
+        sum == 0
+    } else if k == 1 {
+        min <= sum && sum <= max
+    } else if min >= max {
+        false
+    } else if sum < min {
+        false
+    } else if sum_feasible(min+1, max, k-1, sum-min) {
+        true
+    } else {
+        sum_feasible(min+1, max, k, sum)
+    }
+}
+
+// What is the minimum/maximum sum that len exclusive SVal<MIN, MAX>s could add up to?
+pub fn sval_sum_bound<const MIN: u8, const MAX: u8>(len: u8) -> Option<(u8, u8)> {
+    let mut map = SVAL_LEN_TO_SUM.lock().unwrap();
+    let inner_map = map.entry((MIN, MAX)).or_default();
+    if let Some(r) = inner_map.get(&len) {
+        return *r
+    }
+    let r = min_max_sum(MIN, MAX, len);
+    inner_map.insert(len, r);
+    r
+}
+
+// What is the minimum/maximum len of exclusive SVal<MIN, MAX>s that could add up to sum?
+pub fn sval_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
+    let mut map = SVAL_SUM_TO_LEN.lock().unwrap();
+    let inner_map = map.entry((MIN, MAX)).or_default();
+    if let Some(r) = inner_map.get(&sum) {
+        return *r
+    }
+    let mut min = None;
+    let mut max = None;
+    for len in 1..u8::MAX {
+        let range = min_max_sum(MIN, MAX, len);
+        if let Some((lo, hi)) = range {
+            if lo <= sum && sum <= hi && sum_feasible(MIN, MAX, len, sum) {
+                if min.is_none() {
+                    min = Some(len);
+                }
+                max = Some(len);
+            } else if lo > sum {
+                break;
+            }
+        }
+    }
+    let r = if min.is_none() { None } else { Some((min.unwrap(), max.unwrap())) };
+    inner_map.insert(sum, r);
+    r
 }
 
 /// Standard rectangular Sudoku grid.
@@ -573,6 +651,39 @@ mod test {
             unpack_sval_vals::<3, 9>(&mostly_full),
             vec![3, 5, 6, 7, 8, 9],
         );
+    }
+
+    #[test]
+    fn test_sval_stats() {
+        // Min=1, Max=4
+        assert_eq!(sval_sum_bound::<1, 4>(1), Some((1, 4)));
+        // Min=1+2, Max=4+3
+        assert_eq!(sval_sum_bound::<1, 4>(2), Some((3, 7)));
+        // Min=1+2+3, Max=4+3+2
+        assert_eq!(sval_sum_bound::<1, 4>(3), Some((6, 9)));
+        // Min=Max=1+2+3+4
+        assert_eq!(sval_sum_bound::<1, 4>(4), Some((10, 10)));
+
+        // 1
+        assert_eq!(sval_len_bound::<1, 4>(1), Some((1, 1)));
+        // 2
+        assert_eq!(sval_len_bound::<1, 4>(2), Some((1, 1)));
+        // 3, 1+2
+        assert_eq!(sval_len_bound::<1, 4>(3), Some((1, 2)));
+        // 4, 1+3
+        assert_eq!(sval_len_bound::<1, 4>(4), Some((1, 2)));
+        // 1+4, 2+3
+        assert_eq!(sval_len_bound::<1, 4>(5), Some((2, 2)));
+        // 2+4, 1+2+3
+        assert_eq!(sval_len_bound::<1, 4>(6), Some((2, 3)));
+        // 3+4, 1+2+4
+        assert_eq!(sval_len_bound::<1, 4>(7), Some((2, 3)));
+        // 1+3+4
+        assert_eq!(sval_len_bound::<1, 4>(8), Some((3, 3)));
+        // 2+3+4
+        assert_eq!(sval_len_bound::<1, 4>(9), Some((3, 3)));
+        // 1+2+3+4
+        assert_eq!(sval_len_bound::<1, 4>(10), Some((4, 4)));
     }
 
     #[test]

@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::{LazyLock, Mutex};
 use crate::core::{empty_set, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::sudoku::{SState, SVal};
+use crate::sudoku::{sval_sum_bound, SState, SVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum XSumDirection {
@@ -173,8 +175,6 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
     }
 }
 
-// TODO: Tables for min/max sums for various lengths and vice versa
-
 pub const XSUM_HEAD_FEATURE: &str = "XSUM_HEAD";
 pub const XSUM_TAIL_FEATURE: &str = "XSUM_TAIL";
 
@@ -269,6 +269,129 @@ Stateful<u8, SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
     }
 }
 
+static ELEM_IN_SUM: LazyLock<Mutex<HashMap<(u8, u8), HashMap<(u8, u8), Option<(u8, u8)>>>>> = LazyLock::new(|| {
+    Mutex::new(HashMap::new())
+});
+static XSUM_LENS: LazyLock<Mutex<HashMap<(u8, u8), HashMap<u8, Option<(u8, u8)>>>>> = LazyLock::new(|| {
+    Mutex::new(HashMap::new())
+});
+
+fn elem_in_sum_bound<const MIN: u8, const MAX: u8>(sum: u8, len: u8) -> Option<(u8, u8)> {
+    let mut map = ELEM_IN_SUM.lock().unwrap();
+    let inner_map = map.entry((MIN, MAX)).or_default();
+    if let Some(r) = inner_map.get(&(sum, len)) {
+        return *r;
+    }
+    let r = if len == 0 {
+        None
+    } else if len == 1 {
+        if MIN <= sum && sum <= MAX {
+            Some((sum, sum))
+        } else {
+            None
+        }
+    } else {
+        if let Some((min, max)) = sval_sum_bound::<MIN, MAX>(len) {
+            if !(min <= sum && sum <= max) {
+                return None;
+            }
+        } else {
+            return None;
+        }
+        if let Some((rmin, rmax)) = sval_sum_bound::<MIN, MAX>(len - 1) {
+            let min = if rmax + MIN >= sum {
+                MIN
+            } else if MIN <= (sum - rmax) && (sum - rmax) <= MAX {
+                sum - rmax
+            } else {
+                return None
+            };
+            let max = if rmin + MIN > sum {
+                return None;
+            } else if rmin + MAX <= sum {
+                MAX
+            } else if MIN <= (sum - rmin) && (sum - rmin) <= MAX {
+                sum - rmin
+            } else {
+                return None;
+            };
+            Some((min, max))
+        } else {
+            None
+        }
+    };
+    inner_map.insert((sum, len), r);
+    r
+}
+
+fn sum_one_out_bound<const MIN: u8, const MAX: u8>(out: u8, len: u8) -> Option<(u8, u8)> {
+    assert!(MIN <= out && out <= MAX);
+    if MIN + len > MAX {
+        return None;
+    }
+    let mut i = 0;
+    let mut j = 0;
+    let mut min = 0;
+    while i < len {
+        let v = MIN + j;
+        if v != out {
+            min += v;
+            i += 1;
+        }
+        j += 1;
+    }
+    i = 0;
+    j = 0;
+    let mut max = 0;
+    while i < len {
+        let v = MAX - j;
+        if v != out {
+            max += v;
+            i += 1;
+        }
+        j += 1;
+    }
+    Some((min, max))
+}
+
+fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
+    let mut map = XSUM_LENS.lock().unwrap();
+    let inner_map = map.entry((MIN, MAX)).or_default();
+    if let Some(r) = inner_map.get(&sum) {
+        return *r;
+    }
+    let mut min = None;
+    let mut max = None;
+    for len in MIN..=MAX {
+        if len == 1 {
+            if sum == 1 && MIN <= 1 && 1 <= MAX {
+                if min.is_none() {
+                    min = Some(1);
+                }
+                max = Some(1);
+                break;
+            }
+            continue;
+        } else if len > sum {
+            break;
+        } else if let Some((smin, smax)) = sum_one_out_bound::<MIN, MAX>(len, len-1) {
+            if smin <= sum-len && sum-len <= smax {
+                if min.is_none() {
+                    min = Some(len);
+                }
+                max = Some(len)
+            }
+        }
+    }
+    let r = if min.is_none() {
+        None
+    } else {
+        Some((min.unwrap(), max.unwrap()))
+    };
+    inner_map.insert(sum, r);
+    r
+}
+
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
     fn check(&self, puzzle: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
@@ -282,22 +405,44 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                     }
                     grid = DecisionGrid::new(N, M);
                     break;
+                } else if r == 0 {
+                    // Satisfied!
+                    continue;
                 }
-                // TODO: Can constrain this more
-                let mut set = empty_set::<u8, SVal<MIN, MAX>>();
-                (MIN..=std::cmp::min(MAX, r as u8)).for_each(|v| {
-                    set.insert(SVal::<MIN, MAX>::new(v).to_uval())
-                });
-                let len = xsum.length(puzzle).unwrap().1;
-                for i2 in xsum.xrange(len.val()) {
-                    let g = &mut grid.get_mut(i2);
-                    g.0 = set.clone();
-                    g.1.add(&self.xsum_tail_feature, 1.0);
+                if let Some((min, max)) = elem_in_sum_bound::<MIN, MAX>(r as u8, e as u8) {
+                    let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+                    (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
+                    let len = xsum.length(puzzle).unwrap().1;
+                    for i2 in xsum.xrange(len.val()) {
+                        let g = &mut grid.get_mut(i2);
+                        g.0 = set.clone();
+                        g.1.add(&self.xsum_tail_feature, 1.0);
+                    }
+                } else {
+                    if !force_grid {
+                        return ConstraintResult::Contradiction;
+                    }
+                    grid = DecisionGrid::new(N, M);
+                    break;
                 }
             } else {
                 // TODO: else we can constrain length based on sums
                 let len_cell = xsum.length_index();
-                grid.get_mut(len_cell).1.add(&self.xsum_head_feature, 1.0);
+                if let Some((min, max)) = xsum_len_bound::<MIN, MAX>(xsum.target) {
+                    let g = &mut grid.get_mut(len_cell);
+                    let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+                    (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
+                    g.0 = set;
+                    g.1.add(&self.xsum_head_feature, 1.0);
+
+                } else {
+                    if !force_grid {
+                        return ConstraintResult::Contradiction;
+                    }
+                    grid = DecisionGrid::new(N, M);
+                    break;
+
+                }
             }
         }
         ConstraintResult::grid(grid)
@@ -314,6 +459,18 @@ mod tests {
     use std::vec;
     use crate::solver::test_util::{assert_contradiction_eq, PuzzleReplay};
     use crate::ranker::LinearRanker;
+
+    #[test]
+    fn test_elem_in_sum_bound() {
+        assert_eq!(elem_in_sum_bound::<1, 9>(7, 3), Some((1, 4)));
+        assert_eq!(elem_in_sum_bound::<1, 9>(23, 3), Some((6, 9)));
+    }
+
+    #[test]
+    fn test_xsum_len_bound() {
+        assert_eq!(xsum_len_bound::<1, 9>(6), Some((2, 3)));
+        assert_eq!(xsum_len_bound::<1, 9>(44), Some((8, 8)));
+    }
 
     #[test]
     fn test_xsum_contains() {
@@ -414,7 +571,7 @@ mod tests {
         // XSum 3 is a failure even though it's incomplete (4 + 3 + 2 > 5).
         let x3 = XSum{ direction: XSumDirection::RR, index: 2, target: 5 };
         // XSum 4 has no violations because it's incomplete and not over target.
-        let x4 = XSum{ direction: XSumDirection::CD, index: 3, target: 7 };
+        let x4 = XSum{ direction: XSumDirection::CD, index: 3, target: 10 };
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RR, index: 3, target: 1 };
 
@@ -443,7 +600,7 @@ mod tests {
         // XSum 3 is a failure even though it's incomplete (4 + 3 + 2 > 5).
         let x3 = XSum{ direction: XSumDirection::RL, index: 1, target: 5 };
         // XSum 4 has no violations because it's incomplete and not over target.
-        let x4 = XSum{ direction: XSumDirection::CU, index: 0, target: 7 };
+        let x4 = XSum{ direction: XSumDirection::CU, index: 0, target: 10 };
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RL, index: 0, target: 1 };
 
