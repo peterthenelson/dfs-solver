@@ -268,10 +268,27 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8,
     }
 }
 
+// For components outside of the sudoku module that may need to borrow these
+// constraints' notion of visibility.
+pub trait VisibilityPartition {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool;
+
+    fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
+        indices.iter().all(|i| self.mutually_visible(indices[0], *i))
+    }
+}
+
 pub struct RowColChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
     row: [Set<u8>; N],
     col: [Set<u8>; M],
     illegal: Option<(Index, SVal<MIN, MAX>)>,
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
+VisibilityPartition for RowColChecker<N, M, MIN, MAX> {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        i1[0] == i2[0] || i1[1] == i2[1]
+    }
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> RowColChecker<N, M, MIN, MAX> {
@@ -395,6 +412,13 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> BoxChecker<N
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
+VisibilityPartition for BoxChecker<N, M, MIN, MAX> {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.box_coords(i1) == self.box_coords(i2)
+    }
+}
+
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Debug for BoxChecker<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some((i, v)) = self.illegal {
@@ -486,6 +510,11 @@ impl Debug for NineBoxChecker {
         self.0.fmt(f)
     }
 }
+impl VisibilityPartition for NineBoxChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.0.mutually_visible(i1, i2)
+    }
+}
 impl Stateful<u8, SVal<1, 9>> for NineBoxChecker {
     fn reset(&mut self) {
         self.0.reset()
@@ -506,6 +535,11 @@ impl Constraint<u8, SState<9, 9, 1, 9>> for NineBoxChecker {
     }
 }
 pub type NineStandardChecker = ConstraintConjunction<u8, SState<9, 9, 1, 9>, RowColChecker<9, 9, 1, 9>, NineBoxChecker>;
+impl VisibilityPartition for NineStandardChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.x.mutually_visible(i1, i2) || self.y.mutually_visible(i1, i2)
+    }
+}
 pub fn nine_standard_checker() -> NineStandardChecker {
     NineStandardChecker::new(RowColChecker::new(), NineBoxChecker::new())
 }
@@ -519,6 +553,11 @@ impl EightBoxChecker {
 impl Debug for EightBoxChecker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+impl VisibilityPartition for EightBoxChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.0.mutually_visible(i1, i2)
     }
 }
 impl Stateful<u8, SVal<1, 8>> for EightBoxChecker {
@@ -541,6 +580,11 @@ impl Constraint<u8, SState<8, 8, 1, 8>> for EightBoxChecker {
     }
 }
 pub type EightStandardChecker = ConstraintConjunction<u8, SState<8, 8, 1, 8>, RowColChecker<8, 8, 1, 8>, EightBoxChecker>;
+impl VisibilityPartition for EightStandardChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.x.mutually_visible(i1, i2) || self.y.mutually_visible(i1, i2)
+    }
+}
 pub fn eight_standard_checker() -> EightStandardChecker {
     EightStandardChecker::new(RowColChecker::new(), EightBoxChecker::new())
 }
@@ -554,6 +598,11 @@ impl SixBoxChecker {
 impl Debug for SixBoxChecker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+impl VisibilityPartition for SixBoxChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.0.mutually_visible(i1, i2)
     }
 }
 impl Stateful<u8, SVal<1, 6>> for SixBoxChecker {
@@ -576,6 +625,11 @@ impl Constraint<u8, SState<6, 6, 1, 6>> for SixBoxChecker {
     }
 }
 pub type SixStandardChecker = ConstraintConjunction<u8, SState<6, 6, 1, 6>, RowColChecker<6, 6, 1, 6>, SixBoxChecker>;
+impl VisibilityPartition for SixStandardChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.x.mutually_visible(i1, i2) || self.y.mutually_visible(i1, i2)
+    }
+}
 pub fn six_standard_checker() -> SixStandardChecker {
     SixStandardChecker::new(RowColChecker::new(), SixBoxChecker::new())
 }
@@ -589,6 +643,11 @@ impl FourBoxChecker {
 impl Debug for FourBoxChecker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+impl VisibilityPartition for FourBoxChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.0.mutually_visible(i1, i2)
     }
 }
 impl Stateful<u8, SVal<1, 4>> for FourBoxChecker {
@@ -611,6 +670,11 @@ impl Constraint<u8, SState<4, 4, 1, 4>> for FourBoxChecker {
     }
 }
 pub type FourStandardChecker = ConstraintConjunction<u8, SState<4, 4, 1, 4>, RowColChecker<4, 4, 1, 4>, FourBoxChecker>;
+impl VisibilityPartition for FourStandardChecker {
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        self.x.mutually_visible(i1, i2) || self.y.mutually_visible(i1, i2)
+    }
+}
 pub fn four_standard_checker() -> FourStandardChecker {
     FourStandardChecker::new(RowColChecker::new(), FourBoxChecker::new())
 }

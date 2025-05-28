@@ -3,23 +3,26 @@ use variant_sudoku_dfs::ranker::{LinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::ConstraintConjunction;
 use variant_sudoku_dfs::solver::{FindFirstSolution, SamplingDbgObserver};
 use variant_sudoku_dfs::sudoku::{nine_standard_checker, SState};
-use variant_sudoku_dfs::cages::{Cage, CageChecker, CAGE_FEATURE};
+use variant_sudoku_dfs::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 fn main() {
     // No given digits
     let mut puzzle = SState::<9, 9, 1, 9>::new();
+    let sudoku_constraint = nine_standard_checker();
+    let cb = CageBuilder::new(false, &sudoku_constraint);
     let cages = vec![
-        Cage { cells: vec![[2, 2], [2, 3]], target: 14, exclusive: false },
-        Cage { cells: vec![[2, 7], [3, 7], [4, 7]], target: 15, exclusive: false },
-        Cage { cells: vec![[2, 8], [3, 8], [4, 8]], target: 16, exclusive: false },
-        Cage { cells: vec![[3, 2], [4, 2], [5, 2]], target: 15, exclusive: false },
-        Cage { cells: vec![[3, 3], [4, 3]], target: 12, exclusive: false },
-        Cage { cells: vec![[5, 3], [5, 4], [5, 5]], target: 16, exclusive: false },
-        Cage { cells: vec![[7, 4], [7, 5]], target: 9, exclusive: false },
-        Cage { cells: vec![[8, 2], [8, 3], [8, 4], [8, 5]], target: 18, exclusive: false },
+        cb.cage(14, vec![[2, 2], [2, 3]]),
+        cb.cage(15, vec![[2, 7], [3, 7], [4, 7]]),
+        cb.cage(16, vec![[2, 8], [3, 8], [4, 8]]),
+        cb.cage(15, vec![[3, 2], [4, 2], [5, 2]]),
+        cb.cage(12, vec![[3, 3], [4, 3]]),
+        cb.cage(16, vec![[5, 3], [5, 4], [5, 5]]),
+        cb.cage(9, vec![[7, 4], [7, 5]]),
+        cb.cage(18, vec![[8, 2], [8, 3], [8, 4], [8, 5]]),
     ];
+    let cage_constraint = CageChecker::new(cages);
     let xsums = vec![
         XSum { direction: XSumDirection::RR, index: 2, target: 14 },
         XSum { direction: XSumDirection::RR, index: 5, target: 16 },
@@ -32,9 +35,7 @@ fn main() {
         XSum { direction: XSumDirection::CU, index: 3, target: 12 },
         XSum { direction: XSumDirection::CU, index: 7, target: 15 },
     ];
-    let sudoku_constraint = nine_standard_checker();
-    let cage_constraint = CageChecker::new(cages.clone());
-    let xsum_constraint = XSumChecker::new(xsums.clone());
+    let xsum_constraint = XSumChecker::new(xsums);
     let mut constraint = ConstraintConjunction::new(
         sudoku_constraint,
         ConstraintConjunction::new(cage_constraint, xsum_constraint),);

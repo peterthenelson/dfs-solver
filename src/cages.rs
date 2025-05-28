@@ -2,12 +2,12 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use crate::core::{full_set, DecisionGrid, Error, FKWithId, FeatureKey, Index, Set, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
-use crate::sudoku::{unpack_sval_vals, SState, SVal};
+use crate::sudoku::{unpack_sval_vals, SState, SVal, VisibilityPartition};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
-    pub cells: Vec<Index>,
     pub target: u8,
+    pub cells: Vec<Index>,
     pub exclusive: bool,
 }
 
@@ -17,20 +17,38 @@ impl Cage {
     }
 }
 
+// Exclusive cages are more efficient for the solver. If the ruleset doesn't
+// include exclusivity, individual cages may still be exclusive if all of their
+// digits see each other (e.g., same column or row) according to other rules in
+// the ruleset. Since "normal sudoku rules" is a common case, this inference
+// can be automated by creating Cages with this function.
+pub struct CageBuilder<'a>(bool, &'a dyn VisibilityPartition);
+impl <'a> CageBuilder<'a> {
+    pub fn new(exclusive: bool, visibility_constraint: &'a dyn VisibilityPartition) -> Self {
+        Self(exclusive, visibility_constraint)
+    }
+
+    pub fn cage(&self, target: u8, cells: Vec<Index>) -> Cage {
+        let exclusive = self.0 || self.1.all_mutually_visible(&cells);
+        Cage { target, cells, exclusive }
+    }
+}
+
 pub const ILLEGAL_ACTION_CAGE: Error = Error::new_const("A cage violation already exists; can't apply further actions.");
 pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const CAGE_FEATURE: &str = "CAGE";
 
-pub struct CageChecker <const MIN: u8, const MAX: u8> {
+pub struct CageChecker<const MIN: u8, const MAX: u8> {
     cages: Vec<Cage>,
     remaining: Vec<u8>,
+    empty: Vec<usize>,
     cage_sets: Vec<Set<u8>>,
     cage_feature: FeatureKey<FKWithId>,
     illegal: Option<(Index, SVal<MIN, MAX>)>,
 }
 
 impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
-    // Note: Cages must not overlap
+    // Note: Cages must not overlap with each other
     pub fn new(cages: Vec<Cage>) -> Self {
         let mut covered = HashSet::new();
         for c in &cages {
@@ -42,9 +60,10 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
             }
         }
         let remaining = cages.iter().map(|c| c.target).collect();
+        let empty = cages.iter().map(|c| c.cells.len()).collect();
         let cage_sets = vec![full_set::<u8, SVal<MIN, MAX>>(); cages.len()];
         let mut cage_feature = FeatureKey::new(CAGE_FEATURE);
-        CageChecker { cages, remaining, cage_sets, illegal: None, cage_feature: cage_feature.unwrap() }
+        CageChecker { cages, remaining, empty, cage_sets, illegal: None, cage_feature: cage_feature.unwrap() }
     }
 }
 
@@ -55,7 +74,7 @@ impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
         }
         for (i, c) in self.cages.iter().enumerate() {
             write!(f, " Cage{:?}\n", c.cells)?;
-            write!(f, " - Remaining to target: {}\n", self.remaining[i])?;
+            write!(f, " - {} remaining to target; {} cells empty\n", self.remaining[i], self.empty[i])?;
             if c.exclusive {
                 let vals = unpack_sval_vals::<MIN, MAX>(&self.cage_sets[i]);
                 write!(f, " - Unused vals: {:?}\n", vals)?;
@@ -68,6 +87,7 @@ impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
 impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker<MIN, MAX> {
     fn reset(&mut self) {
         self.remaining = self.cages.iter().map(|c| c.target).collect();
+        self.empty = self.cages.iter().map(|c| c.cells.len()).collect();
         self.cage_sets = vec![full_set::<u8, SVal<MIN, MAX>>(); self.cages.len()];
         self.illegal = None;
     }
@@ -87,6 +107,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker
                 self.illegal = Some((index, value));
             } else {
                 self.remaining[i] -= value.val();
+                self.empty[i] -= 1;
                 self.cage_sets[i].remove(uv);
             }
             break;
@@ -108,11 +129,20 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker
                 continue;
             }
             self.remaining[i] += value.val();
+            self.empty[i] += 1;
             self.cage_sets[i].insert(value.to_uval());
             break;
         }
         Ok(())
     }
+}
+
+fn cage_feasible<const MIN: u8, const MAX: u8>(set: &Set<u8>, remaining: u8, empty: usize) -> bool {
+    // TODO
+    _ = set;
+    _ = remaining;
+    _ = empty;
+    true
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
@@ -131,6 +161,12 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
             } else {
                 full_set::<u8, SVal<MIN, MAX>>()
             };
+            if !cage_feasible::<MIN, MAX>(&set, self.remaining[i], /*TODO*/c.cells.len()) {
+                if force_grid {
+                    return ConstraintResult::grid(DecisionGrid::new(N, M));
+                }
+                return ConstraintResult::Contradiction;
+            }
             for v in (self.remaining[i]+1)..=MAX {
                 set.remove(SVal::<MIN, MAX>::new(v).to_uval());
             }
