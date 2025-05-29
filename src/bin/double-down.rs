@@ -1,15 +1,18 @@
+use std::time::Duration;
+
 use variant_sudoku_dfs::core::FeatureVec;
 use variant_sudoku_dfs::ranker::{LinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::ConstraintConjunction;
-use variant_sudoku_dfs::solver::{FindFirstSolution, SamplingDbgObserver};
+use variant_sudoku_dfs::solver::FindFirstSolution;
+use variant_sudoku_dfs::debug::{DbgObserver, Sample};
 use variant_sudoku_dfs::sudoku::{nine_standard_checker, SState};
 use variant_sudoku_dfs::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
-fn main() {
-    // No given digits
-    let mut puzzle = SState::<9, 9, 1, 9>::new();
+fn solve(given: Option<SState<9, 9, 1, 9>>, sample_print: Sample) {
+    // No given digits in real puzzle but can be passed in in test.
+    let mut puzzle = given.unwrap_or(SState::<9, 9, 1, 9>::new());
     let sudoku_constraint = nine_standard_checker();
     let cb = CageBuilder::new(false, &sudoku_constraint);
     let cages = vec![
@@ -45,8 +48,34 @@ fn main() {
         (XSUM_HEAD_FEATURE, 5.0),
         (CAGE_FEATURE, 1.0)
     ]));
-    let mut dbg = SamplingDbgObserver::new(0.001);
+    let mut dbg = DbgObserver::new();
+    dbg.sample_print(sample_print)
+        .sample_stats("figures/double-down-stats.png", Sample::time(Duration::from_secs(30)));
     let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, false, Some(&mut dbg));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
-    println!("Solution:\n{}", maybe_solution.unwrap().get_state().serialize());
+    println!("Solution:\n{}", maybe_solution.expect("No solution found!").get_state().serialize());
+}
+
+pub fn main() {
+    solve(None, Sample::every_n(100000));
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_double_down_solution() {
+        let input: &str = "174625893\n\
+                           982713546\n\
+                           356894217\n\
+                           813952764\n\
+                           297346185\n\
+                           465178329\n\
+                           748239651\n\
+                           639581472\n\
+                           52146793.\n";
+        let sudoku: SState<9,9, 1,9> = SState::parse(input).unwrap();
+        solve(Some(sudoku), Sample::never());
+    }
 }

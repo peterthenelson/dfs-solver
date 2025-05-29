@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use rand::distr::Distribution;
 
 use crate::core::{unpack_values, BranchPoint, DecisionGrid, Error, GridIndex, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail, Possibilities};
@@ -10,9 +9,14 @@ use crate::ranker::Ranker;
 /// solved (has found a solution), or exhausted (no more actions to take).
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum DfsSolverState {
+    // The index is that of the most recently applied action (during the
+    // initial stage when actions already in the grid are replayed).
     Init(Option<Index>),
-    Advancing,
-    Backtracking,
+    // The values here are the number of actions taken since the advancing stage
+    // was entered and the size of the possibility set.
+    Advancing((usize, usize)),
+    // The value here is the length of the backtrack (so far).
+    Backtracking(usize),
     Solved,
     Exhausted,
 }
@@ -38,85 +42,6 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
 // control and fully instrument the whole solving process.
 pub trait StepObserver<U: UInt, S: State<U>> {
     fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>);
-}
-
-pub struct DbgObserver<U: UInt, S: State<U>>(std::marker::PhantomData<(U, S)>);
-
-impl <U: UInt, S: State<U>> DbgObserver<U, S> {
-    pub fn new() -> Self {
-        DbgObserver(std::marker::PhantomData)
-    }
-    fn short_result(result: &ConstraintResult<U, S::Value>, puzzle: &S) -> String {
-        match result {
-            ConstraintResult::Contradiction => "Contradiction".to_string(),
-            ConstraintResult::Certainty(d) => {
-                format!("Certainty({:?}, {:?})", d.index, d.value).to_string()
-            },
-            ConstraintResult::Other(Possibilities::Any) => "Any".to_string(),
-            ConstraintResult::Other(Possibilities::Grid(_)) => {
-                if result.has_contradiction(puzzle) {
-                    "Grid with Contradiction".to_string()
-                } else if let Some(d) = result.has_certainty(puzzle) {
-                    format!("Grid with Certainty({:?}, {:?})", d.index, d.value).to_string()
-                } else {
-                    "Grid[...]".to_string()
-                }
-            }
-        }
-    }
-}
-
-impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
-        let state = solver.get_state();
-        if solver.is_initializing() {
-            print!(
-                "INITIALIZING: {:?}\n{:?}{:?}{}\n",
-                solver.most_recent_action(), state, solver.get_constraint(),
-                DbgObserver::short_result(&solver.constraint_result(), state),
-            );
-        } else if solver.is_done() {
-            if solver.is_valid() {
-                print!(
-                    "SOLVED: {:?}\n{:?}{:?}{}\n",
-                    solver.most_recent_action(), state, solver.get_constraint(),
-                    DbgObserver::short_result(&solver.constraint_result(), state),
-                );
-            } else {
-                print!("UNSOLVABLE");
-            }
-        } else {
-            print!(
-                "STEP: {:?}\n{:?}{:?}{}\n",
-                solver.most_recent_action(), state, solver.get_constraint(),
-                DbgObserver::short_result(&solver.constraint_result(), state),
-            );
-        }
-    }
-}
-
-pub struct SamplingDbgObserver<U: UInt, S: State<U>> {
-    dbg: DbgObserver<U, S>,
-    rng: rand::rngs::ThreadRng,
-    dist: rand::distr::Bernoulli,
-}
-
-impl <U: UInt, S: State<U>> SamplingDbgObserver<U, S> {
-    pub fn new(rate: f64) -> Self {
-        Self {
-            dbg: DbgObserver::new(),
-            rng: rand::rng(),
-            dist: rand::distr::Bernoulli::new(rate).unwrap(),
-        }
-    }
-}
-
-impl <U: UInt, S: State<U>> StepObserver<U, S> for SamplingDbgObserver<U, S> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
-        if self.dist.sample(&mut self.rng) {
-            self.dbg.after_step(solver);
-        }
-    }
 }
 
 /// DFS solver. If you want a lower-level API that allows for more control over
@@ -249,12 +174,16 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 return Err(e);
             }
         }
+        let decision_width = decision.alternatives.len() + 1;
         self.stack.push(decision);
         self.check_result = self.constraint.check(self.puzzle, force_grid);
         self.state = if self.is_valid() {
-            DfsSolverState::Advancing
+            DfsSolverState::Advancing((match self.state {
+                DfsSolverState::Advancing((n, _)) => n + 1,
+                _ => 1,
+            }, decision_width))
         } else {
-            DfsSolverState::Backtracking
+            DfsSolverState::Backtracking(1)
         };
         return Ok(());
     }
@@ -292,7 +221,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         if self.state == DfsSolverState::Exhausted {
             return false;
         }
-        self.state = DfsSolverState::Backtracking;
+        self.state = DfsSolverState::Backtracking(1);
         true
     }
 
@@ -304,13 +233,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                     self.check_result = self.constraint.check(self.puzzle, force_grid);
                     self.state = DfsSolverState::Init(Some(i));
                 } else {
-                    self.state = DfsSolverState::Advancing;
+                    self.state = DfsSolverState::Advancing((0, 0));
                 }
                 Ok(())
             }
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
-            DfsSolverState::Advancing => {
+            DfsSolverState::Advancing(_) => {
                 // Take a new action
                 let decision = self.suggest();
                 if decision.chosen.is_some() {
@@ -320,7 +249,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 }
                 Ok(())
             }
-            DfsSolverState::Backtracking => {
+            DfsSolverState::Backtracking(n) => {
                 if self.stack.is_empty() {
                     self.state = DfsSolverState::Exhausted;
                     return Ok(());
@@ -333,17 +262,21 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                         self.apply(decision, force_grid)?;
                         Ok(())
                     }
-                    None => Ok(()),
+                    None => {
+                        self.state = DfsSolverState::Backtracking(n+1);
+                        Ok(())
+                    },
                 }
             }
         }
     }
 
+    // TODO: This actually resets the puzzle, including any initial moves. Oops.
     pub fn reset(&mut self) {
         self.puzzle.reset();
         self.check_result = ConstraintResult::any();
         self.stack.clear();
-        self.state = DfsSolverState::Advancing;
+        self.state = DfsSolverState::Advancing((0, 0));
     }
 }
 

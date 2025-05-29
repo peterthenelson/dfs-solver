@@ -409,6 +409,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                     // Satisfied!
                     continue;
                 }
+                // We can constrain the empty digits based on the remaining target
                 if let Some((min, max)) = elem_in_sum_bound::<MIN, MAX>(r as u8, e as u8) {
                     let mut set = empty_set::<u8, SVal<MIN, MAX>>();
                     (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
@@ -426,7 +427,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                     break;
                 }
             } else {
-                // TODO: else we can constrain length based on sums
+                // We can constrain length based on total target sum
                 let len_cell = xsum.length_index();
                 if let Some((min, max)) = xsum_len_bound::<MIN, MAX>(xsum.target) {
                     let g = &mut grid.get_mut(len_cell);
@@ -454,7 +455,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
     use std::vec;
     use crate::solver::test_util::{assert_contradiction_eq, PuzzleReplay};

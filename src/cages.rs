@@ -137,12 +137,46 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker
     }
 }
 
+fn subset_sum(vals: &Vec<u8>, i: usize, remaining: u8, empty: usize) -> bool {
+    if i >= vals.len() {
+        empty == 0 && remaining == 0
+    } else if empty == 0 {
+        remaining == 0
+    } else if empty == 1 {
+        for j in i..vals.len() {
+            if vals[j] == remaining {
+                return true;
+            }
+        }
+        false
+    } else if vals[i] <= remaining && subset_sum(vals, i+1, remaining-vals[i], empty-1) {
+        true
+    } else {
+        subset_sum(vals, i+1, remaining, empty)
+    }
+}
+
 fn cage_feasible<const MIN: u8, const MAX: u8>(set: &Set<u8>, remaining: u8, empty: usize) -> bool {
-    // TODO
-    _ = set;
-    _ = remaining;
-    _ = empty;
-    true
+    if empty == 0 {
+        return remaining == 0;
+    } else if set.len() < empty {
+        return false;
+    }
+    let vals = unpack_sval_vals::<MIN, MAX>(set);
+    let mut min = 0;
+    let mut max = 0;
+    for i in 0..empty {
+        min += vals[i];
+        max += vals[vals.len()-1-i];
+    }
+    if remaining < min || remaining > max {
+        return false;
+    }
+    // Random choice, but I don't want to bother if the possibilities are huge
+    if empty > 5 || (MAX-MIN+1) > 15 {
+        return true;
+    }
+    subset_sum(&vals, 0, remaining, empty)
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
@@ -161,7 +195,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
             } else {
                 full_set::<u8, SVal<MIN, MAX>>()
             };
-            if !cage_feasible::<MIN, MAX>(&set, self.remaining[i], /*TODO*/c.cells.len()) {
+            if !cage_feasible::<MIN, MAX>(&set, self.remaining[i], self.empty[i]) {
                 if force_grid {
                     return ConstraintResult::grid(DecisionGrid::new(N, M));
                 }
@@ -185,10 +219,15 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
     use std::vec;
     use crate::{ranker::LinearRanker, solver::test_util::{assert_contradiction_eq, PuzzleReplay}};
+
+    #[test]
+    fn test_subset_sum() {
+        assert!(subset_sum(&vec![1, 2, 3, 4, 5, 6, 7, 8, 9], 0, 15, 3));
+    }
 
     #[test]
     fn test_cage_checker() {

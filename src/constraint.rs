@@ -197,7 +197,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
     use crate::core::{singleton_set, to_value, unpack_values, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
