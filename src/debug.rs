@@ -136,6 +136,8 @@ impl Sample {
 pub struct DbgObserver<U: UInt, S: State<U>> {
     print_sample: Sample,
     stat: Option<(String, Sample)>,
+    certainty_streak: usize,
+    certainty_hist: HashMap<usize, usize>,
     advance_hist: HashMap<usize, usize>,
     width_hist: HashMap<usize, usize>,
     backtrack_hist: HashMap<usize, usize>,
@@ -144,11 +146,14 @@ pub struct DbgObserver<U: UInt, S: State<U>> {
     _marker: std::marker::PhantomData<(U, S)>,
 }
 
+// TODO: Add correction_delay_hist
 impl <U: UInt, S: State<U>> DbgObserver<U, S> {
     pub fn new() -> Self {
         DbgObserver {
             print_sample: Sample::every_n(1),
             stat: None,
+            certainty_streak: 0,
+            certainty_hist: HashMap::new(),
             advance_hist: HashMap::new(),
             width_hist: HashMap::new(),
             backtrack_hist: HashMap::new(),
@@ -173,9 +178,22 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             DfsSolverState::Advancing((n, w)) => {
                 *self.advance_hist.entry(n).or_default() += 1;
                 *self.width_hist.entry(w).or_default() += 1;
+                if solver.constraint_result().has_certainty(solver.get_state()).is_some() {
+                    self.certainty_streak += 1;
+                }
             },
             DfsSolverState::Backtracking(n) => {
                 *self.backtrack_hist.entry(n).or_default() += 1;
+                if self.certainty_streak > 0 {
+                    *self.certainty_hist.entry(self.certainty_streak).or_default() += 1;
+                    self.certainty_streak = 0
+                }
+            },
+            DfsSolverState::Solved => {
+                if self.certainty_streak > 0 {
+                    *self.certainty_hist.entry(self.certainty_streak + 1).or_default() += 1;
+                    self.certainty_streak = 0;
+                }
             },
             _ => {},
         }
@@ -196,22 +214,27 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         let n_decisions = self.width_hist.iter().fold(0, |n, (_, count)| n+count);
         let total_choices = self.width_hist.iter().fold(0, |n, (w, count)| n+w*count);
         print!("Average Decision Width: {}\n", (total_choices as f64)/(n_decisions as f64));
-        let area = BitMapBackend::new(hist_filename, (600, 400)).into_drawing_area();
+        let area = BitMapBackend::new(hist_filename, (600, 700)).into_drawing_area();
         area.fill(&WHITE).unwrap();
-        let areas = area.split_evenly((2, 2));
+        let (top, bottom) = area.split_vertically(50);
+        let mut top_caption = MultiLineText::<_, String>::new((15, 15), ("sans-serif", 24).into_font());
+        top_caption.push_line(format!("Steps: {}", self.steps));
+        top.draw(&top_caption).unwrap();
+        let areas = bottom.split_evenly((3, 2));
         for (i, caption, hist) in vec![
             (0, "Num. choices at each advance", &self.width_hist),
             (1, "Num. steps with N filled-in cells", &self.filled_hist),
             (2, "Length of uninterrupted advances", &self.advance_hist),
             (3, "Length of backtracks", &self.backtrack_hist),
+            (4, "Length of streaks of certainty", &self.certainty_hist),
         ] {
             let stats = DistStat::from_histogram(&hist);
             let (upper, lower) = areas[i].split_vertically(areas[i].relative_to_height(0.18));
             let mut extended_caption = MultiLineText::<_, String>::new((5, 5), ("sans-serif", 14).into_font());
             extended_caption.push_line(caption);
             extended_caption.push_line(format!(
-                "mean = {}, median = {}, max = {}",
-                stats.mean, stats.median, stats.max,
+                "E = {:.3}, lg2(E) = {:.3}, med = {:.1}, max = {}",
+                stats.mean, stats.mean.log2(), stats.median, stats.max,
             ));
             upper.draw(&extended_caption).unwrap();
             let mut chart_builder = ChartBuilder::on(&lower);
