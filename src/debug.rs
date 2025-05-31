@@ -25,14 +25,14 @@ fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, pu
     }
 }
 
-fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &HashMap<usize, usize>, stats: &DistStat) -> DrawResult<(), DB> {
+fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &Histogram) -> DrawResult<(), DB> {
     let mut chart_builder = ChartBuilder::on(area);
     chart_builder.margin(5).set_left_and_bottom_label_area_size(20);
     let mut chart_context = chart_builder.build_cartesian_2d(
-        (0..stats.max).into_segmented(),
-        0..stats.max_count)?;
+        (0..histogram.max).into_segmented(),
+        0..histogram.max_count)?;
     chart_context.configure_mesh().draw()?;
-    chart_context.draw_series(histogram.iter().map(|(k, v)| {
+    chart_context.draw_series(histogram.value_counts.iter().map(|(k, v)| {
         let x0 = SegmentValue::Exact(*k as i32);
         let x1 = SegmentValue::Exact((*k+1) as i32);
         let mut bar = Rectangle::new(
@@ -47,7 +47,8 @@ fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &
 
 // TODO: Consider CCDF stuff and maybe other stats
 #[derive(PartialEq, Clone, Debug)]
-pub struct DistStat {
+pub struct Histogram {
+    pub value_counts: HashMap<usize, usize>,
     pub total: i32,
     pub count: i32,
     pub max: i32,
@@ -56,9 +57,9 @@ pub struct DistStat {
     pub median: f32,
 }
 
-impl DistStat {
-    pub fn from_histogram(hist: &HashMap<usize, usize>) -> DistStat {
-        let mut val_counts = hist.iter().map(|(v, c)| (*v as i32, *c as i32)).collect::<Vec<_>>();
+impl Histogram {
+    pub fn from_value_counts(value_to_count: &HashMap<usize, usize>) -> Histogram {
+        let mut val_counts = value_to_count.iter().map(|(v, c)| (*v as i32, *c as i32)).collect::<Vec<_>>();
         val_counts.sort();
         let total = val_counts.iter().fold(0, |n, (v, c)| n + v*c);
         let count = val_counts.iter().fold(0, |n, (_, c)| n + c);
@@ -84,7 +85,7 @@ impl DistStat {
             }
         }
         let median = (median_lo.unwrap_or(0) as f32 + median_hi.unwrap_or(0) as f32)/2.0;
-        DistStat { total, count, max, max_count, mean, median }
+        Histogram { value_counts: value_to_count.clone(), total, count, max, max_count, mean, median }
     }
 }
 
@@ -237,23 +238,23 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         top_caption.push_line(format!("Steps: {}", self.steps));
         top.draw(&top_caption)?;
         let areas = bottom.split_evenly((3, 2));
-        for (i, caption, hist) in vec![
+        for (i, caption, value_counts) in vec![
             (0, "Num. choices at each advance", &self.width_hist),
             (1, "Num. steps with N filled-in cells", &self.filled_hist),
             (2, "Length of uninterrupted advances", &self.advance_hist),
             (3, "Length of backtracks", &self.backtrack_hist),
             (4, "Length of streaks of certainty", &self.certainty_hist),
         ] {
-            let stats = DistStat::from_histogram(&hist);
+            let hist = Histogram::from_value_counts(&value_counts);
             let (upper, lower) = areas[i].split_vertically(areas[i].relative_to_height(0.18));
             let mut extended_caption = MultiLineText::<_, String>::new((5, 5), ("sans-serif", 14).into_font());
             extended_caption.push_line(caption);
             extended_caption.push_line(format!(
                 "E = {:.3}, lg2(E) = {:.3}, med = {:.1}, max = {}",
-                stats.mean, stats.mean.log2(), stats.median, stats.max,
+                hist.mean, hist.mean.log2(), hist.median, hist.max,
             ));
             upper.draw(&extended_caption)?;
-            bar_chart(&lower, &hist, &stats)?;
+            bar_chart(&lower, &hist)?;
         }
         Ok(())
     }
@@ -319,50 +320,47 @@ impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
 mod test {
     use super::*;
 
+    fn to_counter(vals: Vec<usize>) -> HashMap<usize, usize> {
+        let mut counter = HashMap::new();
+        for v in vals {
+            *counter.entry(v).or_default() += 1;
+        }
+        counter
+    }
+
     #[test]
     fn test_dist_stat() {
-        for (vals, stat) in vec![
-            (
-                vec![2, 2, 3, 4, 4],
-                DistStat {
-                    total: 15,
-                    count: 5,
-                    max: 4,
-                    max_count: 2,
-                    mean: 3.0,
-                    median: 3.0,
-                },
-            ),
-            (
-                vec![2, 2, 3, 3, 3, 4],
-                DistStat {
-                    total: 17,
-                    count: 6,
-                    max: 4,
-                    max_count: 3,
-                    mean: 17.0/6.0,
-                    median: 3.0,
-                },
-            ),
-            (
-                vec![2, 3, 3, 4, 4, 4],
-                DistStat {
-                    total: 20,
-                    count: 6,
-                    max: 4,
-                    max_count: 3,
-                    mean: 20.0/6.0,
-                    median: 3.5,
-                },
-            ),
+        for hist in vec![
+            Histogram {
+                value_counts: to_counter(vec![2, 2, 3, 4, 4]),
+                total: 15,
+                count: 5,
+                max: 4,
+                max_count: 2,
+                mean: 3.0,
+                median: 3.0,
+            },
+            Histogram {
+                value_counts: to_counter(vec![2, 2, 3, 3, 3, 4]),
+                total: 17,
+                count: 6,
+                max: 4,
+                max_count: 3,
+                mean: 17.0/6.0,
+                median: 3.0,
+            },
+            Histogram {
+                value_counts: to_counter(vec![2, 3, 3, 4, 4, 4]),
+                total: 20,
+                count: 6,
+                max: 4,
+                max_count: 3,
+                mean: 20.0/6.0,
+                median: 3.5,
+            },
         ] {
-            let mut hist = HashMap::new();
-            for v in vals {
-                *hist.entry(v).or_default() += 1;
-            }
-            let actual = DistStat::from_histogram(&hist);
-            assert_eq!(actual, stat);
-
+            let actual = Histogram::from_value_counts(&hist.value_counts);
+            assert_eq!(actual, hist);
         }
     }
 }
