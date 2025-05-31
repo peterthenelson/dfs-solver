@@ -4,7 +4,7 @@ use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
 use crate::core::{State, UInt};
 use crate::constraint::{ConstraintResult, Possibilities};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
-use plotters::{chart::ChartBuilder, prelude::{BitMapBackend, IntoDrawingArea, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, WHITE}};
+use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, WHITE}};
 
 fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, puzzle: &S) -> String {
     match result {
@@ -25,6 +25,27 @@ fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, pu
     }
 }
 
+fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &HashMap<usize, usize>, stats: &DistStat) -> DrawResult<(), DB> {
+    let mut chart_builder = ChartBuilder::on(area);
+    chart_builder.margin(5).set_left_and_bottom_label_area_size(20);
+    let mut chart_context = chart_builder.build_cartesian_2d(
+        (0..stats.max).into_segmented(),
+        0..stats.max_count)?;
+    chart_context.configure_mesh().draw()?;
+    chart_context.draw_series(histogram.iter().map(|(k, v)| {
+        let x0 = SegmentValue::Exact(*k as i32);
+        let x1 = SegmentValue::Exact((*k+1) as i32);
+        let mut bar = Rectangle::new(
+            [(x0, 0), (x1, *v as i32)],
+            BLUE.filled(),
+        );
+        bar.set_margin(0, 0, 1, 1);
+        bar
+    }))?;
+    Ok(())
+}
+
+// TODO: Consider CCDF stuff and maybe other stats
 #[derive(PartialEq, Clone, Debug)]
 pub struct DistStat {
     pub total: i32,
@@ -209,17 +230,12 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         self.steps += 1;
     }
 
-    pub fn dump_stats(&self, hist_filename: &str) -> Result<(), Box<dyn std::error::Error>> {
-        print!("Steps: {}\n", self.steps);
-        let n_decisions = self.width_hist.iter().fold(0, |n, (_, count)| n+count);
-        let total_choices = self.width_hist.iter().fold(0, |n, (w, count)| n+w*count);
-        print!("Average Decision Width: {}\n", (total_choices as f64)/(n_decisions as f64));
-        let area = BitMapBackend::new(hist_filename, (600, 700)).into_drawing_area();
-        area.fill(&WHITE).unwrap();
+    fn stats_figure<'a, DB: DrawingBackend>(&self, area: &DrawingArea<DB, Shift>) -> DrawResult<(), DB> {
+        area.fill(&WHITE)?;
         let (top, bottom) = area.split_vertically(50);
         let mut top_caption = MultiLineText::<_, String>::new((15, 15), ("sans-serif", 24).into_font());
         top_caption.push_line(format!("Steps: {}", self.steps));
-        top.draw(&top_caption).unwrap();
+        top.draw(&top_caption)?;
         let areas = bottom.split_evenly((3, 2));
         for (i, caption, hist) in vec![
             (0, "Num. choices at each advance", &self.width_hist),
@@ -236,25 +252,21 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
                 "E = {:.3}, lg2(E) = {:.3}, med = {:.1}, max = {}",
                 stats.mean, stats.mean.log2(), stats.median, stats.max,
             ));
-            upper.draw(&extended_caption).unwrap();
-            let mut chart_builder = ChartBuilder::on(&lower);
-            chart_builder.margin(5).set_left_and_bottom_label_area_size(20);
-            let mut chart_context = chart_builder.build_cartesian_2d(
-                (0..stats.max).into_segmented(),
-                0..stats.max_count).unwrap();
-            chart_context.configure_mesh().draw().unwrap();
-            chart_context.draw_series(hist.iter().map(|(k, v)| {
-                let x0 = SegmentValue::Exact(*k as i32);
-                let x1 = SegmentValue::Exact((*k+1) as i32);
-                let mut bar = Rectangle::new(
-                    [(x0, 0), (x1, *v as i32)],
-                    BLUE.filled(),
-                );
-                bar.set_margin(0, 0, 5, 5);
-                bar
-            })).unwrap();
+            upper.draw(&extended_caption)?;
+            bar_chart(&lower, &hist, &stats)?;
         }
         Ok(())
+    }
+
+    pub fn dump_stats(&self, hist_filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+        print!("Steps: {}\n", self.steps);
+        let n_decisions = self.width_hist.iter().fold(0, |n, (_, count)| n+count);
+        let total_choices = self.width_hist.iter().fold(0, |n, (w, count)| n+w*count);
+        print!("Average Decision Width: {}\n", (total_choices as f64)/(n_decisions as f64));
+        let area = BitMapBackend::new(hist_filename, (600, 800)).into_drawing_area();
+        self.stats_figure(&area).map_err(|e| {
+            Box::new(e) as Box<dyn std::error::Error>
+        })
     }
 
     pub fn print(&self, solver: &dyn DfsSolverView<U, S>) {
@@ -283,7 +295,6 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             );
         }
     }
-
 }
 
 impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
