@@ -4,7 +4,7 @@ use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
 use crate::core::{State, UInt};
 use crate::constraint::{ConstraintResult, Possibilities};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
-use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, WHITE}};
+use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
 
 fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, puzzle: &S) -> String {
     match result {
@@ -25,7 +25,7 @@ fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, pu
     }
 }
 
-fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &Histogram) -> DrawResult<(), DB> {
+fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &Histogram, bar_margin: u32) -> DrawResult<(), DB> {
     let mut chart_builder = ChartBuilder::on(area);
     chart_builder.margin(5).set_left_and_bottom_label_area_size(20);
     let mut chart_context = chart_builder.build_cartesian_2d(
@@ -39,13 +39,37 @@ fn bar_chart<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &
             [(x0, 0), (x1, *v as i32)],
             BLUE.filled(),
         );
-        bar.set_margin(0, 0, 1, 1);
+        bar.set_margin(0, 0, bar_margin, bar_margin);
         bar
     }))?;
     Ok(())
 }
 
-// TODO: Consider CCDF stuff and maybe other stats
+fn ccdf<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &Histogram) -> DrawResult<(), DB> {
+    let mut vals: Vec<_> = histogram.value_counts.iter().collect();
+    vals.sort_by_key(|&(val, _)| *val);
+    let mut ccdf_points = Vec::new();
+    let mut cumulative = 0;
+    for &(val, count) in vals.iter().rev() {
+        cumulative += count;
+        let prob = (cumulative as f64) / (histogram.count as f64);
+        ccdf_points.push((*val, prob));
+    }
+    ccdf_points.reverse();
+    let mut chart_builder = ChartBuilder::on(area);
+    chart_builder.margin(5).set_left_and_bottom_label_area_size(20);
+    let mut chart_context = chart_builder.build_cartesian_2d(
+        (1..histogram.max).log_scale(),
+        0.0..1.0)?;
+    chart_context.configure_mesh().draw()?;
+    chart_context.draw_series(
+        ccdf_points
+            .into_iter()
+            .map(|(x, y)| Circle::new((x as i32, y), 3, RED.filled())),
+    )?;
+    Ok(())
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct Histogram {
     pub value_counts: HashMap<usize, usize>,
@@ -238,12 +262,12 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         top_caption.push_line(format!("Steps: {}", self.steps));
         top.draw(&top_caption)?;
         let areas = bottom.split_evenly((3, 2));
-        for (i, caption, value_counts) in vec![
-            (0, "Num. choices at each advance", &self.width_hist),
-            (1, "Num. steps with N filled-in cells", &self.filled_hist),
-            (2, "Length of uninterrupted advances", &self.advance_hist),
-            (3, "Length of backtracks", &self.backtrack_hist),
-            (4, "Length of streaks of certainty", &self.certainty_hist),
+        for (i, caption, value_counts, bar_margin) in vec![
+            (0, "Num. choices at each advance", &self.width_hist, 5),
+            (1, "Num. steps with N filled-in cells", &self.filled_hist, 0),
+            (2, "Length of uninterrupted advances", &self.advance_hist, 1),
+            (3, "Length of backtracks", &self.backtrack_hist, 1),
+            (4, "Length of streaks of certainty", &self.certainty_hist, 1),
         ] {
             let hist = Histogram::from_value_counts(&value_counts);
             let (upper, lower) = areas[i].split_vertically(areas[i].relative_to_height(0.18));
@@ -254,7 +278,9 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
                 hist.mean, hist.mean.log2(), hist.median, hist.max,
             ));
             upper.draw(&extended_caption)?;
-            bar_chart(&lower, &hist)?;
+            let (left, right) = lower.split_horizontally(lower.relative_to_width(0.5));
+            bar_chart(&left, &hist, bar_margin)?;
+            ccdf(&right, &hist)?;
         }
         Ok(())
     }
@@ -264,7 +290,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         let n_decisions = self.width_hist.iter().fold(0, |n, (_, count)| n+count);
         let total_choices = self.width_hist.iter().fold(0, |n, (w, count)| n+w*count);
         print!("Average Decision Width: {}\n", (total_choices as f64)/(n_decisions as f64));
-        let area = BitMapBackend::new(hist_filename, (600, 800)).into_drawing_area();
+        let area = BitMapBackend::new(hist_filename, (800, 1000)).into_drawing_area();
         self.stats_figure(&area).map_err(|e| {
             Box::new(e) as Box<dyn std::error::Error>
         })
