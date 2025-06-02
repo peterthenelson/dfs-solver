@@ -221,9 +221,9 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
 
     fn update_stats(&mut self, solver: &dyn DfsSolverView<U, S>) {
         match solver.solver_state() {
-            DfsSolverState::Advancing((n, w)) => {
-                *self.advance_hist.entry(n).or_default() += 1;
-                *self.width_hist.entry(w).or_default() += 1;
+            DfsSolverState::Advancing(state) => {
+                *self.advance_hist.entry(state.streak).or_default() += 1;
+                *self.width_hist.entry(state.possibilities).or_default() += 1;
                 if solver.constraint_result().has_certainty(solver.get_state()).is_some() {
                     self.certainty_streak += 1;
                 }

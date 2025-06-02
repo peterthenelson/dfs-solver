@@ -4,6 +4,13 @@ use crate::core::{unpack_values, BranchPoint, DecisionGrid, Error, GridIndex, In
 use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail, Possibilities};
 use crate::ranker::Ranker;
 
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+pub struct AdvancingState {
+    pub streak: usize,
+    pub possibilities: usize,
+    // TODO: pub step: usize,
+}
+
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
 /// solved (has found a solution), or exhausted (no more actions to take).
@@ -14,7 +21,7 @@ pub enum DfsSolverState {
     Init(Option<Index>),
     // The values here are the number of actions taken since the advancing stage
     // was entered and the size of the possibility set.
-    Advancing((usize, usize)),
+    Advancing(AdvancingState),
     // The value here is the length of the backtrack (so far).
     Backtracking(usize),
     Solved,
@@ -178,10 +185,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.stack.push(decision);
         self.check_result = self.constraint.check(self.puzzle, force_grid);
         self.state = if self.is_valid() {
-            DfsSolverState::Advancing((match self.state {
-                DfsSolverState::Advancing((n, _)) => n + 1,
-                _ => 1,
-            }, decision_width))
+            DfsSolverState::Advancing(AdvancingState {
+                possibilities: decision_width,
+                streak: match self.state {
+                    DfsSolverState::Advancing(adv) => adv.streak + 1,
+                    _ => 1,
+                },
+            })
         } else {
             DfsSolverState::Backtracking(1)
         };
@@ -233,7 +243,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                     self.check_result = self.constraint.check(self.puzzle, force_grid);
                     self.state = DfsSolverState::Init(Some(i));
                 } else {
-                    self.state = DfsSolverState::Advancing((0, 0));
+                    self.state = DfsSolverState::Advancing(AdvancingState {
+                        streak: 0,
+                        possibilities: 0,
+                    });
                 }
                 Ok(())
             }
@@ -276,7 +289,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.puzzle.reset();
         self.check_result = ConstraintResult::any();
         self.stack.clear();
-        self.state = DfsSolverState::Advancing((0, 0));
+        self.state = DfsSolverState::Advancing(AdvancingState {
+            streak: 0,
+            possibilities: 0,
+        });
     }
 }
 
