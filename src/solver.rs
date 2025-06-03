@@ -8,7 +8,7 @@ use crate::ranker::Ranker;
 pub struct AdvancingState {
     pub streak: usize,
     pub possibilities: usize,
-    // TODO: pub step: usize,
+    pub step: usize,
 }
 
 /// The state of the DFS solver. At any point in time, the solver is either
@@ -30,6 +30,7 @@ pub enum DfsSolverState {
 
 // A view on the state and associated data for the solver.
 pub trait DfsSolverView<U: UInt, S: State<U>> {
+    fn step_count(&self) -> usize;
     fn solver_state(&self) -> DfsSolverState;
     fn is_initializing(&self) -> bool;
     fn is_done(&self) -> bool;
@@ -57,6 +58,7 @@ pub trait StepObserver<U: UInt, S: State<U>> {
 /// if you are implementing a UI or debugging, this API may be useful.
 pub struct DfsSolver<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    step: usize,
     puzzle: &'a mut S,
     ranker: &'a R,
     constraint: &'a mut C,
@@ -76,6 +78,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 impl <'a, U, S, R, C> DfsSolverView<U, S>
 for DfsSolver<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    fn step_count(&self) -> usize {
+        self.step
+    }
+
     fn solver_state(&self) -> DfsSolverState {
         self.state
     }
@@ -156,6 +162,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         constraint: &'a mut C, 
     ) -> Self {
         DfsSolver {
+            step: 0,
             puzzle,
             ranker,
             constraint,
@@ -187,6 +194,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.state = if self.is_valid() {
             DfsSolverState::Advancing(AdvancingState {
                 possibilities: decision_width,
+                step: self.step,
                 streak: match self.state {
                     DfsSolverState::Advancing(adv) => adv.streak + 1,
                     _ => 1,
@@ -224,6 +232,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     pub fn manual_step(&mut self, index: Index, value: S::Value, force_grid: bool) -> Result<(), Error> {
+        self.step += 1;
         self.apply(BranchPoint::unique(index, value), force_grid)
     }
 
@@ -231,11 +240,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         if self.state == DfsSolverState::Exhausted {
             return false;
         }
+        self.step += 1;
         self.state = DfsSolverState::Backtracking(1);
         true
     }
 
     pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
+        self.step += 1;
         match self.state {
             DfsSolverState::Init(index) => {
                 if let Some((i, v)) = next_filled(index, self.puzzle) {
@@ -246,6 +257,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                     self.state = DfsSolverState::Advancing(AdvancingState {
                         streak: 0,
                         possibilities: 0,
+                        step: self.step,
                     });
                 }
                 Ok(())
@@ -290,6 +302,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.check_result = ConstraintResult::any();
         self.stack.clear();
         self.state = DfsSolverState::Advancing(AdvancingState {
+            step: 0,
             streak: 0,
             possibilities: 0,
         });
@@ -307,6 +320,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 impl <'a, U, S, R, C> DfsSolverView<U, S>
 for FindFirstSolution<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    fn step_count(&self) -> usize { self.solver.step_count() }
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.is_done() }
@@ -373,6 +387,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 impl <'a, U, S, R, C> DfsSolverView<U, S>
 for FindAllSolutions<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    fn step_count(&self) -> usize { self.solver.step_count() }
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.solver_state() == DfsSolverState::Exhausted }
@@ -452,6 +467,7 @@ pub mod test_util {
     impl <'a, U, S, R, C> DfsSolverView<U, S>
     for PuzzleReplay<'a, U, S, R, C>
     where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+        fn step_count(&self) -> usize { self.solver.step_count() }
         fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
         fn is_initializing(&self) -> bool { self.solver.is_initializing() }
         fn is_done(&self) -> bool { self.solver.is_done() }
