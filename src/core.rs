@@ -429,16 +429,82 @@ impl <U: UInt, V: Value<U>> CertainDecision<U, V> {
     }
 }
 
-// TODO: Just merge with ConstraintResult
 /// Constraints and ranking both may return early if they hit upon either a
 /// contradiction or a certainty. This is a simple enum to represent this
 /// short-circuiting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision<U: UInt, V: Value<U>, O> {
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstraintResult<U: UInt, V: Value<U>> {
     Contradiction,
     Certainty(CertainDecision<U, V>),
-    Other(O),
+    Any,
+    Grid(DecisionGrid<U, V>),
 }
+
+impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
+    pub fn merge_with(&mut self, other: &ConstraintResult<U, V>) {
+        if let ConstraintResult::Contradiction = self {
+            return;
+        } else if let ConstraintResult::Contradiction = other {
+            *self = other.clone();
+        } else if let ConstraintResult::Certainty(_) = self {
+            return;
+        } else if let ConstraintResult::Certainty(_) = other {
+            *self = other.clone();
+        } else if let ConstraintResult::Grid(g) = self {
+            if let ConstraintResult::Grid(g2) = other {
+                g.combine_with(&g2);
+            }
+            // Otherwise the other is Any and this one takes priority
+        } else {
+            // Any takes lower priority than the other one.
+            *self = other.clone();
+        }
+    }
+
+    pub fn has_certainty<S: State<U, Value=V>>(&self, puzzle: &S) -> Option<CertainDecision<U, V>> {
+        match self {
+            ConstraintResult::Contradiction => None,
+            ConstraintResult::Certainty(d) => Some(*d),
+            ConstraintResult::Any => None,
+            ConstraintResult::Grid(g) => {
+                for r in 0..g.rows() {
+                    for c in 0..g.cols() {
+                        if puzzle.get([r, c]).is_none() {
+                            let cell = &g.get([r, c]).0;
+                            if cell.len() == 1 {
+                                let v = unpack_values::<U, V>(cell)[0];
+                                return Some(CertainDecision::new([r, c], v))
+                            }
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    pub fn has_contradiction<S: State<U, Value=V>>(&self, puzzle: &S) -> bool {
+        match self {
+            ConstraintResult::Contradiction => true,
+            ConstraintResult::Certainty(_) => false,
+            ConstraintResult::Any => false,
+            ConstraintResult::Grid(g) => {
+                for r in 0..g.rows() {
+                    for c in 0..g.cols() {
+                        if puzzle.get([r, c]).is_none() {
+                            let cell = &g.get([r, c]).0;
+                            if cell.is_empty() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            },
+        }
+    }
+}
+
 
 /// A decision point in the puzzle. This includes the specific value that was
 /// chosen, as well as the index of the cell that was modified, as well as the

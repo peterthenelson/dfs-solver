@@ -1,89 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{unpack_values, CertainDecision, Decision, DecisionGrid, Error, Index, State, Stateful, UInt, Value};
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Possibilities<U: UInt, V: Value<U>> {
-    Any,
-    Grid(DecisionGrid<U, V>)
-}
-
-impl <U: UInt, V: Value<U>> Possibilities<U, V> {
-    pub fn merge_with(&mut self, other: Possibilities<U, V>) {
-        match self {
-            Possibilities::Any => {
-                *self = other;
-            },
-            Possibilities::Grid(g) => {
-                if let Possibilities::Grid(g2) = other {
-                    g.combine_with(&g2);
-                }
-            }
-        }
-    }
-}
-
-/// Potential violation of a constaint:
-/// - Early return of a violation
-/// - Early return of a certainty
-/// - Remaining possibilties
-pub type ConstraintResult<U, V> = Decision<U, V, Possibilities<U, V>>;
-
-impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
-    pub const fn any() -> Self {
-        Decision::Other(Possibilities::Any)
-    }
-
-    pub fn grid(grid: DecisionGrid<U, V>) -> Self {
-        Decision::Other(Possibilities::Grid(grid))
-    }
-
-    pub fn has_certainty<S: State<U, Value=V>>(&self, puzzle: &S) -> Option<CertainDecision<U, V>> {
-        match self {
-            ConstraintResult::Contradiction => None,
-            ConstraintResult::Certainty(d) => Some(*d),
-            Decision::Other(Possibilities::Any) => None,
-            Decision::Other(Possibilities::Grid(g)) => {
-                for r in 0..g.rows() {
-                    for c in 0..g.cols() {
-                        if puzzle.get([r, c]).is_none() {
-                            let cell = &g.get([r, c]).0;
-                            if cell.len() == 1 {
-                                let v = unpack_values::<U, V>(cell)[0];
-                                return Some(CertainDecision::new([r, c], v))
-                            }
-                        }
-                    }
-                }
-                None
-            }
-        }
-    }
-
-    pub fn has_contradiction<S: State<U, Value=V>>(&self, puzzle: &S) -> bool {
-        match self {
-            ConstraintResult::Contradiction => true,
-            ConstraintResult::Certainty(_) => false,
-            Decision::Other(p) => {
-                match p {
-                    Possibilities::Any => false,
-                    Possibilities::Grid(g) => {
-                        for r in 0..g.rows() {
-                            for c in 0..g.cols() {
-                                if puzzle.get([r, c]).is_none() {
-                                    let cell = &g.get([r, c]).0;
-                                    if cell.is_empty() {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                        false
-                    }
-                }
-            }
-        }
-    }
-}
+use crate::core::{ConstraintResult, Error, Index, State, Stateful, UInt};
 
 /// A full explanation of a violated constraint (for UI and debugging purposes).
 #[derive(Debug, Clone, PartialEq)]
@@ -173,18 +89,20 @@ where
 {
     fn check(&self, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value> {
         match self.x.check(puzzle, force_grid) {
-            Decision::Contradiction => Decision::Contradiction,
-            Decision::Certainty(d) => Decision::Certainty(d),
-            Decision::Other(mut px) => {
+            ConstraintResult::Contradiction => ConstraintResult::Contradiction,
+            ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
+            ConstraintResult::Grid(mut g) => {
                 match self.y.check(puzzle, force_grid) {
-                    Decision::Contradiction => Decision::Contradiction,
-                    Decision::Certainty(d) => Decision::Certainty(d),
-                    Decision::Other(py) => {
-                        px.merge_with(py);
-                        Decision::Other(px)
+                    ConstraintResult::Contradiction => ConstraintResult::Contradiction,
+                    ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
+                    ConstraintResult::Grid(g2) => {
+                        g.combine_with(&g2);
+                        ConstraintResult::Grid(g)
                     }
+                    ConstraintResult::Any => ConstraintResult::Grid(g),
                 }
             }
+            ConstraintResult::Any => self.y.check(puzzle, force_grid),
         }
     }
 
@@ -199,7 +117,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::core::{singleton_set, to_value, unpack_values, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+    use crate::core::{singleton_set, to_value, unpack_values, DecisionGrid, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
@@ -240,10 +158,10 @@ mod test {
         fn check(&self, puzzle: &ThreeVals, _: bool) -> ConstraintResult<u8, Val> {
             for j in 0..3 {
                 if puzzle.grid.get([0, j]).map(to_value) == Some(Val(self.0)) {
-                    return Decision::Contradiction;
+                    return ConstraintResult::Contradiction;
                 }
             }
-            ConstraintResult::any()
+            ConstraintResult::Any
         }
         
         fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
@@ -260,7 +178,7 @@ mod test {
             for j in 0..3 {
                 if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<u8, Val>) {
                     if v.0 % self.0 != self.1 {
-                        return Decision::Contradiction;
+                        return ConstraintResult::Contradiction;
                     }
                     g.get_mut([0, j]).0 = singleton_set(v);
                 } else {
@@ -272,7 +190,7 @@ mod test {
                     }
                 }
             }
-            ConstraintResult::grid(g)
+            ConstraintResult::Grid(g)
         }
         
         fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
@@ -286,11 +204,11 @@ mod test {
         let constraint1 = BlacklistedVal(1);
         let constraint2 = BlacklistedVal(2);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::any());
+        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Any);
         puzzle.apply([0, 0], Val(1)).unwrap();
         assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Contradiction);
         puzzle.apply([0, 0], Val(3)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::any());
+        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Any);
         puzzle.apply([0, 1], Val(2)).unwrap();
         assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Contradiction);
     }
@@ -305,7 +223,7 @@ mod test {
         let constraint1 = Mod(2, 1);
         let constraint2 = Mod(3, 0);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        if let Decision::Other(Possibilities::Grid(g)) = conjunction.check(&puzzle, false) {
+        if let ConstraintResult::Grid(g) = conjunction.check(&puzzle, false) {
             assert_eq!(unpack_set(&g, [0, 0]), vec![3, 9]);
             assert_eq!(unpack_set(&g, [0, 1]), vec![3, 9]);
             assert_eq!(unpack_set(&g, [0, 2]), vec![3, 9]);

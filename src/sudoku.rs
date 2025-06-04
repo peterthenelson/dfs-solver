@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{full_set, to_value, unpack_values, DecisionGrid, Error, Index, Set, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
-use crate::constraint::{Constraint, ConstraintConjunction, ConstraintResult, ConstraintViolationDetail};
+use crate::core::{full_set, to_value, unpack_values, ConstraintResult, DecisionGrid, Error, Index, Set, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+use crate::constraint::{Constraint, ConstraintConjunction, ConstraintViolationDetail};
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -363,7 +363,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u
     fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             if force_grid {
-                return ConstraintResult::grid(DecisionGrid::new(N, M));
+                return ConstraintResult::Grid(DecisionGrid::new(N, M));
             }
             return ConstraintResult::Contradiction;
         }
@@ -375,7 +375,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u
                 cell.0.intersect_with(&self.col[c]);
             }
         }
-        ConstraintResult::grid(grid)
+        ConstraintResult::Grid(grid)
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
@@ -479,7 +479,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
     fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             if force_grid {
-                return ConstraintResult::grid(DecisionGrid::new(N, M));
+                return ConstraintResult::Grid(DecisionGrid::new(N, M));
             }
             return ConstraintResult::Contradiction;
         }
@@ -491,7 +491,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
                 cell.0.union_with(&self.boxes[bindex[0]*self.bh + bindex[1]]);
             }
         }
-        ConstraintResult::grid(grid)
+        ConstraintResult::Grid(grid)
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {

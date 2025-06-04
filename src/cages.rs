@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{full_set, DecisionGrid, Error, FKWithId, FeatureKey, Index, Set, Stateful, Value};
-use crate::constraint::{Constraint, ConstraintResult, ConstraintViolationDetail};
+use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, Set, Stateful, Value};
+use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::sudoku::{unpack_sval_vals, SState, SVal, VisibilityPartition};
 
 #[derive(Debug, Clone)]
@@ -184,7 +184,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
     fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             if force_grid {
-                return ConstraintResult::grid(DecisionGrid::new(N, M));
+                return ConstraintResult::Grid(DecisionGrid::new(N, M));
             }
             return ConstraintResult::Contradiction;
         }
@@ -197,7 +197,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
             };
             if !cage_feasible::<MIN, MAX>(&set, self.remaining[i], self.empty[i]) {
                 if force_grid {
-                    return ConstraintResult::grid(DecisionGrid::new(N, M));
+                    return ConstraintResult::Grid(DecisionGrid::new(N, M));
                 }
                 return ConstraintResult::Contradiction;
             }
@@ -210,7 +210,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
                 g.1.add(&self.cage_feature, 1.0);
             }
         }
-        ConstraintResult::grid(grid)
+        ConstraintResult::Grid(grid)
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {

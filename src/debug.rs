@@ -1,8 +1,7 @@
 use std::{collections::HashMap, time::{Duration, SystemTime}};
 
 use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
-use crate::core::{State, UInt};
-use crate::constraint::{ConstraintResult, Possibilities};
+use crate::core::{ConstraintResult, State, UInt};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
 
@@ -12,8 +11,8 @@ fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, pu
         ConstraintResult::Certainty(d) => {
             format!("Certainty({:?}, {:?})", d.index, d.value).to_string()
         },
-        ConstraintResult::Other(Possibilities::Any) => "Any".to_string(),
-        ConstraintResult::Other(Possibilities::Grid(_)) => {
+        ConstraintResult::Any => "Any".to_string(),
+        ConstraintResult::Grid(_) => {
             if result.has_contradiction(puzzle) {
                 "Grid with Contradiction".to_string()
             } else if let Some(d) = result.has_certainty(puzzle) {
