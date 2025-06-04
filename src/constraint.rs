@@ -31,6 +31,9 @@ pub struct ConstraintViolationDetail {
 ///    can be deduced) or Any (otherwise).
 pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + Debug {
     fn check(&self, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value>;
+    // TODO: Switch Grid(DecisionGrid) to just be Grid and add a separate constrain
+    // method that the solver invokes if all the results are Grids (and/or some
+    // Anys).
     fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail>;
 }
 

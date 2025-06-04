@@ -512,21 +512,22 @@ impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
 #[derive(Debug, Clone)]
 pub struct BranchPoint<U: UInt, S: State<U>> {
     pub chosen: Option<S::Value>,
+    pub chosen_step: usize,
     pub index: Index,
     pub alternatives: std::vec::IntoIter<S::Value>,
 }
 
 impl <U: UInt, S: State<U>> BranchPoint<U, S> {
-    pub fn unique(index: Index, value: S::Value) -> Self {
-        BranchPoint { chosen: Some(value), index, alternatives: vec![].into_iter() }
+    pub fn unique(step: usize, index: Index, value: S::Value) -> Self {
+        BranchPoint { chosen: Some(value), chosen_step: step, index, alternatives: vec![].into_iter() }
     }
 
-    pub fn empty() -> Self {
-        BranchPoint { chosen: None, index: [0, 0], alternatives: vec![].into_iter() }
+    pub fn empty(step: usize) -> Self {
+        BranchPoint { chosen: None, chosen_step: step, index: [0, 0], alternatives: vec![].into_iter() }
     }
 
-    pub fn new(index: Index, alternatives: Vec<S::Value>) -> Self {
-        let mut d = BranchPoint { chosen: None, index, alternatives: alternatives.into_iter() };
+    pub fn new(step: usize, index: Index, alternatives: Vec<S::Value>) -> Self {
+        let mut d = BranchPoint { chosen: None, chosen_step: step, index, alternatives: alternatives.into_iter() };
         if d.alternatives.len() > 0 {
             d.chosen = Some(d.alternatives.next().unwrap());
         }

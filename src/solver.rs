@@ -217,7 +217,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn suggest(&self) -> BranchPoint<U, S> {
         if let Some(d) = self.check_result.has_certainty(self.puzzle) {
-            return BranchPoint::unique(d.index, d.value);
+            return BranchPoint::unique(self.step, d.index, d.value);
         }
         let g: DecisionGrid<U, S::Value> = match &self.check_result {
             ConstraintResult::Any => DecisionGrid::full(S::ROWS, S::COLS),
@@ -225,15 +225,15 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             _ => panic!("Unexpected check_result: {:?}", self.check_result),
         };
         if let Some(i) = self.ranker.top(&g, self.puzzle) {
-            BranchPoint::new(i, unpack_values(&g.get(i).0))
+            BranchPoint::new(self.step, i, unpack_values(&g.get(i).0))
         } else {
-            BranchPoint::empty()
+            BranchPoint::empty(self.step)
         }
     }
 
     pub fn manual_step(&mut self, index: Index, value: S::Value, force_grid: bool) -> Result<(), Error> {
         self.step += 1;
-        self.apply(BranchPoint::unique(index, value), force_grid)
+        self.apply(BranchPoint::unique(self.step, index, value), force_grid)
     }
 
     pub fn force_backtrack(&mut self) -> bool {
