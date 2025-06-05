@@ -11,6 +11,11 @@ pub struct AdvancingState {
     pub step: usize,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+pub struct BacktrackingState {
+    pub streak: usize,
+}
+
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
 /// solved (has found a solution), or exhausted (no more actions to take).
@@ -23,7 +28,7 @@ pub enum DfsSolverState {
     // was entered and the size of the possibility set.
     Advancing(AdvancingState),
     // The value here is the length of the backtrack (so far).
-    Backtracking(usize),
+    Backtracking(BacktrackingState),
     Solved,
     Exhausted,
 }
@@ -201,7 +206,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 },
             })
         } else {
-            DfsSolverState::Backtracking(1)
+            DfsSolverState::Backtracking(BacktrackingState { streak: 1 })
         };
         return Ok(());
     }
@@ -241,7 +246,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             return false;
         }
         self.step += 1;
-        self.state = DfsSolverState::Backtracking(1);
+        self.state = DfsSolverState::Backtracking(BacktrackingState { streak: 1 });
         true
     }
 
@@ -274,7 +279,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 }
                 Ok(())
             }
-            DfsSolverState::Backtracking(n) => {
+            DfsSolverState::Backtracking(state) => {
                 if self.stack.is_empty() {
                     self.state = DfsSolverState::Exhausted;
                     return Ok(());
@@ -288,7 +293,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                         Ok(())
                     }
                     None => {
-                        self.state = DfsSolverState::Backtracking(n+1);
+                        self.state = DfsSolverState::Backtracking(BacktrackingState {
+                            streak: state.streak + 1,
+                        });
                         Ok(())
                     },
                 }

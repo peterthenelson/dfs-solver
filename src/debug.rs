@@ -227,8 +227,8 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
                     self.certainty_streak += 1;
                 }
             },
-            DfsSolverState::Backtracking(n) => {
-                *self.backtrack_hist.entry(n).or_default() += 1;
+            DfsSolverState::Backtracking(state) => {
+                *self.backtrack_hist.entry(state.streak).or_default() += 1;
                 if self.certainty_streak > 0 {
                     *self.certainty_hist.entry(self.certainty_streak).or_default() += 1;
                     self.certainty_streak = 0
