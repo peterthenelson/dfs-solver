@@ -181,11 +181,8 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &Set<u8>, remaining: u8, emp
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
-            if force_grid {
-                return ConstraintResult::Grid(DecisionGrid::new(N, M));
-            }
             return ConstraintResult::Contradiction;
         }
         let mut grid = DecisionGrid::full(N, M);
@@ -196,9 +193,6 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
                 full_set::<u8, SVal<MIN, MAX>>()
             };
             if !cage_feasible::<MIN, MAX>(&set, self.remaining[i], self.empty[i]) {
-                if force_grid {
-                    return ConstraintResult::Grid(DecisionGrid::new(N, M));
-                }
                 return ConstraintResult::Contradiction;
             }
             for v in (self.remaining[i]+1)..=MAX {
@@ -251,7 +245,7 @@ mod test {
             let mut puzzle = puzzle.clone();
             let ranker = LinearRanker::default();
             let mut cage_checker = CageChecker::new(vec![c]);
-            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut cage_checker, false, None).replay().unwrap();
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut cage_checker, None).replay().unwrap();
             assert_contradiction_eq(&cage_checker, &puzzle, &result, expected);
         }
     }

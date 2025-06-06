@@ -30,7 +30,7 @@ pub struct ConstraintViolationDetail {
 ///    implement these as Constraints that only ever return a certainty (if it
 ///    can be deduced) or Any (otherwise).
 pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + Debug {
-    fn check(&self, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value>;
+    fn check(&self, puzzle: &S) -> ConstraintResult<U, S::Value>;
     // TODO: Switch Grid(DecisionGrid) to just be Grid and add a separate constrain
     // method that the solver invokes if all the results are Grids (and/or some
     // Anys).
@@ -90,12 +90,12 @@ impl <U, S, X, Y> Constraint<U, S> for ConstraintConjunction<U, S, X, Y>
 where
     U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
 {
-    fn check(&self, puzzle: &S, force_grid: bool) -> ConstraintResult<U, S::Value> {
-        match self.x.check(puzzle, force_grid) {
+    fn check(&self, puzzle: &S) -> ConstraintResult<U, S::Value> {
+        match self.x.check(puzzle) {
             ConstraintResult::Contradiction => ConstraintResult::Contradiction,
             ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
             ConstraintResult::Grid(mut g) => {
-                match self.y.check(puzzle, force_grid) {
+                match self.y.check(puzzle) {
                     ConstraintResult::Contradiction => ConstraintResult::Contradiction,
                     ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
                     ConstraintResult::Grid(g2) => {
@@ -105,7 +105,7 @@ where
                     ConstraintResult::Any => ConstraintResult::Grid(g),
                 }
             }
-            ConstraintResult::Any => self.y.check(puzzle, force_grid),
+            ConstraintResult::Any => self.y.check(puzzle),
         }
     }
 
@@ -158,7 +158,7 @@ mod test {
     pub struct BlacklistedVal(pub u8);
     impl Stateful<u8, Val> for BlacklistedVal {}
     impl Constraint<u8, ThreeVals> for BlacklistedVal {
-        fn check(&self, puzzle: &ThreeVals, _: bool) -> ConstraintResult<u8, Val> {
+        fn check(&self, puzzle: &ThreeVals) -> ConstraintResult<u8, Val> {
             for j in 0..3 {
                 if puzzle.grid.get([0, j]).map(to_value) == Some(Val(self.0)) {
                     return ConstraintResult::Contradiction;
@@ -176,7 +176,7 @@ mod test {
     pub struct Mod(pub u8, pub u8);
     impl Stateful<u8, Val> for Mod {}
     impl Constraint<u8, ThreeVals> for Mod {
-        fn check(&self, puzzle: &ThreeVals, _: bool) -> ConstraintResult<u8, Val> {
+        fn check(&self, puzzle: &ThreeVals) -> ConstraintResult<u8, Val> {
             let mut g = DecisionGrid::new(ThreeVals::ROWS, ThreeVals::COLS);
             for j in 0..3 {
                 if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<u8, Val>) {
@@ -207,13 +207,13 @@ mod test {
         let constraint1 = BlacklistedVal(1);
         let constraint2 = BlacklistedVal(2);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Any);
+        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Any);
         puzzle.apply([0, 0], Val(1)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Contradiction);
+        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Contradiction);
         puzzle.apply([0, 0], Val(3)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Any);
+        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Any);
         puzzle.apply([0, 1], Val(2)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, false), ConstraintResult::Contradiction);
+        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Contradiction);
     }
 
     fn unpack_set(g: &DecisionGrid<u8, Val>, index: Index) -> Vec<u8> {
@@ -226,7 +226,7 @@ mod test {
         let constraint1 = Mod(2, 1);
         let constraint2 = Mod(3, 0);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        if let ConstraintResult::Grid(g) = conjunction.check(&puzzle, false) {
+        if let ConstraintResult::Grid(g) = conjunction.check(&puzzle) {
             assert_eq!(unpack_set(&g, [0, 0]), vec![3, 9]);
             assert_eq!(unpack_set(&g, [0, 1]), vec![3, 9]);
             assert_eq!(unpack_set(&g, [0, 2]), vec![3, 9]);

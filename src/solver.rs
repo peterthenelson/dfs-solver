@@ -188,7 +188,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
     }
 
-    fn apply(&mut self, decision: BranchPoint<U, S>, force_grid: bool) -> Result<(), Error> {
+    fn apply(&mut self, decision: BranchPoint<U, S>) -> Result<(), Error> {
         if self.is_initializing() {
             return Err(NOT_INITIALIZED);
         } else if self.is_done() {
@@ -206,7 +206,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
         let decision_width = decision.alternatives.len() + 1;
         self.stack.push(decision);
-        self.check_result = self.constraint.check(self.puzzle, force_grid);
+        self.check_result = self.constraint.check(self.puzzle);
         self.state = if self.is_valid() {
             DfsSolverState::Advancing(AdvancingState {
                 possibilities: decision_width,
@@ -247,9 +247,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
     }
 
-    pub fn manual_step(&mut self, index: Index, value: S::Value, force_grid: bool) -> Result<(), Error> {
+    pub fn manual_step(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
         self.step += 1;
-        self.apply(BranchPoint::unique(self.step, index, value), force_grid)
+        self.apply(BranchPoint::unique(self.step, index, value))
     }
 
     pub fn force_backtrack(&mut self) -> bool {
@@ -261,13 +261,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         true
     }
 
-    pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
+    pub fn step(&mut self) -> Result<(), Error> {
         self.step += 1;
         match self.state {
             DfsSolverState::Initializing(state) => {
                 if let Some((i, v)) = next_filled(state.last_filled, self.puzzle) {
                     self.constraint.apply(i, v)?;
-                    self.check_result = self.constraint.check(self.puzzle, force_grid);
+                    self.check_result = self.constraint.check(self.puzzle);
                     self.state = DfsSolverState::Initializing(InitializingState { last_filled: Some(i) });
                 } else {
                     self.state = DfsSolverState::Advancing(AdvancingState {
@@ -284,7 +284,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 // Take a new action
                 let decision = self.suggest();
                 if decision.chosen.is_some() {
-                    self.apply(decision, force_grid)?;
+                    self.apply(decision)?;
                 } else {
                     self.state = DfsSolverState::Solved;
                 }
@@ -303,7 +303,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 self.undo(&decision)?;
                 match decision.advance() {
                     Some(_) => {
-                        self.apply(decision, force_grid)?;
+                        self.apply(decision)?;
                         Ok(())
                     }
                     None => {
@@ -336,7 +336,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 pub struct FindFirstSolution<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     solver: DfsSolver<'a, U, S, R, C>,
-    force_grid: bool,
     observer: Option<&'a mut dyn StepObserver<U, S>>,
 }
 
@@ -370,18 +369,16 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         puzzle: &'a mut S,
         ranker: &'a R,
         constraint: &'a mut C,
-        force_grid: bool,
         observer: Option<&'a mut dyn StepObserver<U, S>>,
     ) -> Self {
         FindFirstSolution {
             solver: DfsSolver::new(puzzle, ranker, constraint),
-            force_grid,
             observer,
         }
     }
 
     pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
-        self.solver.step(self.force_grid)?;
+        self.solver.step()?;
         Ok(&self.solver)
     }
 
@@ -404,7 +401,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 pub struct FindAllSolutions<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     solver: DfsSolver<'a, U, S, R, C>,
-    force_grid: bool,
     observer: Option<&'a mut dyn StepObserver<U, S>>,
 }
 
@@ -438,13 +434,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         puzzle: &'a mut S,
         ranker: &'a R,
         constraint: &'a mut C,
-        force_grid: bool,
         observer: Option<&'a mut dyn StepObserver<U, S>>,
     ) -> Self {
         FindAllSolutions {
-            solver: DfsSolver::new(puzzle, ranker, constraint),
-            force_grid,
-            observer,
+            solver: DfsSolver::new(puzzle, ranker, constraint), observer,
         }
     }
 
@@ -452,7 +445,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         if self.solver.state == DfsSolverState::Solved {
             self.solver.force_backtrack();
         }
-        self.solver.step(self.force_grid)?;
+        self.solver.step()?;
         Ok(&self.solver)
     }
 
@@ -485,7 +478,6 @@ pub mod test_util {
     pub struct PuzzleReplay<'a, U, S, R, C>
     where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         solver: DfsSolver<'a, U, S, R, C>,
-        force_grid: bool,
         observer: Option<&'a mut dyn StepObserver<U, S>>,
     }
 
@@ -519,18 +511,16 @@ pub mod test_util {
             puzzle: &'a mut S,
             ranker: &'a R,
             constraint: &'a mut C,
-            force_grid: bool,
             observer: Option<&'a mut dyn StepObserver<U, S>>,
         ) -> Self {
             Self {
                 solver: DfsSolver::new(puzzle, ranker, constraint),
-                force_grid,
                 observer,
             }
         }
 
         pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
-            self.solver.step(self.force_grid)?;
+            self.solver.step()?;
             Ok(&self.solver)
         }
 
@@ -663,7 +653,7 @@ mod test {
     struct GwLineConstraint {}
     impl Stateful<u8, GwValue> for GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, _: bool) -> ConstraintResult<u8, GwValue> {
+        fn check(&self, puzzle: &GwLine) -> ConstraintResult<u8, GwValue> {
             for i in 0..8 {
                 if puzzle.digits.get([0, i]).is_none() {
                     continue;
@@ -694,7 +684,7 @@ mod test {
     struct GwSmartLineConstraint {}
     impl Stateful<u8, GwValue> for GwSmartLineConstraint {}
     impl Constraint<u8, GwLine> for GwSmartLineConstraint {
-        fn check(&self, puzzle: &GwLine, _: bool) -> ConstraintResult<u8, GwValue> {
+        fn check(&self, puzzle: &GwLine) -> ConstraintResult<u8, GwValue> {
             let mut grid = DecisionGrid::<u8, GwValue>::full(1, 8);
             for i in 0..8 {
                 if let Some(u) = puzzle.digits.get([0, i]) {
@@ -724,22 +714,22 @@ mod test {
     fn test_german_whispers_constraint() {
         let mut puzzle = GwLine::new();
         let constraint = GwLineConstraint {};
-        let violation = constraint.check(&puzzle, false);
+        let violation = constraint.check(&puzzle);
         assert_eq!(violation, ConstraintResult::Any);
         puzzle.apply([0, 0], GwValue(1)).unwrap();
         puzzle.apply([0, 3], GwValue(2)).unwrap();
-        let violation = constraint.check(&puzzle, false);
+        let violation = constraint.check(&puzzle);
         assert_eq!(violation, ConstraintResult::Any);
         puzzle.apply([0, 5], GwValue(1)).unwrap();
-        let violation = constraint.check(&puzzle, false);
+        let violation = constraint.check(&puzzle);
         assert_eq!(violation, ConstraintResult::Contradiction);
         puzzle.undo([0, 5], GwValue(1)).unwrap();
         puzzle.apply([0, 1], GwValue(3)).unwrap();
-        let violation = constraint.check(&puzzle, false);
+        let violation = constraint.check(&puzzle);
         assert_eq!(violation, ConstraintResult::Contradiction);
         puzzle.undo([0, 1], GwValue(3)).unwrap();
         puzzle.apply([0, 1], GwValue(6)).unwrap();
-        let violation = constraint.check(&puzzle, false);
+        let violation = constraint.check(&puzzle);
         assert_eq!(violation, ConstraintResult::Any);
     }
 
@@ -748,7 +738,7 @@ mod test {
         let mut puzzle = GwLine::new();
         let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, false, None);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
         assert_eq!(maybe_solution.unwrap().get_state().to_string(), "49382716");
@@ -760,7 +750,7 @@ mod test {
         let mut puzzle = GwLine::new();
         let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, true, None);
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
         while !finder.is_done() {
@@ -789,7 +779,7 @@ mod test {
         let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
         let mut counter = ContraCounter(0);
-        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, true, Some(&mut counter));
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut counter));
         let _ = finder.solve()?;
         assert!(finder.is_valid());
         assert!(counter.0 > 100);
@@ -801,7 +791,7 @@ mod test {
         let mut puzzle = GwLine::new();
         let ranker = LinearRanker::default();
         let mut constraint = GwLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, false, None);
+        let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, None);
         let (steps, solution_count) = finder.solve_all()?;
         assert!(steps > 2500);
         assert_eq!(solution_count, 2);
@@ -813,7 +803,7 @@ mod test {
         let mut puzzle = GwLine::new();
         let ranker = LinearRanker::default();
         let mut constraint = GwSmartLineConstraint {};
-        let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, false, None);
+        let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, None);
         let (steps, solution_count) = finder.solve_all()?;
         assert!(steps < 500);
         assert_eq!(solution_count, 2);

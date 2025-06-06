@@ -394,17 +394,13 @@ fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         let mut grid = DecisionGrid::full(N, M);
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
                 if r < 0 || (e == 0 && r != 0) {
-                    if !force_grid {
-                        return ConstraintResult::Contradiction;
-                    }
-                    grid = DecisionGrid::new(N, M);
-                    break;
+                    return ConstraintResult::Contradiction;
                 } else if r == 0 {
                     // Satisfied!
                     continue;
@@ -420,11 +416,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                         g.1.add(&self.xsum_tail_feature, 1.0);
                     }
                 } else {
-                    if !force_grid {
-                        return ConstraintResult::Contradiction;
-                    }
-                    grid = DecisionGrid::new(N, M);
-                    break;
+                    return ConstraintResult::Contradiction;
                 }
             } else {
                 // We can constrain length based on total target sum
@@ -437,12 +429,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                     g.1.add(&self.xsum_head_feature, 1.0);
 
                 } else {
-                    if !force_grid {
-                        return ConstraintResult::Contradiction;
-                    }
-                    grid = DecisionGrid::new(N, M);
-                    break;
-
+                    return ConstraintResult::Contradiction;
                 }
             }
         }
@@ -587,7 +574,7 @@ mod test {
             let mut puzzle = puzzle.clone();
             let ranker = LinearRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
-            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, false, None).replay().unwrap();
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
             assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
         }
     }
@@ -616,7 +603,7 @@ mod test {
             let mut puzzle = puzzle.clone();
             let ranker = LinearRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
-            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, false, None).replay().unwrap();
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
             assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
         }
     }

@@ -360,11 +360,8 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8,
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker<N, M, MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
-            if force_grid {
-                return ConstraintResult::Grid(DecisionGrid::new(N, M));
-            }
             return ConstraintResult::Contradiction;
         }
         let mut grid = DecisionGrid::new(N, M);
@@ -476,11 +473,8 @@ Stateful<u8, SVal<MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>, force_grid: bool) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
-            if force_grid {
-                return ConstraintResult::Grid(DecisionGrid::new(N, M));
-            }
             return ConstraintResult::Contradiction;
         }
         let mut grid = DecisionGrid::new(N, M);
@@ -527,8 +521,8 @@ impl Stateful<u8, SVal<1, 9>> for NineBoxChecker {
     }
 }
 impl Constraint<u8, SState<9, 9, 1, 9>> for NineBoxChecker {
-    fn check(&self, puzzle: &SState<9, 9, 1, 9>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 9>> {
-        self.0.check(puzzle, force_grid)
+    fn check(&self, puzzle: &SState<9, 9, 1, 9>) -> ConstraintResult<u8, SVal<1, 9>> {
+        self.0.check(puzzle)
     }
     fn explain_contradictions(&self, puzzle: &SState<9, 9, 1, 9>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -572,8 +566,8 @@ impl Stateful<u8, SVal<1, 8>> for EightBoxChecker {
     }
 }
 impl Constraint<u8, SState<8, 8, 1, 8>> for EightBoxChecker {
-    fn check(&self, puzzle: &SState<8, 8, 1, 8>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 8>> {
-        self.0.check(puzzle, force_grid)
+    fn check(&self, puzzle: &SState<8, 8, 1, 8>) -> ConstraintResult<u8, SVal<1, 8>> {
+        self.0.check(puzzle)
     }
     fn explain_contradictions(&self, puzzle: &SState<8, 8, 1, 8>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -617,8 +611,8 @@ impl Stateful<u8, SVal<1, 6>> for SixBoxChecker {
     }
 }
 impl Constraint<u8, SState<6, 6, 1, 6>> for SixBoxChecker {
-    fn check(&self, puzzle: &SState<6, 6, 1, 6>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 6>> {
-        self.0.check(puzzle, force_grid)
+    fn check(&self, puzzle: &SState<6, 6, 1, 6>) -> ConstraintResult<u8, SVal<1, 6>> {
+        self.0.check(puzzle)
     }
     fn explain_contradictions(&self, puzzle: &SState<6, 6, 1, 6>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -662,8 +656,8 @@ impl Stateful<u8, SVal<1, 4>> for FourBoxChecker {
     }
 }
 impl Constraint<u8, SState<4, 4, 1, 4>> for FourBoxChecker {
-    fn check(&self, puzzle: &SState<4, 4, 1, 4>, force_grid: bool) -> ConstraintResult<u8, SVal<1, 4>> {
-        self.0.check(puzzle, force_grid)
+    fn check(&self, puzzle: &SState<4, 4, 1, 4>) -> ConstraintResult<u8, SVal<1, 4>> {
+        self.0.check(puzzle)
     }
     fn explain_contradictions(&self, puzzle: &SState<4, 4, 1, 4>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -774,9 +768,9 @@ mod test {
         let mut checker = RowColChecker::new();
         apply(&mut sudoku, &mut checker, [5, 3], SVal(1));
         apply(&mut sudoku, &mut checker, [5, 4], SVal(3));
-        assert!(!checker.check(&sudoku, false).has_contradiction(&sudoku));
+        assert!(!checker.check(&sudoku).has_contradiction(&sudoku));
         apply(&mut sudoku, &mut checker, [5, 8], SVal(1));
-        assert!(checker.check(&sudoku, false).has_contradiction(&sudoku));
+        assert!(checker.check(&sudoku).has_contradiction(&sudoku));
     }
 
     #[test]
@@ -785,9 +779,9 @@ mod test {
         let mut checker = RowColChecker::new();
         apply(&mut sudoku, &mut checker, [1, 3], SVal(2));
         apply(&mut sudoku, &mut checker, [3, 3], SVal(7));
-        assert!(!checker.check(&sudoku, false).has_contradiction(&sudoku));
+        assert!(!checker.check(&sudoku).has_contradiction(&sudoku));
         apply(&mut sudoku, &mut checker, [6, 3], SVal(2));
-        assert!(checker.check(&sudoku, false).has_contradiction(&sudoku));
+        assert!(checker.check(&sudoku).has_contradiction(&sudoku));
     }
 
     #[test]
@@ -796,9 +790,9 @@ mod test {
         let mut checker = NineBoxChecker::new();
         apply(&mut sudoku, &mut checker, [3, 0], SVal(8));
         apply(&mut sudoku, &mut checker, [4, 1], SVal(2));
-        assert!(!checker.check(&sudoku, false).has_contradiction(&sudoku));
+        assert!(!checker.check(&sudoku).has_contradiction(&sudoku));
         apply(&mut sudoku, &mut checker, [5, 2], SVal(8));
-        assert!(checker.check(&sudoku, false).has_contradiction(&sudoku));
+        assert!(checker.check(&sudoku).has_contradiction(&sudoku));
     }
 
     #[test]
@@ -835,7 +829,7 @@ mod test {
         let ranker = LinearRanker::default();
         let mut checker = nine_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &ranker, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -863,7 +857,7 @@ mod test {
         let ranker = LinearRanker::default();
         let mut checker = eight_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &ranker, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -889,7 +883,7 @@ mod test {
         let ranker = LinearRanker::default();
         let mut checker = six_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &ranker, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());
@@ -913,7 +907,7 @@ mod test {
         let ranker = LinearRanker::default();
         let mut checker = four_standard_checker();
         let mut finder = FindFirstSolution::new(
-            &mut sudoku, &ranker, &mut checker, false, None);
+            &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
             Ok(solution) => {
                 assert!(solution.is_some());

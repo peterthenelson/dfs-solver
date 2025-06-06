@@ -51,7 +51,7 @@ fn solve(given: Option<SState<9, 9, 1, 9>>, sample_print: Sample) {
     let mut dbg = DbgObserver::new();
     dbg.sample_print(sample_print)
         .sample_stats("figures/double-down-stats.png", Sample::time(Duration::from_secs(30)));
-    let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, false, Some(&mut dbg));
+    let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut dbg));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
     println!("Solution:\n{}", maybe_solution.expect("No solution found!").get_state().serialize());
 }
