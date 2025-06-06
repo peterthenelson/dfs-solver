@@ -5,14 +5,25 @@ use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::ranker::Ranker;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
+pub struct InitializingState {
+    // The index is that of the most recently applied action (during the
+    // initial stage when actions already in the grid are replayed).
+    last_filled: Option<Index>,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub struct AdvancingState {
+    // Number of uninterrupted advancing steps.
     pub streak: usize,
+    // The number of possibilities at the BranchPoint where this advance was taken.
     pub possibilities: usize,
+    // The step at which this advance was taken.
     pub step: usize,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub struct BacktrackingState {
+    // Number of uninterrupted backtracking steps.
     pub streak: usize,
 }
 
@@ -21,13 +32,8 @@ pub struct BacktrackingState {
 /// solved (has found a solution), or exhausted (no more actions to take).
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum DfsSolverState {
-    // The index is that of the most recently applied action (during the
-    // initial stage when actions already in the grid are replayed).
-    Init(Option<Index>),
-    // The values here are the number of actions taken since the advancing stage
-    // was entered and the size of the possibility set.
+    Initializing(InitializingState),
     Advancing(AdvancingState),
-    // The value here is the length of the backtrack (so far).
     Backtracking(BacktrackingState),
     Solved,
     Exhausted,
@@ -41,6 +47,7 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
     fn most_recent_action(&self) -> Option<(Index, S::Value)>;
+    fn backtracked_steps(&self) -> Option<usize>;
     fn get_constraint(&self) -> &dyn Constraint<U, S>;
     fn constraint_result(&self) -> ConstraintResult<U, S::Value>;
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail>;
@@ -69,6 +76,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     constraint: &'a mut C,
     check_result: ConstraintResult<U, S::Value>,
     stack: Vec<BranchPoint<U, S>>,
+    backtracked_steps: Option<usize>,
     state: DfsSolverState,
 }
 
@@ -92,7 +100,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn is_initializing(&self) -> bool {
-        if let DfsSolverState::Init(_) = self.state {
+        if let DfsSolverState::Initializing(_) = self.state {
             true
         } else {
             false
@@ -112,13 +120,15 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             Some((b.index, b.chosen.unwrap()))
         } else {
             match self.state {
-                DfsSolverState::Init(Some(index)) => {
+                DfsSolverState::Initializing(InitializingState{ last_filled: Some(index) }) => {
                     Some((index, self.puzzle.get(index).unwrap()))
                 },
                 _ => None,
             }
         }
     }
+
+    fn backtracked_steps(&self) -> Option<usize> { self.backtracked_steps }
 
     fn get_constraint(&self) -> &dyn Constraint<U, S> {
         self.constraint
@@ -173,7 +183,8 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             constraint,
             check_result: ConstraintResult::Any,
             stack: Vec::new(),
-            state: DfsSolverState::Init(None),
+            backtracked_steps: None,
+            state: DfsSolverState::Initializing(InitializingState { last_filled: None }),
         }
     }
 
@@ -253,11 +264,11 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     pub fn step(&mut self, force_grid: bool) -> Result<(), Error> {
         self.step += 1;
         match self.state {
-            DfsSolverState::Init(index) => {
-                if let Some((i, v)) = next_filled(index, self.puzzle) {
+            DfsSolverState::Initializing(state) => {
+                if let Some((i, v)) = next_filled(state.last_filled, self.puzzle) {
                     self.constraint.apply(i, v)?;
                     self.check_result = self.constraint.check(self.puzzle, force_grid);
-                    self.state = DfsSolverState::Init(Some(i));
+                    self.state = DfsSolverState::Initializing(InitializingState { last_filled: Some(i) });
                 } else {
                     self.state = DfsSolverState::Advancing(AdvancingState {
                         streak: 0,
@@ -277,15 +288,18 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 } else {
                     self.state = DfsSolverState::Solved;
                 }
+                self.backtracked_steps = None;
                 Ok(())
             }
             DfsSolverState::Backtracking(state) => {
                 if self.stack.is_empty() {
                     self.state = DfsSolverState::Exhausted;
+                    self.backtracked_steps = Some(self.step);
                     return Ok(());
                 }
                 // Backtrack, attempting to advance an existing action set
                 let mut decision = self.stack.pop().unwrap();
+                self.backtracked_steps = Some(self.step - decision.chosen_step);
                 self.undo(&decision)?;
                 match decision.advance() {
                     Some(_) => {
@@ -313,6 +327,8 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             streak: 0,
             possibilities: 0,
         });
+        self.step = 0;
+        self.backtracked_steps = None;
     }
 }
 
@@ -335,6 +351,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn most_recent_action(&self) -> Option<(Index, S::Value)> {
         self.solver.most_recent_action()
     }
+    fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
     fn get_constraint(&self) -> &dyn Constraint<U, S> {
         self.solver.get_constraint()
     }
@@ -402,6 +419,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn most_recent_action(&self) -> Option<(Index, S::Value)> {
         self.solver.most_recent_action()
     }
+    fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
     fn get_constraint(&self) -> &dyn Constraint<U, S> {
         self.solver.get_constraint()
     }
@@ -482,6 +500,7 @@ pub mod test_util {
         fn most_recent_action(&self) -> Option<(Index, S::Value)> {
             self.solver.most_recent_action()
         }
+        fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
         fn get_constraint(&self) -> &dyn Constraint<U, S> {
             self.solver.get_constraint()
         }

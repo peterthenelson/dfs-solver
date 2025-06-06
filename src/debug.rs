@@ -186,6 +186,7 @@ pub struct DbgObserver<U: UInt, S: State<U>> {
     advance_hist: HashMap<usize, usize>,
     width_hist: HashMap<usize, usize>,
     backtrack_hist: HashMap<usize, usize>,
+    backtrack_delay_hist: HashMap<usize, usize>,
     filled_hist: HashMap<usize, usize>,
     steps: usize,
     _marker: std::marker::PhantomData<(U, S)>,
@@ -202,6 +203,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             advance_hist: HashMap::new(),
             width_hist: HashMap::new(),
             backtrack_hist: HashMap::new(),
+            backtrack_delay_hist: HashMap::new(),
             filled_hist: HashMap::new(),
             steps: 0,
             _marker: std::marker::PhantomData,
@@ -242,6 +244,9 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             },
             _ => {},
         }
+        if let Some(backtracked_steps) = solver.backtracked_steps() {
+            *self.backtrack_delay_hist.entry(backtracked_steps).or_default() += 1;
+        }
         let mut filled = 0;
         for r in 0..S::ROWS {
             for c in 0..S::COLS {
@@ -264,9 +269,10 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         for (i, caption, value_counts, bar_margin) in vec![
             (0, "Num. choices at each advance", &self.width_hist, 5),
             (1, "Num. steps with N filled-in cells", &self.filled_hist, 0),
-            (2, "Length of uninterrupted advances", &self.advance_hist, 1),
-            (3, "Length of backtracks", &self.backtrack_hist, 1),
-            (4, "Length of streaks of certainty", &self.certainty_hist, 1),
+            (2, "Advance streaks", &self.advance_hist, 1),
+            (3, "Certainty streaks", &self.certainty_hist, 1),
+            (4, "Backtrack streaks", &self.backtrack_hist, 1),
+            (5, "Misstep/backtrack delay", &self.backtrack_delay_hist, 1),
         ] {
             let hist = Histogram::from_value_counts(&value_counts);
             let (upper, lower) = areas[i].split_vertically(areas[i].relative_to_height(0.18));
