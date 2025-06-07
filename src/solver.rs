@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-
 use crate::core::{unpack_values, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::ranker::Ranker;
@@ -50,6 +49,7 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
     fn backtracked_steps(&self) -> Option<usize>;
     fn get_constraint(&self) -> &dyn Constraint<U, S>;
     fn constraint_result(&self) -> ConstraintResult<U, S::Value>;
+    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>>;
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail>;
     fn get_state(&self) -> &S;
 }
@@ -75,6 +75,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     ranker: &'a R,
     constraint: &'a mut C,
     check_result: ConstraintResult<U, S::Value>,
+    decision_grid: Option<DecisionGrid<U, S::Value>>,
     stack: Vec<BranchPoint<U, S>>,
     backtracked_steps: Option<usize>,
     state: DfsSolverState,
@@ -112,7 +113,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn is_valid(&self) -> bool {
-        !self.check_result.has_contradiction(self.puzzle)
+        match self.check_result {
+            ConstraintResult::Contradiction => false,
+            _ => true,
+        }
     }
 
     fn most_recent_action(&self) -> Option<(Index, S::Value)> {
@@ -136,6 +140,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
         self.check_result.clone()
+    }
+
+    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+        self.decision_grid.clone()
     }
 
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
@@ -168,7 +176,7 @@ fn next_filled<U: UInt, S: State<U>>(index: Option<Index>, puzzle: &S) -> Option
     }
     None
 }
- 
+
 impl <'a, U, S, R, C> DfsSolver<'a, U, S, R, C>
 where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     pub fn new(
@@ -181,10 +189,22 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             puzzle,
             ranker,
             constraint,
-            check_result: ConstraintResult::Any,
+            check_result: ConstraintResult::Ok,
+            decision_grid: None,
             stack: Vec::new(),
             backtracked_steps: None,
             state: DfsSolverState::Initializing(InitializingState { last_filled: None }),
+        }
+    }
+
+    fn check(&mut self) {
+        let mut grid = DecisionGrid::full(S::ROWS, S::COLS);
+        self.check_result = self.constraint.check(self.puzzle, &mut grid);
+        if self.check_result.is_ok() {
+            self.check_result = grid.to_constraint_result(self.puzzle);
+            self.decision_grid = Some(grid);
+        } else {
+            self.decision_grid = None;
         }
     }
 
@@ -206,7 +226,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
         let decision_width = decision.alternatives.len() + 1;
         self.stack.push(decision);
-        self.check_result = self.constraint.check(self.puzzle);
+        self.check();
         self.state = if self.is_valid() {
             DfsSolverState::Advancing(AdvancingState {
                 possibilities: decision_width,
@@ -232,15 +252,11 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn suggest(&self) -> BranchPoint<U, S> {
-        if let Some(d) = self.check_result.has_certainty(self.puzzle) {
+        if let ConstraintResult::Certainty(d) = self.check_result {
             return BranchPoint::unique(self.step, d.index, d.value);
         }
-        let g: DecisionGrid<U, S::Value> = match &self.check_result {
-            ConstraintResult::Any => DecisionGrid::full(S::ROWS, S::COLS),
-            ConstraintResult::Grid(g) => g.clone(),
-            _ => panic!("Unexpected check_result: {:?}", self.check_result),
-        };
-        if let Some(i) = self.ranker.top(&g, self.puzzle) {
+        let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
+        if let Some(i) = self.ranker.top(g, self.puzzle) {
             BranchPoint::new(self.step, i, unpack_values(&g.get(i).0))
         } else {
             BranchPoint::empty(self.step)
@@ -267,7 +283,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             DfsSolverState::Initializing(state) => {
                 if let Some((i, v)) = next_filled(state.last_filled, self.puzzle) {
                     self.constraint.apply(i, v)?;
-                    self.check_result = self.constraint.check(self.puzzle);
+                    self.check();
                     self.state = DfsSolverState::Initializing(InitializingState { last_filled: Some(i) });
                 } else {
                     self.state = DfsSolverState::Advancing(AdvancingState {
@@ -275,6 +291,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                         possibilities: 0,
                         step: self.step,
                     });
+                    if self.decision_grid.is_none() {
+                        self.decision_grid = Some(DecisionGrid::full(S::ROWS, S::COLS));
+                    }
                 }
                 Ok(())
             }
@@ -320,7 +339,8 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     // TODO: This actually resets the puzzle, including any initial moves. Oops.
     pub fn reset(&mut self) {
         self.puzzle.reset();
-        self.check_result = ConstraintResult::Any;
+        self.check_result = ConstraintResult::Ok;
+        self.decision_grid = None;
         self.stack.clear();
         self.state = DfsSolverState::Advancing(AdvancingState {
             step: 0,
@@ -356,6 +376,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
     fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
         self.solver.constraint_result()
+    }
+    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+        self.solver.decision_grid()
     }
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
         self.solver.explain_contradiction()
@@ -421,6 +444,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
     fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
         self.solver.constraint_result()
+    }
+    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+        self.solver.decision_grid()
     }
     fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
         self.solver.explain_contradiction()
@@ -499,6 +525,9 @@ pub mod test_util {
         fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
             self.solver.constraint_result()
         }
+        fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+            self.solver.decision_grid()
+        }
         fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
             self.solver.explain_contradiction()
         }
@@ -534,7 +563,7 @@ pub mod test_util {
                     observer.after_step(&self.solver);
                 }
                 let result = self.solver.constraint_result();
-                if result.has_contradiction(self.solver.get_state()) {
+                if let ConstraintResult::Contradiction = result {
                     return Ok(result);
                 }
             }
@@ -549,7 +578,11 @@ pub mod test_util {
         result: &ConstraintResult<U, S::Value>,
         expected_contradiction: bool,
     ) {
-        let actual = result.has_contradiction(puzzle);
+        let actual = if let ConstraintResult::Contradiction = result {
+            true
+        } else {
+            false
+        };
         if expected_contradiction && !actual {
             panic!("Expected contradiction; none found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
         } else if actual && !expected_contradiction {
@@ -653,7 +686,7 @@ mod test {
     struct GwLineConstraint {}
     impl Stateful<u8, GwValue> for GwLineConstraint {}
     impl Constraint<u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine) -> ConstraintResult<u8, GwValue> {
+        fn check(&self, puzzle: &GwLine, _: &mut DecisionGrid<u8, GwValue>) -> ConstraintResult<u8, GwValue> {
             for i in 0..8 {
                 if puzzle.digits.get([0, i]).is_none() {
                     continue;
@@ -673,7 +706,7 @@ mod test {
                     }
                 }
             }
-            ConstraintResult::Any
+            ConstraintResult::Ok
         }
         fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
             todo!()
@@ -684,8 +717,7 @@ mod test {
     struct GwSmartLineConstraint {}
     impl Stateful<u8, GwValue> for GwSmartLineConstraint {}
     impl Constraint<u8, GwLine> for GwSmartLineConstraint {
-        fn check(&self, puzzle: &GwLine) -> ConstraintResult<u8, GwValue> {
-            let mut grid = DecisionGrid::<u8, GwValue>::full(1, 8);
+        fn check(&self, puzzle: &GwLine, grid: &mut DecisionGrid<u8, GwValue>) -> ConstraintResult<u8, GwValue> {
             for i in 0..8 {
                 if let Some(u) = puzzle.digits.get([0, i]) {
                     let v = to_value::<u8, GwValue>(u);
@@ -703,7 +735,7 @@ mod test {
                     });
                 }
             }
-            ConstraintResult::Grid(grid)
+            ConstraintResult::Ok
         }
         fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
             todo!()
@@ -714,23 +746,24 @@ mod test {
     fn test_german_whispers_constraint() {
         let mut puzzle = GwLine::new();
         let constraint = GwLineConstraint {};
-        let violation = constraint.check(&puzzle);
-        assert_eq!(violation, ConstraintResult::Any);
+        let mut grid = DecisionGrid::full(GwLine::ROWS, GwLine::COLS);
+        let violation = constraint.check(&puzzle, &mut grid);
+        assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 0], GwValue(1)).unwrap();
         puzzle.apply([0, 3], GwValue(2)).unwrap();
-        let violation = constraint.check(&puzzle);
-        assert_eq!(violation, ConstraintResult::Any);
+        let violation = constraint.check(&puzzle, &mut grid);
+        assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 5], GwValue(1)).unwrap();
-        let violation = constraint.check(&puzzle);
+        let violation = constraint.check(&puzzle, &mut grid);
         assert_eq!(violation, ConstraintResult::Contradiction);
         puzzle.undo([0, 5], GwValue(1)).unwrap();
         puzzle.apply([0, 1], GwValue(3)).unwrap();
-        let violation = constraint.check(&puzzle);
+        let violation = constraint.check(&puzzle, &mut grid);
         assert_eq!(violation, ConstraintResult::Contradiction);
         puzzle.undo([0, 1], GwValue(3)).unwrap();
         puzzle.apply([0, 1], GwValue(6)).unwrap();
-        let violation = constraint.check(&puzzle);
-        assert_eq!(violation, ConstraintResult::Any);
+        let violation = constraint.check(&puzzle, &mut grid);
+        assert_eq!(violation, ConstraintResult::Ok);
     }
 
     #[test]

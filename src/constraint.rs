@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{ConstraintResult, Error, Index, State, Stateful, UInt};
+use crate::core::{ConstraintResult, DecisionGrid, Error, Index, State, Stateful, UInt};
 
 /// A full explanation of a violated constraint (for UI and debugging purposes).
 #[derive(Debug, Clone, PartialEq)]
@@ -10,30 +10,30 @@ pub struct ConstraintViolationDetail {
 
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
-/// - Return early when it hits a contradiction or certainty.
+/// - Return early when it hits a Contradiction or Certainty.
 /// - Be able to provide a useful explanation (for UI or debugging purposes) for
 ///   any contradictions.
-/// - Be able to provide a full DecisionGrid (possibly with ranking features)
-///   when neither a contradiction nor a certainty has been found (or explicitly
-///   requested).
+/// - Be able to usefully update a full DecisionGrid (possibly with ranking
+///   features) when neither a Contradiction nor a Certainty has been found.
 /// - Keep its internal state updated by implementing Stateful so that the grid
 ///   computations are not costly.
 /// 
 /// However, it's acceptable to use this API for other use-cases as well:
-/// 1. Some constraints may not be easy to provide DecisionGrids for. E.g.,
-///    maybe there's a parity constraint for the sum of a box or row or w/e.
-///    In these cases, it's certainly legal to implement a constraint that only
-///    ever returns a contradiction (if found) or Any (otherwise). It just makes
-///    the solver's work more difficult.
+/// 1. Some constraints may not be well-adapted to usefully updating the cells
+///    in a DecisionGrid. E.g., maybe there's a parity constraint for the sum of
+///    a box or row or w/e. In these cases, it's certainly legal to implement a
+///    constraint that only ever returns a Contradiction (if found) or Ok
+///    (otherwise). It just makes the solver's work more difficult.
 /// 2. Sometimes you may have a deductive rule for determining the value of
 ///    cells that doesn't seem like a Constraint at all. It's find to also
-///    implement these as Constraints that only ever return a certainty (if it
-///    can be deduced) or Any (otherwise).
+///    implement these as Constraints that only ever return a Certainty (if it
+///    can be deduced) or Ok (otherwise).
 pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + Debug {
-    fn check(&self, puzzle: &S) -> ConstraintResult<U, S::Value>;
-    // TODO: Switch Grid(DecisionGrid) to just be Grid and add a separate constrain
-    // method that the solver invokes if all the results are Grids (and/or some
-    // Anys).
+    /// Check that the Constraint is satisfied by the puzzle (and any internal
+    /// state from past actions). If a Constraint is able to infer useful
+    /// information about what values a cell could take on, they should update
+    /// the provided grid (in a way that further constrains it).
+    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value>;
     fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail>;
 }
 
@@ -90,22 +90,11 @@ impl <U, S, X, Y> Constraint<U, S> for ConstraintConjunction<U, S, X, Y>
 where
     U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
 {
-    fn check(&self, puzzle: &S) -> ConstraintResult<U, S::Value> {
-        match self.x.check(puzzle) {
+    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value> {
+        match self.x.check(puzzle, grid) {
             ConstraintResult::Contradiction => ConstraintResult::Contradiction,
             ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
-            ConstraintResult::Grid(mut g) => {
-                match self.y.check(puzzle) {
-                    ConstraintResult::Contradiction => ConstraintResult::Contradiction,
-                    ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
-                    ConstraintResult::Grid(g2) => {
-                        g.combine_with(&g2);
-                        ConstraintResult::Grid(g)
-                    }
-                    ConstraintResult::Any => ConstraintResult::Grid(g),
-                }
-            }
-            ConstraintResult::Any => self.y.check(puzzle),
+            ConstraintResult::Ok => self.y.check(puzzle, grid),
         }
     }
 
@@ -126,10 +115,10 @@ mod test {
     pub struct Val(pub u8);
     impl Value<u8> for Val {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
-        fn cardinality() -> usize { /* actually a lie, but zero is wasted */ 10 }
+        fn cardinality() -> usize { 9 }
         fn possiblities() -> Vec<Self> { (1..=9).map(Val).collect() }
-        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()) }
-        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0) }
+        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()+1) }
+        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0-1) }
     }
 
     #[derive(Debug, Clone)]
@@ -158,13 +147,15 @@ mod test {
     pub struct BlacklistedVal(pub u8);
     impl Stateful<u8, Val> for BlacklistedVal {}
     impl Constraint<u8, ThreeVals> for BlacklistedVal {
-        fn check(&self, puzzle: &ThreeVals) -> ConstraintResult<u8, Val> {
+        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<u8, Val>) -> ConstraintResult<u8, Val> {
             for j in 0..3 {
                 if puzzle.grid.get([0, j]).map(to_value) == Some(Val(self.0)) {
                     return ConstraintResult::Contradiction;
+                } else {
+                    grid.get_mut([0, j]).0.remove(Val(self.0).to_uval());
                 }
             }
-            ConstraintResult::Any
+            ConstraintResult::Ok
         }
         
         fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
@@ -176,24 +167,23 @@ mod test {
     pub struct Mod(pub u8, pub u8);
     impl Stateful<u8, Val> for Mod {}
     impl Constraint<u8, ThreeVals> for Mod {
-        fn check(&self, puzzle: &ThreeVals) -> ConstraintResult<u8, Val> {
-            let mut g = DecisionGrid::new(ThreeVals::ROWS, ThreeVals::COLS);
+        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<u8, Val>) -> ConstraintResult<u8, Val> {
             for j in 0..3 {
                 if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<u8, Val>) {
                     if v.0 % self.0 != self.1 {
                         return ConstraintResult::Contradiction;
                     }
-                    g.get_mut([0, j]).0 = singleton_set(v);
+                    grid.get_mut([0, j]).0 = singleton_set(v);
                 } else {
-                    let s = &mut g.get_mut([0, j]).0;
+                    let s = &mut grid.get_mut([0, j]).0;
                     for v in 1..=9 {
-                        if v % self.0 == self.1 {
-                            s.insert(Val(v).to_uval());
+                        if v % self.0 != self.1 {
+                            s.remove(Val(v).to_uval());
                         }
                     }
                 }
             }
-            ConstraintResult::Grid(g)
+            ConstraintResult::Ok
         }
         
         fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
@@ -207,13 +197,14 @@ mod test {
         let constraint1 = BlacklistedVal(1);
         let constraint2 = BlacklistedVal(2);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Any);
+        let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
+        assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 0], Val(1)).unwrap();
-        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Contradiction);
+        assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
         puzzle.apply([0, 0], Val(3)).unwrap();
-        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Any);
+        assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 1], Val(2)).unwrap();
-        assert_eq!(conjunction.check(&puzzle), ConstraintResult::Contradiction);
+        assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
     }
 
     fn unpack_set(g: &DecisionGrid<u8, Val>, index: Index) -> Vec<u8> {
@@ -226,12 +217,10 @@ mod test {
         let constraint1 = Mod(2, 1);
         let constraint2 = Mod(3, 0);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        if let ConstraintResult::Grid(g) = conjunction.check(&puzzle) {
-            assert_eq!(unpack_set(&g, [0, 0]), vec![3, 9]);
-            assert_eq!(unpack_set(&g, [0, 1]), vec![3, 9]);
-            assert_eq!(unpack_set(&g, [0, 2]), vec![3, 9]);
-        } else {
-            panic!("Expected a DecisionGrid");
-        }
+        let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
+        assert!(conjunction.check(&puzzle, &mut grid).is_ok());
+        assert_eq!(unpack_set(&grid, [0, 0]), vec![3, 9]);
+        assert_eq!(unpack_set(&grid, [0, 1]), vec![3, 9]);
+        assert_eq!(unpack_set(&grid, [0, 2]), vec![3, 9]);
     }
 }

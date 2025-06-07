@@ -360,19 +360,18 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8,
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Constraint<u8, SState<N, M, MIN, MAX>> for RowColChecker<N, M, MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
-        let mut grid = DecisionGrid::new(N, M);
         for r in 0..N {
             for c in 0..M {
                 let cell = grid.get_mut([r, c]);
-                cell.0.union_with(&self.row[r]);
+                cell.0.intersect_with(&self.row[r]);
                 cell.0.intersect_with(&self.col[c]);
             }
         }
-        ConstraintResult::Grid(grid)
+        ConstraintResult::Ok
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
@@ -473,19 +472,18 @@ Stateful<u8, SVal<MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<u8, SState<N, M, MIN, MAX>> for BoxChecker<N, M, MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
-        let mut grid = DecisionGrid::new(N, M);
         for r in 0..N {
             for c in 0..M {
                 let bindex = self.box_coords([r, c]);
                 let cell = grid.get_mut([r, c]);
-                cell.0.union_with(&self.boxes[bindex[0]*self.bh + bindex[1]]);
+                cell.0.intersect_with(&self.boxes[bindex[0]*self.bh + bindex[1]]);
             }
         }
-        ConstraintResult::Grid(grid)
+        ConstraintResult::Ok
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
@@ -521,8 +519,8 @@ impl Stateful<u8, SVal<1, 9>> for NineBoxChecker {
     }
 }
 impl Constraint<u8, SState<9, 9, 1, 9>> for NineBoxChecker {
-    fn check(&self, puzzle: &SState<9, 9, 1, 9>) -> ConstraintResult<u8, SVal<1, 9>> {
-        self.0.check(puzzle)
+    fn check(&self, puzzle: &SState<9, 9, 1, 9>, grid: &mut DecisionGrid<u8, SVal<1, 9>>) -> ConstraintResult<u8, SVal<1, 9>> {
+        self.0.check(puzzle, grid)
     }
     fn explain_contradictions(&self, puzzle: &SState<9, 9, 1, 9>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -566,8 +564,8 @@ impl Stateful<u8, SVal<1, 8>> for EightBoxChecker {
     }
 }
 impl Constraint<u8, SState<8, 8, 1, 8>> for EightBoxChecker {
-    fn check(&self, puzzle: &SState<8, 8, 1, 8>) -> ConstraintResult<u8, SVal<1, 8>> {
-        self.0.check(puzzle)
+    fn check(&self, puzzle: &SState<8, 8, 1, 8>, grid: &mut DecisionGrid<u8, SVal<1, 8>>) -> ConstraintResult<u8, SVal<1, 8>> {
+        self.0.check(puzzle, grid)
     }
     fn explain_contradictions(&self, puzzle: &SState<8, 8, 1, 8>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -611,8 +609,8 @@ impl Stateful<u8, SVal<1, 6>> for SixBoxChecker {
     }
 }
 impl Constraint<u8, SState<6, 6, 1, 6>> for SixBoxChecker {
-    fn check(&self, puzzle: &SState<6, 6, 1, 6>) -> ConstraintResult<u8, SVal<1, 6>> {
-        self.0.check(puzzle)
+    fn check(&self, puzzle: &SState<6, 6, 1, 6>, grid: &mut DecisionGrid<u8, SVal<1, 6>>) -> ConstraintResult<u8, SVal<1, 6>> {
+        self.0.check(puzzle, grid)
     }
     fn explain_contradictions(&self, puzzle: &SState<6, 6, 1, 6>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -656,8 +654,8 @@ impl Stateful<u8, SVal<1, 4>> for FourBoxChecker {
     }
 }
 impl Constraint<u8, SState<4, 4, 1, 4>> for FourBoxChecker {
-    fn check(&self, puzzle: &SState<4, 4, 1, 4>) -> ConstraintResult<u8, SVal<1, 4>> {
-        self.0.check(puzzle)
+    fn check(&self, puzzle: &SState<4, 4, 1, 4>, grid: &mut DecisionGrid<u8, SVal<1, 4>>) -> ConstraintResult<u8, SVal<1, 4>> {
+        self.0.check(puzzle, grid)
     }
     fn explain_contradictions(&self, puzzle: &SState<4, 4, 1, 4>) -> Vec<ConstraintViolationDetail> {
         self.0.explain_contradictions(puzzle)
@@ -768,9 +766,10 @@ mod test {
         let mut checker = RowColChecker::new();
         apply(&mut sudoku, &mut checker, [5, 3], SVal(1));
         apply(&mut sudoku, &mut checker, [5, 4], SVal(3));
-        assert!(!checker.check(&sudoku).has_contradiction(&sudoku));
+        let mut grid = DecisionGrid::new(9, 9);
+        assert!(checker.check(&sudoku, &mut grid).is_ok());
         apply(&mut sudoku, &mut checker, [5, 8], SVal(1));
-        assert!(checker.check(&sudoku).has_contradiction(&sudoku));
+        assert_eq!(checker.check(&sudoku, &mut grid), ConstraintResult::Contradiction);
     }
 
     #[test]
@@ -779,9 +778,10 @@ mod test {
         let mut checker = RowColChecker::new();
         apply(&mut sudoku, &mut checker, [1, 3], SVal(2));
         apply(&mut sudoku, &mut checker, [3, 3], SVal(7));
-        assert!(!checker.check(&sudoku).has_contradiction(&sudoku));
+        let mut grid = DecisionGrid::new(9, 9);
+        assert!(checker.check(&sudoku, &mut grid).is_ok());
         apply(&mut sudoku, &mut checker, [6, 3], SVal(2));
-        assert!(checker.check(&sudoku).has_contradiction(&sudoku));
+        assert_eq!(checker.check(&sudoku, &mut grid), ConstraintResult::Contradiction);
     }
 
     #[test]
@@ -790,9 +790,10 @@ mod test {
         let mut checker = NineBoxChecker::new();
         apply(&mut sudoku, &mut checker, [3, 0], SVal(8));
         apply(&mut sudoku, &mut checker, [4, 1], SVal(2));
-        assert!(!checker.check(&sudoku).has_contradiction(&sudoku));
+        let mut grid = DecisionGrid::new(9, 9);
+        assert!(checker.check(&sudoku, &mut grid).is_ok());
         apply(&mut sudoku, &mut checker, [5, 2], SVal(8));
-        assert!(checker.check(&sudoku).has_contradiction(&sudoku));
+        assert_eq!(checker.check(&sudoku, &mut grid), ConstraintResult::Contradiction);
     }
 
     #[test]

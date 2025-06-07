@@ -5,22 +5,13 @@ use crate::core::{ConstraintResult, State, UInt};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
 
-fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>, puzzle: &S) -> String {
+fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>) -> String {
     match result {
         ConstraintResult::Contradiction => "Contradiction".to_string(),
         ConstraintResult::Certainty(d) => {
             format!("Certainty({:?}, {:?})", d.index, d.value).to_string()
         },
-        ConstraintResult::Any => "Any".to_string(),
-        ConstraintResult::Grid(_) => {
-            if result.has_contradiction(puzzle) {
-                "Grid with Contradiction".to_string()
-            } else if let Some(d) = result.has_certainty(puzzle) {
-                format!("Grid with Certainty({:?}, {:?})", d.index, d.value).to_string()
-            } else {
-                "Grid[...]".to_string()
-            }
-        }
+        ConstraintResult::Ok => "Ok".to_string(),
     }
 }
 
@@ -225,7 +216,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             DfsSolverState::Advancing(state) => {
                 *self.advance_hist.entry(state.streak).or_default() += 1;
                 *self.width_hist.entry(state.possibilities).or_default() += 1;
-                if solver.constraint_result().has_certainty(solver.get_state()).is_some() {
+                if let ConstraintResult::Certainty(_) = solver.constraint_result() {
                     self.certainty_streak += 1;
                 }
             },
@@ -307,14 +298,14 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             print!(
                 "INITIALIZING: {:?}\n{:?}{:?}{}\n",
                 solver.most_recent_action(), state, solver.get_constraint(),
-                short_result::<U, S>(&solver.constraint_result(), state),
+                short_result::<U, S>(&solver.constraint_result()),
             );
         } else if solver.is_done() {
             if solver.is_valid() {
                 print!(
                     "SOLVED: {:?}\n{:?}{:?}{}\n",
                     solver.most_recent_action(), state, solver.get_constraint(),
-                    short_result::<U, S>(&solver.constraint_result(), state),
+                    short_result::<U, S>(&solver.constraint_result()),
                 );
             } else {
                 print!("UNSOLVABLE");
@@ -323,7 +314,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             print!(
                 "STEP: {:?}\n{:?}{:?}{}\n",
                 solver.most_recent_action(), state, solver.get_constraint(),
-                short_result::<U, S>(&solver.constraint_result(), state),
+                short_result::<U, S>(&solver.constraint_result()),
             );
         }
     }

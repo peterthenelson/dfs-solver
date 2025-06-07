@@ -181,11 +181,10 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &Set<u8>, remaining: u8, emp
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, _: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
-        let mut grid = DecisionGrid::full(N, M);
         for (i, c) in self.cages.iter().enumerate() {
             let mut set = if c.exclusive {
                 self.cage_sets[i].clone()
@@ -200,11 +199,11 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
             }
             for cell in &c.cells {
                 let g = &mut grid.get_mut(*cell);
-                g.0 = set.clone();
+                g.0.intersect_with(&set);
                 g.1.add(&self.cage_feature, 1.0);
             }
         }
-        ConstraintResult::Grid(grid)
+        ConstraintResult::Ok
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {

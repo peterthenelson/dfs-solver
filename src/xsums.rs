@@ -394,8 +394,7 @@ fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
-        let mut grid = DecisionGrid::full(N, M);
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
@@ -412,7 +411,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                     let len = xsum.length(puzzle).unwrap().1;
                     for i2 in xsum.xrange(len.val()) {
                         let g = &mut grid.get_mut(i2);
-                        g.0 = set.clone();
+                        g.0.intersect_with(&set);
                         g.1.add(&self.xsum_tail_feature, 1.0);
                     }
                 } else {
@@ -425,7 +424,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                     let g = &mut grid.get_mut(len_cell);
                     let mut set = empty_set::<u8, SVal<MIN, MAX>>();
                     (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
-                    g.0 = set;
+                    g.0.intersect_with(&set);
                     g.1.add(&self.xsum_head_feature, 1.0);
 
                 } else {
@@ -433,7 +432,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
                 }
             }
         }
-        ConstraintResult::Grid(grid)
+        ConstraintResult::Ok
     }
 
     fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
