@@ -106,6 +106,76 @@ where
     }
 }
 
+pub struct MultiConstraint<U: UInt, S: State<U>> {
+    constraints: Vec<Box<dyn Constraint<U, S>>>,
+}
+
+impl <U: UInt, S: State<U>> MultiConstraint<U, S> {
+    pub fn new(constraints: Vec<Box<dyn Constraint<U, S>>>) -> Self {
+        MultiConstraint { constraints }
+    }
+}
+
+impl <U: UInt, S: State<U>> Debug for MultiConstraint<U, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for c in &self.constraints {
+            write!(f, "{:?}", c)?
+        }
+        Ok(())
+    }
+}
+
+impl <U: UInt, S: State<U>> Stateful<U, S::Value> for MultiConstraint<U, S> {
+    fn reset(&mut self) {
+        for c in &mut self.constraints {
+            c.reset();
+        }
+    }
+
+    fn apply(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+        let mut res = Ok(());
+        for c in &mut self.constraints {
+            let maybe_err = c.apply(index, value);
+            if maybe_err.is_err() {
+                res = maybe_err;
+            }
+        }
+        res
+    }
+
+    fn undo(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+        let mut res = Ok(());
+        for c in &mut self.constraints {
+            let maybe_err = c.undo(index, value);
+            if maybe_err.is_err() {
+                res = maybe_err;
+            }
+        }
+        res
+    }
+}
+
+impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
+    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value> {
+        for c in &self.constraints {
+            match c.check(puzzle, grid) {
+                ConstraintResult::Contradiction => return ConstraintResult::Contradiction,
+                ConstraintResult::Certainty(d) => return ConstraintResult::Certainty(d),
+                ConstraintResult::Ok => {},
+            }
+        }
+        ConstraintResult::Ok
+    }
+
+    fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail> {
+        let mut violations = Vec::new();
+        for c in &self.constraints {
+            violations.extend(c.explain_contradictions(puzzle));
+        }
+        violations
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -207,6 +277,22 @@ mod test {
         assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
     }
 
+    #[test]
+    fn test_multi_constraint_simple() {
+        let mut puzzle = ThreeVals { grid: UVGrid::new(ThreeVals::ROWS, ThreeVals::COLS) };
+        let constraint = MultiConstraint::new(vec_box::vec_box![
+            BlacklistedVal(1), BlacklistedVal(2),
+        ]);
+        let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
+        assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Ok);
+        puzzle.apply([0, 0], Val(1)).unwrap();
+        assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
+        puzzle.apply([0, 0], Val(3)).unwrap();
+        assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Ok);
+        puzzle.apply([0, 1], Val(2)).unwrap();
+        assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
+    }
+
     fn unpack_set(g: &DecisionGrid<u8, Val>, index: Index) -> Vec<u8> {
         unpack_values::<u8, Val>(&g.get(index).0).iter().map(|v| v.0).collect::<Vec<u8>>()
     }
@@ -219,6 +305,19 @@ mod test {
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
         let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
         assert!(conjunction.check(&puzzle, &mut grid).is_ok());
+        assert_eq!(unpack_set(&grid, [0, 0]), vec![3, 9]);
+        assert_eq!(unpack_set(&grid, [0, 1]), vec![3, 9]);
+        assert_eq!(unpack_set(&grid, [0, 2]), vec![3, 9]);
+    }
+
+    #[test]
+    fn test_multi_constraint_grids() {
+        let puzzle = ThreeVals { grid: UVGrid::new(ThreeVals::ROWS, ThreeVals::COLS) };
+        let constraint = MultiConstraint::new(vec_box::vec_box![
+            Mod(2, 1), Mod(3, 0)
+        ]);
+        let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
+        assert!(constraint.check(&puzzle, &mut grid).is_ok());
         assert_eq!(unpack_set(&grid, [0, 0]), vec![3, 9]);
         assert_eq!(unpack_set(&grid, [0, 1]), vec![3, 9]);
         assert_eq!(unpack_set(&grid, [0, 2]), vec![3, 9]);

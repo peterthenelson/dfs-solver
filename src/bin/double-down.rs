@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use variant_sudoku_dfs::core::FeatureVec;
 use variant_sudoku_dfs::ranker::{LinearRanker, NUM_POSSIBLE_FEATURE};
-use variant_sudoku_dfs::constraint::ConstraintConjunction;
+use variant_sudoku_dfs::constraint::MultiConstraint;
 use variant_sudoku_dfs::solver::FindFirstSolution;
 use variant_sudoku_dfs::debug::{DbgObserver, Sample};
 use variant_sudoku_dfs::sudoku::{nine_standard_checker, SState};
@@ -25,7 +25,6 @@ fn solve(given: Option<SState<9, 9, 1, 9>>, sample_print: Sample) {
         cb.cage(9, vec![[7, 4], [7, 5]]),
         cb.cage(18, vec![[8, 2], [8, 3], [8, 4], [8, 5]]),
     ];
-    let cage_constraint = CageChecker::new(cages);
     let xsums = vec![
         XSum { direction: XSumDirection::RR, index: 2, target: 14 },
         XSum { direction: XSumDirection::RR, index: 5, target: 16 },
@@ -38,10 +37,11 @@ fn solve(given: Option<SState<9, 9, 1, 9>>, sample_print: Sample) {
         XSum { direction: XSumDirection::CU, index: 3, target: 12 },
         XSum { direction: XSumDirection::CU, index: 7, target: 15 },
     ];
-    let xsum_constraint = XSumChecker::new(xsums);
-    let mut constraint = ConstraintConjunction::new(
+    let mut constraint = MultiConstraint::new(vec_box::vec_box![
         sudoku_constraint,
-        ConstraintConjunction::new(cage_constraint, xsum_constraint),);
+        CageChecker::new(cages),
+        XSumChecker::new(xsums),
+    ]);
     let ranker = LinearRanker::new(FeatureVec::from_pairs(vec![
         (NUM_POSSIBLE_FEATURE, -100.0),
         (XSUM_TAIL_FEATURE, 10.0),
