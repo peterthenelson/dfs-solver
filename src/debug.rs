@@ -60,6 +60,44 @@ fn ccdf<'a, DB: DrawingBackend>(area: &DrawingArea<DB, Shift>, histogram: &Histo
     Ok(())
 }
 
+enum TimerState {
+    Init,
+    // With the time it was started
+    Running(SystemTime),
+    // With the duration from start to end
+    Ended(Duration),
+}
+
+impl TimerState {
+    fn new() -> Self { Self::Init }
+
+    fn start(&mut self) {
+        if let TimerState::Init = self {
+            *self = TimerState::Running(SystemTime::now());
+        } else {
+            panic!("TimerState cannot be started if not in Init state.")
+        }
+    }
+
+    fn end(&mut self) {
+        if let TimerState::Running(s) = self {
+            *self = TimerState::Ended(
+                SystemTime::now().duration_since(*s).expect("Time went backwards!")
+            );
+        } else {
+            panic!("TimerState cannot be ended if not in Running state.")
+        }
+    }
+
+    fn to_duration(&self) -> Duration {
+        match self {
+            TimerState::Init => Duration::new(0, 0),
+            TimerState::Running(s) => SystemTime::now().duration_since(*s).expect("Time went backwards!"),
+            TimerState::Ended(d) => *d,
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct Histogram {
     pub value_counts: HashMap<usize, usize>,
@@ -170,6 +208,7 @@ impl Sample {
 }
 
 pub struct DbgObserver<U: UInt, S: State<U>> {
+    timer: TimerState,
     print_sample: Sample,
     stat: Option<(String, Sample)>,
     certainty_streak: usize,
@@ -183,10 +222,10 @@ pub struct DbgObserver<U: UInt, S: State<U>> {
     _marker: std::marker::PhantomData<(U, S)>,
 }
 
-// TODO: Add correction_delay_hist
 impl <U: UInt, S: State<U>> DbgObserver<U, S> {
     pub fn new() -> Self {
         DbgObserver {
+            timer: TimerState::new(),
             print_sample: Sample::every_n(1),
             stat: None,
             certainty_streak: 0,
@@ -254,7 +293,10 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         area.fill(&WHITE)?;
         let (top, bottom) = area.split_vertically(50);
         let mut top_caption = MultiLineText::<_, String>::new((15, 15), ("sans-serif", 24).into_font());
-        top_caption.push_line(format!("Steps: {}", self.steps));
+        top_caption.push_line(format!(
+            "Steps: {}; Seconds elapsed: {}", self.steps,
+            self.timer.to_duration().as_secs_f64(),
+        ));
         top.draw(&top_caption)?;
         let areas = bottom.split_evenly((3, 2));
         for (i, caption, value_counts, bar_margin) in vec![
@@ -283,6 +325,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
 
     pub fn dump_stats(&self, hist_filename: &str) -> Result<(), Box<dyn std::error::Error>> {
         print!("Steps: {}\n", self.steps);
+        print!("Time elapsed: {}\n", self.timer.to_duration().as_secs_f64());
         let n_decisions = self.width_hist.iter().fold(0, |n, (_, count)| n+count);
         let total_choices = self.width_hist.iter().fold(0, |n, (w, count)| n+w*count);
         print!("Average Decision Width: {}\n", (total_choices as f64)/(n_decisions as f64));
@@ -296,15 +339,17 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         let state = solver.get_state();
         if solver.is_initializing() {
             print!(
-                "INITIALIZING: {:?}\n{:?}{:?}{}\n",
-                solver.most_recent_action(), state, solver.get_constraint(),
+                "INITIALIZING: {:?}; {} elapsed\n{:?}{:?}{}\n",
+                solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
+                state, solver.get_constraint(),
                 short_result::<U, S>(&solver.constraint_result()),
             );
         } else if solver.is_done() {
             if solver.is_valid() {
                 print!(
-                    "SOLVED: {:?}\n{:?}{:?}{}\n",
-                    solver.most_recent_action(), state, solver.get_constraint(),
+                    "SOLVED: {:?}; {} elapsed\n{:?}{:?}{}\n",
+                    solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
+                    state, solver.get_constraint(),
                     short_result::<U, S>(&solver.constraint_result()),
                 );
             } else {
@@ -312,8 +357,9 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             }
         } else {
             print!(
-                "STEP: {:?}\n{:?}{:?}{}\n",
-                solver.most_recent_action(), state, solver.get_constraint(),
+                "STEP: {:?}; {} elapsed\n{:?}{:?}{}\n",
+                solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
+                state, solver.get_constraint(),
                 short_result::<U, S>(&solver.constraint_result()),
             );
         }
@@ -322,6 +368,12 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
 
 impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
     fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
+        if let TimerState::Init = self.timer {
+            self.timer.start();
+        }
+        if solver.is_done() {
+            self.timer.end();
+        }
         self.update_stats(solver);
         if self.print_sample.sample(solver) {
             self.print(solver);
