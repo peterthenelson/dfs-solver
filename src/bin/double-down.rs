@@ -5,14 +5,16 @@ use variant_sudoku_dfs::ranker::{LinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::MultiConstraint;
 use variant_sudoku_dfs::solver::FindFirstSolution;
 use variant_sudoku_dfs::debug::{DbgObserver, Sample};
-use variant_sudoku_dfs::sudoku::{nine_standard_overlay, SState, StandardSudokuChecker};
+use variant_sudoku_dfs::sudoku::{nine_standard_overlay, SState, StandardSudokuChecker, StandardSudokuOverlay};
 use variant_sudoku_dfs::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
-fn solve(given: Option<SState<9, 9, 1, 9>>, sample_print: Sample) {
+fn solve(given: Option<SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>>, sample_print: Sample) {
     // No given digits in real puzzle but can be passed in in test.
-    let mut puzzle = given.unwrap_or(SState::<9, 9, 1, 9>::new());
+    let mut puzzle = given.unwrap_or(
+        SState::<9, 9, 1, 9, _>::new(nine_standard_overlay())
+    );
     let overlay = nine_standard_overlay();
     let cb = CageBuilder::new(false, &overlay);
     let cages = vec![
@@ -38,7 +40,7 @@ fn solve(given: Option<SState<9, 9, 1, 9>>, sample_print: Sample) {
         XSum { direction: XSumDirection::CU, index: 7, target: 15 },
     ];
     let mut constraint = MultiConstraint::new(vec_box::vec_box![
-        StandardSudokuChecker::new(&overlay),
+        StandardSudokuChecker::new(&puzzle),
         CageChecker::new(cages),
         XSumChecker::new(xsums),
     ]);
@@ -62,6 +64,8 @@ pub fn main() {
 
 #[cfg(test)]
 mod test {
+    use variant_sudoku_dfs::sudoku::nine_standard_parse;
+
     use super::*;
 
     #[test]
@@ -75,7 +79,7 @@ mod test {
                            748239651\n\
                            639581472\n\
                            52146793.\n";
-        let sudoku: SState<9,9, 1,9> = SState::parse(input).unwrap();
+        let sudoku = nine_standard_parse(input).unwrap();
         solve(Some(sudoku), Sample::never());
     }
 }

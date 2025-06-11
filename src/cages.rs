@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, Set, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
-use crate::sudoku::{unpack_sval_vals, SState, SVal, VisibilityPartition};
+use crate::sudoku::{unpack_sval_vals, SState, SVal, Overlay};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
@@ -22,9 +22,9 @@ impl Cage {
 // digits see each other (e.g., same column or row) according to other rules in
 // the ruleset. Since "normal sudoku rules" is a common case, this inference
 // can be automated by creating Cages with this function.
-pub struct CageBuilder<'a>(bool, &'a dyn VisibilityPartition);
-impl <'a> CageBuilder<'a> {
-    pub fn new(exclusive: bool, visibility_constraint: &'a dyn VisibilityPartition) -> Self {
+pub struct CageBuilder<'a, O: Overlay>(bool, &'a O);
+impl <'a, O: Overlay> CageBuilder<'a, O> {
+    pub fn new(exclusive: bool, visibility_constraint: &'a O) -> Self {
         Self(exclusive, visibility_constraint)
     }
 
@@ -179,9 +179,9 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &Set<u8>, remaining: u8, emp
     subset_sum(&vals, 0, remaining, empty)
 }
 
-impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize, O: Overlay>
+Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
+    fn check(&self, _: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
@@ -206,7 +206,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
         ConstraintResult::Ok
     }
 
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
+    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, O>) -> Vec<ConstraintViolationDetail> {
         todo!()
     }
 }
@@ -215,7 +215,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
 mod test {
     use super::*;
     use std::vec;
-    use crate::{ranker::LinearRanker, solver::test_util::{assert_contradiction_eq, PuzzleReplay}};
+    use crate::{ranker::LinearRanker, solver::test_util::{assert_contradiction_eq, PuzzleReplay}, sudoku::four_standard_parse};
 
     #[test]
     fn test_subset_sum() {
@@ -233,7 +233,7 @@ mod test {
         // Cage 4 has no violations because it's incomplete and not over target.
         let cage4 = Cage{ cells: vec![[3, 2], [3, 3]], target: 5, exclusive: true };
 
-        let puzzle = SState::<4, 4, 1, 4>::parse(
+        let puzzle = four_standard_parse(
             "12..\n\
              ..34\n\
              4...\n\

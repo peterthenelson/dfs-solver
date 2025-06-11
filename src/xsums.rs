@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::core::{empty_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
-use crate::sudoku::{sval_sum_bound, SState, SVal};
+use crate::sudoku::{sval_sum_bound, SState, SVal, StandardSudokuOverlay};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum XSumDirection {
@@ -43,13 +43,15 @@ pub struct XSumIter<'a, const MIN: u8, const MAX: u8, const N: usize, const M: u
     lim: isize,
 }
 
-impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumIter<'a, MIN, MAX, N, M> {
+impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+XSumIter<'a, MIN, MAX, N, M> {
     pub fn new(xsum: &'a XSum<MIN, MAX, N, M>, r: usize, c: usize, lim: usize) -> Self {
         XSumIter { xsum, r: r as isize, c: c as isize, lim: lim as isize }
     }
 }
 
-impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator for XSumIter<'a, MIN, MAX, N, M> {
+impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+Iterator for XSumIter<'a, MIN, MAX, N, M> {
     type Item = Index;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -94,7 +96,8 @@ impl <'a, const MIN: u8, const MAX: u8, const N: usize, const M: usize> Iterator
     }
 }
 
-impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MAX, N, M> {
+impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
+XSum<MIN, MAX, N, M> {
     pub fn contains_with_len(&self, length: u8, index: Index) -> bool {
         match self.direction {
             XSumDirection::RR => {
@@ -116,7 +119,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
         }
     }
 
-    pub fn contains(&self, puzzle: &SState<N, M, MIN, MAX>, index: Index) -> bool {
+    pub fn contains(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, index: Index) -> bool {
         let length_index = self.length_index();
         if index == length_index {
             true
@@ -127,7 +130,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSum<MIN, MA
         }
     }
 
-    pub fn length(&self, puzzle: &SState<N, M, MIN, MAX>) -> Option<(Index, SVal<MIN, MAX>)> {
+    pub fn length(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>) -> Option<(Index, SVal<MIN, MAX>)> {
         match self.direction {
             XSumDirection::RR => if let Some(v) = puzzle.get([self.index, 0]) {
                 Some(([self.index, 0], v))
@@ -393,8 +396,8 @@ fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChecker<MIN, MAX, N, M> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
@@ -435,7 +438,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
         ConstraintResult::Ok
     }
 
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
+    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>) -> Vec<ConstraintViolationDetail> {
         todo!()
     }
 }
@@ -446,6 +449,7 @@ mod test {
     use std::vec;
     use crate::solver::test_util::{assert_contradiction_eq, PuzzleReplay};
     use crate::ranker::LinearRanker;
+    use crate::sudoku::four_standard_parse;
 
     #[test]
     fn test_elem_in_sum_bound() {
@@ -465,7 +469,7 @@ mod test {
         let x2 = XSum { direction: XSumDirection::RL, index: 0, target: 5 };
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
-        let puzzle1 = SState::<4, 4, 1, 4>::parse(
+        let puzzle1 = four_standard_parse(
             "2..3\n\
              ....\n\
              ....\n\
@@ -486,7 +490,7 @@ mod test {
         // x3 contains four cells -- the length digit and the rest
         assert!(x4.contains(&puzzle1, [3, 0]));
         assert!(x4.contains(&puzzle1, [0, 0]));
-        let puzzle2 = SState::<4, 4, 1, 4>::parse(
+        let puzzle2 = four_standard_parse(
             "....\n\
              .21.\n\
              .43.\n\
@@ -510,7 +514,7 @@ mod test {
         let x2 = XSum { direction: XSumDirection::RL, index: 0, target: 5 };
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
-        let puzzle1 = SState::<4, 4, 1, 4>::parse(
+        let puzzle1 = four_standard_parse(
             "2..3\n\
              ....\n\
              ....\n\
@@ -520,7 +524,7 @@ mod test {
         assert_eq!(x2.length(&puzzle1).unwrap(), ([0, 3], SVal::new(3)));
         assert_eq!(x3.length(&puzzle1).unwrap(), ([0, 0], SVal::new(2)));
         assert_eq!(x4.length(&puzzle1).unwrap(), ([3, 0], SVal::new(4)));
-        let puzzle2 = SState::<4, 4, 1, 4>::parse(
+        let puzzle2 = four_standard_parse(
             "....\n\
              .21.\n\
              .43.\n\
@@ -562,7 +566,7 @@ mod test {
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RR, index: 3, target: 1 };
 
-        let puzzle = SState::<4, 4, 1, 4>::parse(
+        let puzzle = four_standard_parse(
             "2134\n\
              ..4.\n\
              432.\n\
@@ -591,7 +595,7 @@ mod test {
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RL, index: 0, target: 1 };
 
-        let puzzle = SState::<4, 4, 1, 4>::parse(
+        let puzzle = four_standard_parse(
             "....\n\
              .234\n\
              .4..\n\

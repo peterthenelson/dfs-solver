@@ -125,24 +125,51 @@ pub fn sval_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)>
     r
 }
 
+pub trait Overlay: Clone + Debug {
+    type Iter<'a>: Iterator<Item = Index> where Self: 'a;
+    fn partition_dimension(&self) -> usize;
+    fn n_partitions(&self, dim: usize) -> usize;
+    fn enclosing_partition(&self, index: Index, dim: usize) -> Option<usize>;
+    fn enclosing_partitions(&self, index: Index) -> Vec<Option<usize>> {
+        (0..self.partition_dimension())
+            .map(|dim| self.enclosing_partition(index, dim))
+            .collect()
+    }
+    fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_>;
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        for dim in 0..self.partition_dimension() {
+            if self.enclosing_partition(i1, dim) == self.enclosing_partition(i2, dim) {
+                return true;
+            }
+        }
+        false
+    }
+    fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
+        indices.iter().all(|i| self.mutually_visible(indices[0], *i))
+    }
+}
+
 /// Standard rectangular Sudoku grid.
 #[derive(Clone)]
-pub struct SState<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
+pub struct SState<const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> {
     grid: UVGrid<u8>,
+    overlay: O,
 } 
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Debug for SState<N, M, MIN, MAX> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> Debug for SState<N, M, MIN, MAX, O> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.serialize())
     }
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M, MIN, MAX> {
-    pub fn new() -> Self {
-        Self { grid: UVGrid::new(N, M) }
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> SState<N, M, MIN, MAX, O> {
+    pub fn new(overlay: O) -> Self {
+        Self { grid: UVGrid::new(N, M), overlay }
     }
 
-    pub fn parse(s: &str) -> Result<Self, Error> {
+    pub fn get_overlay(&self) -> &O { &self.overlay }
+
+    pub fn parse(s: &str, overlay: O) -> Result<Self, Error> {
         let mut grid = UVGrid::new(N, M);
         let lines: Vec<&str> = s.lines().collect();
         if lines.len() != N {
@@ -164,7 +191,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M,
                 }
             }
         }
-        Ok(Self { grid })
+        Ok(Self { grid, overlay })
     }
 
     pub fn serialize(&self) -> String {
@@ -183,24 +210,24 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> SState<N, M,
     }
 }
 
-pub fn nine_standard_parse(s: &str) -> Result<SState<9, 9, 1, 9>, Error> {
-    SState::<9, 9, 1, 9>::parse(s)
+pub fn nine_standard_parse(s: &str) -> Result<SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>, Error> {
+    SState::<9, 9, 1, 9, _>::parse(s, nine_standard_overlay())
 }
 
-pub fn eight_standard_parse(s: &str) -> Result<SState<8, 8, 1, 8>, Error> {
-    SState::<8, 8, 1, 8>::parse(s)
+pub fn eight_standard_parse(s: &str) -> Result<SState<8, 8, 1, 8, StandardSudokuOverlay<8, 8>>, Error> {
+    SState::<8, 8, 1, 8, _>::parse(s, eight_standard_overlay())
 }
 
-pub fn six_standard_parse(s: &str) -> Result<SState<6, 6, 1, 6>, Error> {
-    SState::<6, 6, 1, 6>::parse(s)
+pub fn six_standard_parse(s: &str) -> Result<SState<6, 6, 1, 6, StandardSudokuOverlay<6, 6>>, Error> {
+    SState::<6, 6, 1, 6, _>::parse(s, six_standard_overlay())
 }
 
-pub fn four_standard_parse(s: &str) -> Result<SState<4, 4, 1, 4>, Error> {
-    SState::<4, 4, 1, 4>::parse(s)
+pub fn four_standard_parse(s: &str) -> Result<SState<4, 4, 1, 4, StandardSudokuOverlay<4, 4>>, Error> {
+    SState::<4, 4, 1, 4, _>::parse(s, four_standard_overlay())
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Display
-for SState<N, M, MIN, MAX> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
+Display for SState<N, M, MIN, MAX, O> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         for r in 0..N {
             for c in 0..M {
@@ -223,7 +250,8 @@ pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const ILLEGAL_ACTION_RC: Error = Error::new_const("A row/col violation already exists; can't apply further actions.");
 pub const ILLEGAL_ACTION_BOX: Error = Error::new_const("A box violation already exists; can't apply further actions.");
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> for SState<N, M, MIN, MAX> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
+State<u8> for SState<N, M, MIN, MAX, O> {
     type Value = SVal<MIN, MAX>;
     const ROWS: usize = N;
     const COLS: usize = M;
@@ -235,7 +263,8 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> State<u8> fo
     }
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for SState<N, M, MIN, MAX> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
+Stateful<u8, SVal<MIN, MAX>> for SState<N, M, MIN, MAX, O> {
     fn reset(&mut self) {
         self.grid = UVGrid::new(N, M);
     }
@@ -268,17 +297,6 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Stateful<u8,
     }
 }
 
-// Components both inside and outside of the sudoku module may need to have a
-// mutually shared notion of visibility.
-pub trait VisibilityPartition {
-    fn mutually_visible(&self, i1: Index, i2: Index) -> bool;
-
-    fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
-        indices.iter().all(|i| self.mutually_visible(indices[0], *i))
-    }
-}
-
-/// Note: This is a really cheap and stateless object; feel free to copy it around.
 #[derive(Clone, Copy, Debug)]
 pub struct StandardSudokuOverlay<const N: usize, const M: usize> {
     br: usize,
@@ -446,6 +464,47 @@ impl <const N: usize, const M: usize> StandardSudokuOverlay<N, M> {
     }
 }
 
+impl <const N: usize, const M: usize> Overlay for StandardSudokuOverlay<N, M> {
+    type Iter<'a> = StandardSudokuOverlayIterator<'a, N, M> where Self: 'a;
+    /// There are rows, columns, and boxes.
+    fn partition_dimension(&self) -> usize { 3 }
+    fn n_partitions(&self, dim: usize) -> usize {
+        match dim {
+            0 => self.rows(),
+            1 => self.cols(),
+            2 => self.boxes(),
+            _ => panic!("Invalid dimension for StandardSudokuOverlay: {}", dim),
+        }
+    }
+    fn enclosing_partition(&self, index: Index, dim: usize) -> Option<usize> {
+        match dim {
+            0 => Some(index[0]),
+            1 => Some(index[1]),
+            2 => {
+                let (b, _) = self.to_box_coords(index);
+                Some(b)
+            },
+            _ => panic!("Invalid dimension for StandardSudokuOverlay: {}", dim),
+        }
+    }
+    fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_> {
+        match dim {
+            0 => self.row_iter(index),
+            1 => self.col_iter(index),
+            2 => self.box_iter(index),
+            _ => panic!("Invalid dimension for StandardSudokuOverlay: {}", dim),
+        }
+    }
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        if i1[0] == i2[0] || i1[1] == i2[1] {
+            return true;
+        }
+        let (b1, _) = self.to_box_coords(i1);
+        let (b2, _) = self.to_box_coords(i2);
+        b1 == b2
+    }
+}
+
 pub fn nine_standard_overlay() -> StandardSudokuOverlay<9, 9> {
     StandardSudokuOverlay::new(3, 3, 3, 3)
 }
@@ -459,17 +518,6 @@ pub fn four_standard_overlay() -> StandardSudokuOverlay<4, 4> {
     StandardSudokuOverlay::new(2, 2, 2, 2)
 }
 
-impl <const N: usize, const M: usize> VisibilityPartition for StandardSudokuOverlay<N, M> {
-    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
-        if i1[0] == i2[0] || i1[1] == i2[1] {
-            return true;
-        }
-        let (b1, _) = self.to_box_coords(i1);
-        let (b2, _) = self.to_box_coords(i2);
-        b1 == b2
-    }
-}
-
 pub struct StandardSudokuChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
     overlay: StandardSudokuOverlay<N, M>,
     row: [Set<u8>; N],
@@ -479,12 +527,12 @@ pub struct StandardSudokuChecker<const N: usize, const M: usize, const MIN: u8, 
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StandardSudokuChecker<N, M, MIN, MAX> {
-    pub fn new(overlay: &StandardSudokuOverlay<N, M>) -> Self {
+    pub fn new(state: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>) -> Self {
         return Self {
-            overlay: *overlay,
+            overlay: state.get_overlay().clone(),
             row: std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>()),
             col: std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>()),
-            boxes: vec![full_set::<u8, SVal<MIN, MAX>>(); overlay.boxes()].into_boxed_slice(),
+            boxes: vec![full_set::<u8, SVal<MIN, MAX>>(); state.get_overlay().boxes()].into_boxed_slice(),
             illegal: None,
         }
     }
@@ -560,9 +608,9 @@ Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
     }
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-Constraint<u8, SState<N, M, MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
+Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, MAX> {
+    fn check(&self, _: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
@@ -578,7 +626,7 @@ Constraint<u8, SState<N, M, MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX>
         ConstraintResult::Ok
     }
 
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX>) -> Vec<ConstraintViolationDetail> {
+    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, O>) -> Vec<ConstraintViolationDetail> {
         todo!()
     }
 }
@@ -656,7 +704,7 @@ mod test {
 
     #[test]
     fn test_sudoku_grid() {
-        let mut sudoku: SState<9, 9, 1, 9> = SState::new();
+        let mut sudoku: SState<9, 9, 1, 9, _> = SState::new(nine_standard_overlay());
         assert_eq!(sudoku.apply([0, 0], SVal(5)), Ok(()));
         assert_eq!(sudoku.apply([8, 8], SVal(1)), Ok(()));
         assert_eq!(sudoku.get([0, 0]), Some(SVal(5)));
@@ -712,10 +760,8 @@ mod test {
 
     #[test]
     fn test_sudoku_row_violation() {
-        let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let mut checker = StandardSudokuChecker::new(
-            &nine_standard_overlay()
-        );
+        let mut sudoku: SState<9, 9, 1, 9, _> = SState::new(nine_standard_overlay());
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [5, 3], SVal(1));
         apply2(&mut sudoku, &mut checker, [5, 4], SVal(3));
         let mut grid = DecisionGrid::new(9, 9);
@@ -726,10 +772,8 @@ mod test {
 
     #[test]
     fn test_sudoku_col_violation() {
-        let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let mut checker = StandardSudokuChecker::new(
-            &nine_standard_overlay()
-        );
+        let mut sudoku: SState<9, 9, 1, 9, _> = SState::new(nine_standard_overlay());
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [1, 3], SVal(2));
         apply2(&mut sudoku, &mut checker, [3, 3], SVal(7));
         let mut grid = DecisionGrid::new(9, 9);
@@ -740,10 +784,8 @@ mod test {
 
     #[test]
     fn test_sudoku_box_violation() {
-        let mut sudoku: SState<9, 9, 1, 9> = SState::new();
-        let mut checker = StandardSudokuChecker::new(
-            &nine_standard_overlay()
-        );
+        let mut sudoku: SState<9, 9, 1, 9, _> = SState::new(nine_standard_overlay());
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [3, 0], SVal(8));
         apply2(&mut sudoku, &mut checker, [4, 1], SVal(2));
         let mut grid = DecisionGrid::new(9, 9);
@@ -763,7 +805,7 @@ mod test {
                            .6....28.\n\
                            ...419..5\n\
                            ......8.9\n";
-        let sudoku: SState<9,9, 1,9> = SState::parse(input).unwrap();
+        let sudoku = nine_standard_parse(input).unwrap();
         assert_eq!(sudoku.get([0, 0]), Some(SVal::new(5)));
         assert_eq!(sudoku.get([8, 8]), Some(SVal::new(9)));
         assert_eq!(sudoku.get([2, 7]), Some(SVal::new(6)));
@@ -784,9 +826,7 @@ mod test {
                            567429.13\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
         let ranker = LinearRanker::default();
-        let mut checker = StandardSudokuChecker::new(
-            &nine_standard_overlay()
-        );
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
@@ -814,9 +854,7 @@ mod test {
                            46..8...\n";
         let mut sudoku = eight_standard_parse(input).unwrap();
         let ranker = LinearRanker::default();
-        let mut checker = StandardSudokuChecker::new(
-            &eight_standard_overlay()
-        );
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
@@ -842,9 +880,7 @@ mod test {
                            ..1.46\n";
         let mut sudoku = six_standard_parse(input).unwrap();
         let ranker = LinearRanker::default();
-        let mut checker = StandardSudokuChecker::new(
-            &six_standard_overlay()
-        );
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
@@ -868,9 +904,7 @@ mod test {
                            4.12\n";
         let mut sudoku = four_standard_parse(input).unwrap();
         let ranker = LinearRanker::default();
-        let mut checker = StandardSudokuChecker::new(
-            &four_standard_overlay()
-        );
+        let mut checker = StandardSudokuChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
