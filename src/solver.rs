@@ -121,7 +121,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn most_recent_action(&self) -> Option<(Index, S::Value)> {
         if let Some(b) = self.stack.last() {
-            Some((b.index, b.chosen.unwrap()))
+            b.chosen
         } else {
             match self.state {
                 DfsSolverState::Initializing(InitializingState{ last_filled: Some(index) }) => {
@@ -217,14 +217,14 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             return Err(NO_CHOICE);
         }
         {
-            let v = decision.chosen.unwrap();
-            self.puzzle.apply(decision.index, v)?;
-            if let Err(e) = self.constraint.apply(decision.index, v) {
-                self.puzzle.undo(decision.index, v)?;
+            let (i, v) = decision.chosen.unwrap();
+            self.puzzle.apply(i, v)?;
+            if let Err(e) = self.constraint.apply(i, v) {
+                self.puzzle.undo(i, v)?;
                 return Err(e);
             }
         }
-        let decision_width = decision.alternatives.len() + 1;
+        let decision_width = decision.len() + 1;
         self.stack.push(decision);
         self.check();
         self.state = if self.is_valid() {
@@ -243,12 +243,12 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn undo(&mut self, decision: &BranchPoint<U, S>) -> Result<(), Error> {
-        let v = decision.chosen.unwrap();
-        if let Err(e) = self.puzzle.undo(decision.index, v) {
-            self.constraint.undo(decision.index, v)?;
+        let (i, v) = decision.chosen.unwrap();
+        if let Err(e) = self.puzzle.undo(i, v) {
+            self.constraint.undo(i, v)?;
             return Err(e);
         }
-        self.constraint.undo(decision.index, v)
+        self.constraint.undo(i, v)
     }
 
     fn suggest(&self) -> BranchPoint<U, S> {
@@ -257,7 +257,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
         let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
         if let Some(i) = self.ranker.top(g, self.puzzle) {
-            BranchPoint::new(self.step, i, unpack_values(&g.get(i).0))
+            BranchPoint::for_cell(self.step, i, unpack_values(&g.get(i).0))
         } else {
             BranchPoint::empty(self.step)
         }

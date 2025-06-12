@@ -444,46 +444,109 @@ impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
     }
 }
 
+/// When choosing to branch, we can either try all the possible values for a
+/// particular cell, or we can try all possible cells for a particular value.
+#[derive(Debug, Clone)]
+pub enum BranchOver<U: UInt, S: State<U>> {
+    Empty,
+    Cell(Index, std::vec::IntoIter<S::Value>),
+    Value(S::Value, std::vec::IntoIter<Index>),
+}
 
 /// A decision point in the puzzle. This includes the specific value that was
 /// chosen, as well as the index of the cell that was modified, as well as the
-/// alternative values that have not been tried yet.
+/// alternative values/indices that have not been tried yet.
 #[derive(Debug, Clone)]
 pub struct BranchPoint<U: UInt, S: State<U>> {
-    pub chosen: Option<S::Value>,
+    pub chosen: Option<(Index, S::Value)>,
     pub chosen_step: usize,
-    pub index: Index,
-    pub alternatives: std::vec::IntoIter<S::Value>,
+    pub alternatives: BranchOver<U, S>,
 }
 
 impl <U: UInt, S: State<U>> BranchPoint<U, S> {
     pub fn unique(step: usize, index: Index, value: S::Value) -> Self {
-        BranchPoint { chosen: Some(value), chosen_step: step, index, alternatives: vec![].into_iter() }
+        BranchPoint {
+            chosen: Some((index, value)),
+            chosen_step: step,
+            alternatives: BranchOver::Empty,
+        }
     }
 
     pub fn empty(step: usize) -> Self {
-        BranchPoint { chosen: None, chosen_step: step, index: [0, 0], alternatives: vec![].into_iter() }
+        BranchPoint { chosen: None, chosen_step: step, alternatives: BranchOver::Empty }
     }
 
-    pub fn new(step: usize, index: Index, alternatives: Vec<S::Value>) -> Self {
-        let mut d = BranchPoint { chosen: None, chosen_step: step, index, alternatives: alternatives.into_iter() };
-        if d.alternatives.len() > 0 {
-            d.chosen = Some(d.alternatives.next().unwrap());
+    pub fn for_cell(step: usize, index: Index, alternatives: Vec<S::Value>) -> Self {
+        let mut iter = alternatives.into_iter();
+        if iter.len() > 0 {
+            BranchPoint {
+                chosen: Some((index, iter.next().unwrap())),
+                chosen_step: step,
+                alternatives: BranchOver::Cell(index, iter),
+            }
+        } else {
+            BranchPoint {
+                chosen: None,
+                chosen_step: step,
+                alternatives: BranchOver::Empty,
+            }
         }
-        d
+    }
+
+    pub fn for_value(step: usize, val: S::Value, alternatives: Vec<Index>) -> Self {
+        let mut iter = alternatives.into_iter();
+        if iter.len() > 0 {
+            BranchPoint {
+                chosen: Some((iter.next().unwrap(), val)),
+                chosen_step: step,
+                alternatives: BranchOver::Value(val, iter),
+            }
+        } else {
+            BranchPoint {
+                chosen: None,
+                chosen_step: step,
+                alternatives: BranchOver::Empty,
+            }
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.chosen.is_none() && self.alternatives.len() == 0
+        self.chosen.is_none() && match &self.alternatives {
+            BranchOver::Empty => true,
+            BranchOver::Cell(_, iter) => iter.len() == 0,
+            BranchOver::Value(_, iter) => iter.len() == 0,
+        }
     }
 
-    pub fn advance(&mut self) -> Option<S::Value> {
-        if let Some(next) = self.alternatives.next() {
-            self.chosen = Some(next);
-            Some(next)
-        } else {
-            self.chosen = None;
-            None
+    pub fn len(&self) -> usize {
+        match &self.alternatives {
+            BranchOver::Empty => 0,
+            BranchOver::Cell(_, iter) => iter.len(),
+            BranchOver::Value(_, iter) => iter.len(),
+        }
+    }
+
+    pub fn advance(&mut self) -> Option<(Index, S::Value)> {
+        match &mut self.alternatives {
+            BranchOver::Empty => None,
+            BranchOver::Cell(index, iter) => {
+                if let Some(next) = iter.next() {
+                    self.chosen = Some((*index, next));
+                } else {
+                    self.chosen = None;
+                    self.alternatives = BranchOver::Empty;
+                }
+                self.chosen
+            },
+            BranchOver::Value(val, iter) => {
+                if let Some(next) = iter.next() {
+                    self.chosen = Some((next, *val));
+                } else {
+                    self.chosen = None;
+                    self.alternatives = BranchOver::Empty;
+                }
+                self.chosen
+            },
         }
     }
 }
