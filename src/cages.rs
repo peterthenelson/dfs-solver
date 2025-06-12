@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, Set, Stateful, Value};
+use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, UVSet, Stateful, Value};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::sudoku::{unpack_sval_vals, SState, SVal, Overlay};
 
@@ -42,7 +42,7 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     cages: Vec<Cage>,
     remaining: Vec<u8>,
     empty: Vec<usize>,
-    cage_sets: Vec<Set<u8>>,
+    cage_sets: Vec<UVSet<u8>>,
     cage_feature: FeatureKey<FKWithId>,
     illegal: Option<(Index, SVal<MIN, MAX>)>,
 }
@@ -156,7 +156,7 @@ fn subset_sum(vals: &Vec<u8>, i: usize, remaining: u8, empty: usize) -> bool {
     }
 }
 
-fn cage_feasible<const MIN: u8, const MAX: u8>(set: &Set<u8>, remaining: u8, empty: usize) -> bool {
+fn cage_feasible<const MIN: u8, const MAX: u8>(set: &UVSet<u8>, remaining: u8, empty: usize) -> bool {
     if empty == 0 {
         return remaining == 0;
     } else if set.len() < empty {

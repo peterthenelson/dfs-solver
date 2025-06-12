@@ -5,6 +5,12 @@ use crate::core::{ConstraintResult, State, UInt};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
 
+pub struct NullObserver;
+
+impl <U: UInt, S: State<U>> StepObserver<U, S> for NullObserver {
+    fn after_step(&mut self, _solver: &dyn DfsSolverView<U, S>) {}
+}
+
 fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>) -> String {
     match result {
         ConstraintResult::Contradiction => "Contradiction".to_string(),

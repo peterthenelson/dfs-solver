@@ -151,16 +151,38 @@ impl<U: UInt> UVGrid<U> {
     }
 }
 
+/// This is a mapping from values to some other type. It is densely represented
+/// as a slice of values, indexed by their unsigned representations.
+#[derive(Debug)]
+pub struct UVMap<U: UInt, V> {
+    vals: Box<[V]>,
+    _p_u: PhantomData<U>,
+}
+
+pub fn empty_map<U: UInt, K: Value<U>, V: Clone + Default>() -> UVMap<U, V> {
+    UVMap { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
+}
+
+impl <U: UInt, V> UVMap<U, V> {
+    pub fn get(&self, key: UVal<U, UVWrapped>) -> &V {
+        &self.vals[key.unwrap().value().as_usize()]
+    }
+
+    pub fn get_mut(&mut self, key: UVal<U, UVWrapped>) -> &mut V {
+        &mut self.vals[key.unwrap().value().as_usize()]
+    }
+}
+
 /// This a set of values (e.g., that are possible, that have been seen, etc.).
 /// They are represented as a bitset of the possible values.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Set<U: UInt> {
+pub struct UVSet<U: UInt> {
     s: BitSet,
     _p_u: PhantomData<U>,
 }
 
-pub fn empty_set<U: UInt, V: Value<U>>() -> Set<U> {
-    Set {
+pub fn empty_set<U: UInt, V: Value<U>>() -> UVSet<U> {
+    UVSet {
         s: BitSet::with_capacity(V::cardinality()),
         _p_u: PhantomData,
     }
@@ -176,9 +198,9 @@ fn leading_ones(n: usize) -> Vec<u8> {
     result
 }
 
-pub fn full_set<U: UInt, V: Value<U>>() -> Set<U> {
+pub fn full_set<U: UInt, V: Value<U>>() -> UVSet<U> {
     let n = V::cardinality();
-    let mut s = Set {
+    let mut s = UVSet {
         s: BitSet::with_capacity(n),
         _p_u: PhantomData,
     };
@@ -187,17 +209,17 @@ pub fn full_set<U: UInt, V: Value<U>>() -> Set<U> {
     s
 }
 
-pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> Set<U> {
+pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> UVSet<U> {
     let mut s = empty_set::<U, V>();
     s.insert(v.to_uval());
     s
 }
 
-pub fn unpack_values<U: UInt, V: Value<U>>(s: &Set<U>) -> Vec<V> {
+pub fn unpack_values<U: UInt, V: Value<U>>(s: &UVSet<U>) -> Vec<V> {
     s.iter().map(|u| { to_value::<U, V>(u) }).collect::<Vec<_>>()
 }
 
-impl <U: UInt> Set<U> {
+impl <U: UInt> UVSet<U> {
     pub fn insert(&mut self, value: UVal<U, UVWrapped>) {
         self.s.insert(value.unwrap().value().as_usize());
     }
@@ -226,7 +248,7 @@ impl <U: UInt> Set<U> {
         self.s.iter().map(|i| UVal::new(U::from_usize(i)))
     }
 
-    pub fn intersect_with(&mut self, other: &Set<U>) {
+    pub fn intersect_with(&mut self, other: &UVSet<U>) {
         self.s.intersect_with(&other.s);
     }
 }
@@ -344,7 +366,7 @@ impl FeatureVec<FVMaybeNormed> {
         self.normalized = false;
     }
 
-    pub fn normalize(&mut self, combine: fn(f64, f64) -> f64) {
+    pub fn normalize(&mut self, combine: fn(usize, f64, f64) -> f64) {
         if self.normalized {
             return;
         } else if self.features.is_empty() {
@@ -357,7 +379,7 @@ impl FeatureVec<FVMaybeNormed> {
         for src in 1..self.features.len() {
             let src_id = self.features[src].0;
             if src_id == dst_id {
-                self.features[dst].1 = combine(self.features[dst].1, self.features[src].1);
+                self.features[dst].1 = combine(src_id, self.features[dst].1, self.features[src].1);
             } else {
                 dst += 1;
                 self.features[dst] = self.features[src];
@@ -376,9 +398,15 @@ impl FeatureVec<FVMaybeNormed> {
         }
     }
 
-    pub fn normalize_and(&mut self, combine: fn(f64, f64) -> f64) -> &FeatureVec<FVNormed> {
+    pub fn normalize_and(&mut self, combine: fn(usize, f64, f64) -> f64) -> &FeatureVec<FVNormed> {
         self.normalize(combine);
         unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl Default for FeatureVec<FVMaybeNormed> {
+    fn default() -> Self {
+        FeatureVec::new()
     }
 }
 
@@ -485,11 +513,7 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
                 alternatives: BranchOver::Cell(index, iter),
             }
         } else {
-            BranchPoint {
-                chosen: None,
-                chosen_step: step,
-                alternatives: BranchOver::Empty,
-            }
+            panic!("Cannot create a BranchPoint for a cell with no alternatives");
         }
     }
 
@@ -502,11 +526,7 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
                 alternatives: BranchOver::Value(val, iter),
             }
         } else {
-            BranchPoint {
-                chosen: None,
-                chosen_step: step,
-                alternatives: BranchOver::Empty,
-            }
+            panic!("Cannot create a BranchPoint for a value with no alternatives");
         }
     }
 
@@ -551,14 +571,14 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
     }
 }
 
-/// This is a grid of Sets and FeatureVecs. It is used to represent the
+/// This is a grid of UVSets and FeatureVecs. It is used to represent the
 /// not-yet-ruled-out values for each cell in the grid, along with features
 /// attached to each cell.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecisionGrid<U: UInt, V: Value<U>> {
     rows: usize,
     cols: usize,
-    grid: Box<[(Set<U>, FeatureVec<FVMaybeNormed>)]>,
+    grid: Box<[(UVSet<U>, FeatureVec<FVMaybeNormed>)]>,
     _p_v: PhantomData<V>,
 }
 
@@ -581,11 +601,11 @@ impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
         }
     }
 
-    pub fn get(&self, index: Index) -> &(Set<U>, FeatureVec<FVMaybeNormed>) {
+    pub fn get(&self, index: Index) -> &(UVSet<U>, FeatureVec<FVMaybeNormed>) {
         &self.grid[index[0] * self.cols + index[1]]
     }
 
-    pub fn get_mut(&mut self, index: Index) -> &mut (Set<U>, FeatureVec<FVMaybeNormed>) {
+    pub fn get_mut(&mut self, index: Index) -> &mut (UVSet<U>, FeatureVec<FVMaybeNormed>) {
         self.grid.get_mut(index[0] * self.cols + index[1]).unwrap()
     }
 
@@ -610,23 +630,6 @@ impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
                 a.1.extend(&b.1);
             }
         }
-    }
-
-    pub fn to_constraint_result<S: State<U>>(&self, puzzle: &S) -> ConstraintResult<U, V> {
-        for r in 0..self.rows() {
-            for c in 0..self.cols() {
-                if puzzle.get([r, c]).is_none() {
-                    let cell = &self.get([r, c]).0;
-                    if cell.len() == 0 {
-                        return ConstraintResult::Contradiction;
-                    } else if cell.len() == 1 {
-                        let v = unpack_values::<U, V>(cell)[0];
-                        return ConstraintResult::Certainty(CertainDecision::new([r, c], v));
-                    }
-                }
-            }
-        }
-        ConstraintResult::Ok
     }
 }
 

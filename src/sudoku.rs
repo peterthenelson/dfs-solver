@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{full_set, to_value, unpack_values, ConstraintResult, DecisionGrid, Error, Index, Set, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+use crate::core::{full_set, to_value, unpack_values, ConstraintResult, DecisionGrid, Error, Index, UVSet, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
@@ -45,7 +45,7 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
     }
 }
 
-pub fn unpack_sval_vals<const MIN: u8, const MAX: u8>(s: &Set<u8>) -> Vec<u8> {
+pub fn unpack_sval_vals<const MIN: u8, const MAX: u8>(s: &UVSet<u8>) -> Vec<u8> {
     unpack_values::<u8, SVal<MIN, MAX>>(&s).iter().map(|v| v.val()).collect::<Vec<u8>>()
 }
 
@@ -520,9 +520,9 @@ pub fn four_standard_overlay() -> StandardSudokuOverlay<4, 4> {
 
 pub struct StandardSudokuChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
     overlay: StandardSudokuOverlay<N, M>,
-    row: [Set<u8>; N],
-    col: [Set<u8>; M],
-    boxes: Box<[Set<u8>]>,
+    row: [UVSet<u8>; N],
+    col: [UVSet<u8>; M],
+    boxes: Box<[UVSet<u8>]>,
     illegal: Option<(Index, SVal<MIN, MAX>)>,
 }
 

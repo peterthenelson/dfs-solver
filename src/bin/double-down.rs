@@ -1,16 +1,21 @@
 use std::time::Duration;
 
 use variant_sudoku_dfs::core::FeatureVec;
-use variant_sudoku_dfs::ranker::{LinearRanker, NUM_POSSIBLE_FEATURE};
+use variant_sudoku_dfs::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::MultiConstraint;
-use variant_sudoku_dfs::solver::FindFirstSolution;
+use variant_sudoku_dfs::solver::{FindFirstSolution, StepObserver};
 use variant_sudoku_dfs::debug::{DbgObserver, Sample};
 use variant_sudoku_dfs::sudoku::{nine_standard_overlay, SState, StandardSudokuChecker, StandardSudokuOverlay};
 use variant_sudoku_dfs::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
 
+type NineStd = SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>;
+
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
-fn solve(given: Option<SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>>, sample_print: Sample) {
+fn solve<D: StepObserver<u8, NineStd>>(
+    given: Option<NineStd>,
+    mut observer: D,
+) {
     // No given digits in real puzzle but can be passed in in test.
     let mut puzzle = given.unwrap_or(
         SState::<9, 9, 1, 9, _>::new(nine_standard_overlay())
@@ -44,27 +49,27 @@ fn solve(given: Option<SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>>, sample_
         CageChecker::new(cages),
         XSumChecker::new(xsums),
     ]);
-    let ranker = LinearRanker::new(FeatureVec::from_pairs(vec![
+    let ranker = OverlaySensitiveLinearRanker::new(FeatureVec::from_pairs(vec![
         (NUM_POSSIBLE_FEATURE, -100.0),
         (XSUM_TAIL_FEATURE, 10.0),
         (XSUM_HEAD_FEATURE, 5.0),
         (CAGE_FEATURE, 1.0)
-    ]));
-    let mut dbg = DbgObserver::new();
-    dbg.sample_print(sample_print)
-        .sample_stats("figures/double-down-stats.png", Sample::time(Duration::from_secs(30)));
-    let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut dbg));
+    ]), |_, x, y| x+y);
+    let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut observer));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
     println!("Solution:\n{}", maybe_solution.expect("No solution found!").get_state().serialize());
 }
 
 pub fn main() {
-    solve(None, Sample::every_n(100000));
+    let mut dbg = DbgObserver::new();
+    dbg.sample_print(Sample::every_n(100000))
+        .sample_stats("figures/double-down-stats.png", Sample::time(Duration::from_secs(30)));
+    solve(None, dbg);
 }
 
 #[cfg(test)]
 mod test {
-    use variant_sudoku_dfs::sudoku::nine_standard_parse;
+    use variant_sudoku_dfs::{debug::NullObserver, sudoku::nine_standard_parse};
 
     use super::*;
 
@@ -80,6 +85,7 @@ mod test {
                            639581472\n\
                            52146793.\n";
         let sudoku = nine_standard_parse(input).unwrap();
-        solve(Some(sudoku), Sample::never());
+        let obs = NullObserver;
+        solve(Some(sudoku), obs);
     }
 }

@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{unpack_values, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
+use crate::core::{BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::ranker::Ranker;
 
@@ -201,7 +201,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         let mut grid = DecisionGrid::full(S::ROWS, S::COLS);
         self.check_result = self.constraint.check(self.puzzle, &mut grid);
         if self.check_result.is_ok() {
-            self.check_result = grid.to_constraint_result(self.puzzle);
+            self.check_result = self.ranker.to_constraint_result(&grid, self.puzzle);
             self.decision_grid = Some(grid);
         } else {
             self.decision_grid = None;
@@ -256,11 +256,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             return BranchPoint::unique(self.step, d.index, d.value);
         }
         let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
-        if let Some(i) = self.ranker.top(g, self.puzzle) {
-            BranchPoint::for_cell(self.step, i, unpack_values(&g.get(i).0))
-        } else {
-            BranchPoint::empty(self.step)
-        }
+        let mut bp = self.ranker.top(g, self.puzzle);
+        bp.chosen_step = self.step;
+        bp
     }
 
     pub fn manual_step(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
