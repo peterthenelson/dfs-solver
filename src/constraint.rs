@@ -186,7 +186,7 @@ mod test {
     impl Value<u8> for Val {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 9 }
-        fn possiblities() -> Vec<Self> { (1..=9).map(Val).collect() }
+        fn possibilities() -> Vec<Self> { (1..=9).map(Val).collect() }
         fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()+1) }
         fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0-1) }
     }

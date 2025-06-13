@@ -110,7 +110,7 @@ impl <U: UInt> UVal<U, UVUnwrapped> {
 /// and Constraint implementations to interpret them.
 pub trait Value<U: UInt>: Copy + Clone + Debug + PartialEq + Eq {
     fn cardinality() -> usize;
-    fn possiblities() -> Vec<Self>;
+    fn possibilities() -> Vec<Self>;
     fn parse(s: &str) -> Result<Self, Error>;
 
     fn from_uval(u: UVal<U, UVUnwrapped>) -> Self;
@@ -161,6 +161,10 @@ pub struct UVMap<U: UInt, V> {
 
 pub fn empty_map<U: UInt, K: Value<U>, V: Clone + Default>() -> UVMap<U, V> {
     UVMap { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
+}
+
+pub fn filled_map<U: UInt, K: Value<U>, V: Clone>(default: V) -> UVMap<U, V> {
+    UVMap { vals: vec![default; K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
 }
 
 impl <U: UInt, V> UVMap<U, V> {
@@ -217,6 +221,14 @@ pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> UVSet<U> {
 
 pub fn unpack_values<U: UInt, V: Value<U>>(s: &UVSet<U>) -> Vec<V> {
     s.iter().map(|u| { to_value::<U, V>(u) }).collect::<Vec<_>>()
+}
+
+pub fn unpack_singleton<U: UInt, V: Value<U>>(s: &UVSet<U>) -> Option<V> {
+    if s.len() == 1 {
+        Some(to_value::<U, V>(s.iter().next().unwrap()))
+    } else {
+        None
+    }
 }
 
 impl <U: UInt> UVSet<U> {

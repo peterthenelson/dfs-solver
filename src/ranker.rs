@@ -165,7 +165,7 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
                         fvs.get_mut(uv).extend(&g.1);
                     }
                 }
-                for v in SVal::<MIN, MAX>::possiblities() {
+                for v in SVal::<MIN, MAX>::possibilities() {
                     let uv = v.to_uval();
                     if filled.contains(uv) {
                         continue;
@@ -226,7 +226,7 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
                         }
                     }
                 }
-                for v in SVal::<MIN, MAX>::possiblities() {
+                for v in SVal::<MIN, MAX>::possibilities() {
                     let uv = v.to_uval();
                     let c = count.get(uv);
                     if *c == 0 {

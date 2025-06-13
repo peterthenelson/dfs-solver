@@ -28,9 +28,24 @@ impl <'a, O: Overlay> CageBuilder<'a, O> {
         Self(exclusive, visibility_constraint)
     }
 
+    // TODO: Check for contiguity
     pub fn cage(&self, target: u8, cells: Vec<Index>) -> Cage {
         let exclusive = self.0 || self.1.all_mutually_visible(&cells);
         Cage { target, cells, exclusive }
+    }
+
+    pub fn v(&self, cell1: Index, cell2: Index) -> Cage {
+        // This should be trivially true, but let's defer to the visibility
+        // checker rather than assume it.
+        let exclusive = self.0 || self.1.mutually_visible(cell1, cell2);
+        Cage { target: 5, cells: vec![cell1, cell2], exclusive }
+    }
+
+    pub fn x(&self, cell1: Index, cell2: Index) -> Cage {
+        // This should be trivially true, but let's defer to the visibility
+        // checker rather than assume it.
+        let exclusive = self.0 || self.1.mutually_visible(cell1, cell2);
+        Cage { target: 10, cells: vec![cell1, cell2], exclusive }
     }
 }
 

@@ -32,7 +32,7 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
         (MAX - MIN + 1) as usize
     }
 
-    fn possiblities() -> Vec<Self> {
+    fn possibilities() -> Vec<Self> {
         (MIN..=MAX).map(|v| SVal(v)).collect()
     }
 

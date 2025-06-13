@@ -1,5 +1,4 @@
 use std::time::Duration;
-
 use variant_sudoku_dfs::core::FeatureVec;
 use variant_sudoku_dfs::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::MultiConstraint;
@@ -20,8 +19,7 @@ fn solve<D: StepObserver<u8, NineStd>>(
     let mut puzzle = given.unwrap_or(
         SState::<9, 9, 1, 9, _>::new(nine_standard_overlay())
     );
-    let overlay = nine_standard_overlay();
-    let cb = CageBuilder::new(false, &overlay);
+    let cb = CageBuilder::new(false, puzzle.get_overlay());
     let cages = vec![
         cb.cage(14, vec![[2, 2], [2, 3]]),
         cb.cage(15, vec![[2, 7], [3, 7], [4, 7]]),
@@ -70,7 +68,6 @@ pub fn main() {
 #[cfg(test)]
 mod test {
     use variant_sudoku_dfs::{debug::NullObserver, sudoku::nine_standard_parse};
-
     use super::*;
 
     #[test]
