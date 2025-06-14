@@ -5,6 +5,7 @@ pub mod solver;
 pub mod debug;
 pub mod sudoku;
 pub mod cages;
+pub mod kropki;
 pub mod magic_squares;
 pub mod whispers;
 pub mod dutch_whispers;

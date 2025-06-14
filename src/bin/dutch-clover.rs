@@ -81,7 +81,7 @@ mod test {
                            627384951\n\
                            273849516\n\
                            849516273\n\
-                           516273849\n";
+                           51627384.\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve(Some(sudoku), obs);

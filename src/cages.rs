@@ -6,7 +6,7 @@ use crate::sudoku::{unpack_sval_vals, SState, SVal, Overlay};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
-    pub target: u8,
+    pub target: Option<u8>,
     pub cells: Vec<Index>,
     pub exclusive: bool,
 }
@@ -28,24 +28,62 @@ impl <'a, O: Overlay> CageBuilder<'a, O> {
         Self(exclusive, visibility_constraint)
     }
 
-    // TODO: Check for contiguity
-    pub fn cage(&self, target: u8, cells: Vec<Index>) -> Cage {
+    fn check(cage: Cage) -> Cage {
+        if !cage.exclusive && cage.target.is_none() {
+            panic!("Cage with neither target nor exclusivity: {:?}\nThis is \
+                    probably a mistake; purely decorative cages should not \
+                    be included when building your constraints.", cage);
+        }
+        // TODO: check for contiguity
+        cage
+    }
+
+    pub fn sum(&self, target: u8, cells: Vec<Index>) -> Cage {
         let exclusive = self.0 || self.1.all_mutually_visible(&cells);
-        Cage { target, cells, exclusive }
+        Self::check(Cage { target: Some(target), cells, exclusive })
+    }
+
+    pub fn nosum(&self, cells: Vec<Index>) -> Cage {
+        let exclusive = self.0 || self.1.all_mutually_visible(&cells);
+        Self::check(Cage { target: None, cells, exclusive })
+    }
+
+    pub fn across(&self, target: u8, left: Index, length: usize) -> Cage {
+        let cells = (0..length)
+            .map(|i| [left[0], left[1]+i])
+            .collect();
+        self.sum(target, cells)
+    }
+
+    pub fn down(&self, target: u8, top: Index, length: usize) -> Cage {
+        let cells = (0..length)
+            .map(|i| [top[0]+i, top[1]])
+            .collect();
+        self.sum(target, cells)
+    }
+
+    pub fn rect(&self, target: u8, top_left: Index, bottom_right: Index) -> Cage {
+        let mut cells = vec![];
+        for r in top_left[0]..=bottom_right[0] {
+            for c in top_left[1]..=bottom_right[1] {
+                cells.push([r, c]);
+            }
+        }
+        self.sum(target, cells)
     }
 
     pub fn v(&self, cell1: Index, cell2: Index) -> Cage {
         // This should be trivially true, but let's defer to the visibility
         // checker rather than assume it.
         let exclusive = self.0 || self.1.mutually_visible(cell1, cell2);
-        Cage { target: 5, cells: vec![cell1, cell2], exclusive }
+        Self::check(Cage { target: Some(5), cells: vec![cell1, cell2], exclusive })
     }
 
     pub fn x(&self, cell1: Index, cell2: Index) -> Cage {
         // This should be trivially true, but let's defer to the visibility
         // checker rather than assume it.
         let exclusive = self.0 || self.1.mutually_visible(cell1, cell2);
-        Cage { target: 10, cells: vec![cell1, cell2], exclusive }
+        Self::check(Cage { target: Some(10), cells: vec![cell1, cell2], exclusive })
     }
 }
 
@@ -55,7 +93,7 @@ pub const CAGE_FEATURE: &str = "CAGE";
 
 pub struct CageChecker<const MIN: u8, const MAX: u8> {
     cages: Vec<Cage>,
-    remaining: Vec<u8>,
+    remaining: Vec<Option<u8>>,
     empty: Vec<usize>,
     cage_sets: Vec<UVSet<u8>>,
     cage_feature: FeatureKey<FKWithId>,
@@ -89,7 +127,7 @@ impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
         }
         for (i, c) in self.cages.iter().enumerate() {
             write!(f, " Cage{:?}\n", c.cells)?;
-            write!(f, " - {} remaining to target; {} cells empty\n", self.remaining[i], self.empty[i])?;
+            write!(f, " - {:?} remaining to target; {} cells empty\n", self.remaining[i], self.empty[i])?;
             if c.exclusive {
                 let vals = unpack_sval_vals::<MIN, MAX>(&self.cage_sets[i]);
                 write!(f, " - Unused vals: {:?}\n", vals)?;
@@ -118,13 +156,15 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker
             if !c.contains(index) {
                 continue;
             }
-            if value.val() > self.remaining[i] || (c.exclusive && !self.cage_sets[i].contains(uv)) {
-                self.illegal = Some((index, value));
-            } else {
-                self.remaining[i] -= value.val();
-                self.empty[i] -= 1;
-                self.cage_sets[i].remove(uv);
+            if let Some(r) = self.remaining[i] {
+                if value.val() > r || (c.exclusive && !self.cage_sets[i].contains(uv)) {
+                    self.illegal = Some((index, value));
+                    break;
+                }
             }
+            self.remaining[i].as_mut().map(|i| *i -= value.val());
+            self.empty[i] -= 1;
+            self.cage_sets[i].remove(uv);
             break;
         }
         Ok(())
@@ -143,7 +183,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker
             if !c.contains(index) {
                 continue;
             }
-            self.remaining[i] += value.val();
+            self.remaining[i].as_mut().map(|i| *i += value.val());
             self.empty[i] += 1;
             self.cage_sets[i].insert(value.to_uval());
             break;
@@ -206,11 +246,13 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
             } else {
                 full_set::<u8, SVal<MIN, MAX>>()
             };
-            if !cage_feasible::<MIN, MAX>(&set, self.remaining[i], self.empty[i]) {
-                return ConstraintResult::Contradiction;
-            }
-            for v in (self.remaining[i]+1)..=MAX {
-                set.remove(SVal::<MIN, MAX>::new(v).to_uval());
+            if let Some(r) = self.remaining[i] {
+                if !cage_feasible::<MIN, MAX>(&set, r, self.empty[i]) {
+                    return ConstraintResult::Contradiction;
+                }
+                for v in (r+1)..=MAX {
+                    set.remove(SVal::<MIN, MAX>::new(v).to_uval());
+                }
             }
             for cell in &c.cells {
                 let g = &mut grid.get_mut(*cell);
@@ -240,13 +282,13 @@ mod test {
     #[test]
     fn test_cage_checker() {
         // Cage 1 is satisfied (1 + 2 = 3).
-        let cage1 = Cage{ cells: vec![[0, 0], [0, 1]], target: 3, exclusive: true };
+        let cage1 = Cage{ cells: vec![[0, 0], [0, 1]], target: Some(3), exclusive: true };
         // Cage 2 is a failure (3 + 4 != 5).
-        let cage2 = Cage{ cells: vec![[1, 2], [1, 3]], target: 5, exclusive: true };
+        let cage2 = Cage{ cells: vec![[1, 2], [1, 3]], target: Some(5), exclusive: true };
         // Cage 3 is a failure even though it's incomplete (4 > 3).
-        let cage3 = Cage{ cells: vec![[2, 0], [2, 1]], target: 3, exclusive: true };
+        let cage3 = Cage{ cells: vec![[2, 0], [2, 1]], target: Some(3), exclusive: true };
         // Cage 4 has no violations because it's incomplete and not over target.
-        let cage4 = Cage{ cells: vec![[3, 2], [3, 3]], target: 5, exclusive: true };
+        let cage4 = Cage{ cells: vec![[3, 2], [3, 3]], target: Some(5), exclusive: true };
 
         let puzzle = four_standard_parse(
             "12..\n\

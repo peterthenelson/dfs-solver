@@ -1,5 +1,4 @@
 use std::{collections::HashMap, time::{Duration, SystemTime}};
-
 use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
 use crate::core::{ConstraintResult, State, UInt};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};

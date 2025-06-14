@@ -21,14 +21,14 @@ fn solve<D: StepObserver<u8, NineStd>>(
     );
     let cb = CageBuilder::new(false, puzzle.get_overlay());
     let cages = vec![
-        cb.cage(14, vec![[2, 2], [2, 3]]),
-        cb.cage(15, vec![[2, 7], [3, 7], [4, 7]]),
-        cb.cage(16, vec![[2, 8], [3, 8], [4, 8]]),
-        cb.cage(15, vec![[3, 2], [4, 2], [5, 2]]),
-        cb.cage(12, vec![[3, 3], [4, 3]]),
-        cb.cage(16, vec![[5, 3], [5, 4], [5, 5]]),
-        cb.cage(9, vec![[7, 4], [7, 5]]),
-        cb.cage(18, vec![[8, 2], [8, 3], [8, 4], [8, 5]]),
+        cb.across(14, [2, 2], 2),
+        cb.down(15, [2, 7], 3),
+        cb.down(16, [2, 8], 3),
+        cb.down(15, [3, 2], 3),
+        cb.down(12, [3, 3], 2),
+        cb.across(16, [5, 3], 3),
+        cb.across(9, [7, 4], 2),
+        cb.across(18, [8, 2], 4),
     ];
     let xsums = vec![
         XSum { direction: XSumDirection::RR, index: 2, target: 14 },

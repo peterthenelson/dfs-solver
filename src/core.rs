@@ -154,7 +154,7 @@ impl<U: UInt> UVGrid<U> {
 /// This is a mapping from values to some other type. It is densely represented
 /// as a slice of values, indexed by their unsigned representations.
 #[derive(Debug)]
-pub struct UVMap<U: UInt, V> {
+pub struct UVMap<U: UInt, V: Clone> {
     vals: Box<[V]>,
     _p_u: PhantomData<U>,
 }
@@ -167,13 +167,21 @@ pub fn filled_map<U: UInt, K: Value<U>, V: Clone>(default: V) -> UVMap<U, V> {
     UVMap { vals: vec![default; K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
 }
 
-impl <U: UInt, V> UVMap<U, V> {
+impl <U: UInt, V: Clone> UVMap<U, V> {
     pub fn get(&self, key: UVal<U, UVWrapped>) -> &V {
         &self.vals[key.unwrap().value().as_usize()]
     }
 
     pub fn get_mut(&mut self, key: UVal<U, UVWrapped>) -> &mut V {
         &mut self.vals[key.unwrap().value().as_usize()]
+    }
+
+    pub fn iter<K: Value<U>>(&self) -> std::vec::IntoIter<(K, V)> {
+        self.vals.iter().enumerate().map(|(u, v)| {
+            let k: K = to_value::<U, K>(UVal::<U, UVWrapped>::new(U::from_usize(u)));
+            let v: V = v.clone();
+            (k, v)
+        }).collect::<Vec<(K, V)>>().into_iter()
     }
 }
 
@@ -211,6 +219,14 @@ pub fn full_set<U: UInt, V: Value<U>>() -> UVSet<U> {
     let ones = leading_ones(n);
     s.s.union_with(&BitSet::from_bytes(ones.as_slice()));
     s
+}
+
+pub fn pack_values<U: UInt, V: Value<U>>(vals: &Vec<V>) -> UVSet<U> {
+    let mut res = empty_set::<U, V>();
+    for v in vals {
+        res.insert(v.to_uval());
+    }
+    res
 }
 
 pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> UVSet<U> {
@@ -262,6 +278,18 @@ impl <U: UInt> UVSet<U> {
 
     pub fn intersect_with(&mut self, other: &UVSet<U>) {
         self.s.intersect_with(&other.s);
+    }
+
+    pub fn intersection(&self, other: &UVSet<U>) -> UVSet<U> {
+        let mut i = self.clone();
+        i.s.intersect_with(&other.s);
+        i
+    }
+
+    pub fn union(&self, other: &UVSet<U>) -> UVSet<U> {
+        let mut u = self.clone();
+        u.s.union_with(&other.s);
+        u
     }
 }
 
