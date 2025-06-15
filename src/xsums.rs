@@ -414,7 +414,9 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
                     let len = xsum.length(puzzle).unwrap().1;
                     for i2 in xsum.xrange(len.val()) {
                         let g = &mut grid.get_mut(i2);
-                        g.0.intersect_with(&set);
+                        if puzzle.get(i2).is_none() {
+                            g.0.intersect_with(&set);
+                        }
                         g.1.add(&self.xsum_tail_feature, 1.0);
                     }
                 } else {
@@ -425,9 +427,11 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
                 let len_cell = xsum.length_index();
                 if let Some((min, max)) = xsum_len_bound::<MIN, MAX>(xsum.target) {
                     let g = &mut grid.get_mut(len_cell);
-                    let mut set = empty_set::<u8, SVal<MIN, MAX>>();
-                    (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
-                    g.0.intersect_with(&set);
+                    if puzzle.get(len_cell).is_none() {
+                        let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+                        (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
+                        g.0.intersect_with(&set);
+                    }
                     g.1.add(&self.xsum_head_feature, 1.0);
 
                 } else {

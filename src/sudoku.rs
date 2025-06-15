@@ -610,12 +610,15 @@ Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
         for r in 0..N {
             for c in 0..M {
+                if puzzle.get([r, c]).is_some() {
+                    continue;
+                }
                 let cell = grid.get_mut([r, c]);
                 let (b, _) = self.overlay.to_box_coords([r, c]);
                 cell.0.intersect_with(&self.row[r]);

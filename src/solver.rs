@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
+use crate::core::{singleton_set, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::ranker::Ranker;
 
@@ -199,6 +199,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn check(&mut self) {
         let mut grid = DecisionGrid::full(S::ROWS, S::COLS);
+        for r in 0..S::ROWS {
+            for c in 0..S::COLS {
+                if let Some(v) = self.puzzle.get([r, c]) {
+                    grid.get_mut([r, c]).0 = singleton_set::<U, S::Value>(v);
+                }
+            }
+        }
         self.check_result = self.constraint.check(self.puzzle, &mut grid);
         if self.check_result.is_ok() {
             self.check_result = self.ranker.to_constraint_result(&grid, self.puzzle);

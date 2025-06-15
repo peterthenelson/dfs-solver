@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, UVSet, Stateful, Value};
+use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
 use crate::sudoku::{unpack_sval_vals, SState, SVal, Overlay};
 
@@ -236,7 +236,7 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &UVSet<u8>, remaining: u8, e
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize, O: Overlay>
 Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
-    fn check(&self, _: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
         if self.illegal.is_some() {
             return ConstraintResult::Contradiction;
         }
@@ -256,7 +256,9 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
             }
             for cell in &c.cells {
                 let g = &mut grid.get_mut(*cell);
-                g.0.intersect_with(&set);
+                if puzzle.get(*cell).is_none() {
+                    g.0.intersect_with(&set);
+                }
                 g.1.add(&self.cage_feature, 1.0);
             }
         }

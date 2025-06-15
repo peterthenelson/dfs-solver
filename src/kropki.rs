@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::{Constraint, ConstraintViolationDetail};
-use crate::core::{empty_set, singleton_set, unpack_singleton, CertainDecision, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
+use crate::core::{empty_set, singleton_set, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
 use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -305,7 +305,9 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
                     continue;
                 }
                 let g = grid.get_mut(*cell);
-                g.0.intersect_with(&self.black_remaining.get(cell).unwrap());
+                if puzzle.get(*cell).is_none() {
+                    g.0.intersect_with(&self.black_remaining.get(cell).unwrap());
+                }
                 g.1.add(&self.kb_feature, 1.0);
             }
         }
@@ -325,12 +327,6 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
                     if !kropki_black_adj_ok::<MIN, MAX>(&prev, &grid.get(*cell).0) {
                         return ConstraintResult::Contradiction;
                     }
-                }
-                let cur = &grid.get(*cell).0;
-                if cur.is_empty() {
-                    return ConstraintResult::Contradiction;
-                } else if let Some(v) = unpack_singleton::<u8, SVal<MIN, MAX>>(cur) {
-                    return ConstraintResult::Certainty(CertainDecision::new(*cell, v));
                 }
             }
         }

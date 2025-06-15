@@ -1,6 +1,6 @@
 use std::time::Duration;
 use variant_sudoku_dfs::core::FeatureVec;
-use variant_sudoku_dfs::kropki::{KropkiBuilder, KropkiChecker};
+use variant_sudoku_dfs::kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE};
 use variant_sudoku_dfs::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku_dfs::constraint::MultiConstraint;
 use variant_sudoku_dfs::solver::{FindFirstSolution, StepObserver};
@@ -84,6 +84,7 @@ fn solve<D: StepObserver<u8, NineStd>>(
     let ranker = OverlaySensitiveLinearRanker::new(FeatureVec::from_pairs(vec![
         (NUM_POSSIBLE_FEATURE, -100.0),
         (CAGE_FEATURE, 1.0),
+        (KROPKI_BLACK_FEATURE, 1.0),
     ]), |_, x, y| x+y);
     let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut observer));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
@@ -92,7 +93,7 @@ fn solve<D: StepObserver<u8, NineStd>>(
 
 pub fn main() {
     let mut dbg = DbgObserver::new();
-    dbg.sample_print(Sample::every_n(1))
+    dbg.sample_print(Sample::every_n(10000))
         .sample_stats("figures/three-color-theorem.png", Sample::time(Duration::from_secs(30)));
     solve(None, dbg);
 }

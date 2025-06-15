@@ -373,7 +373,7 @@ pub struct FVMaybeNormed;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FVNormed;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct FeatureVec<S> {
     features: Vec<(usize, f64)>,
     // Some methods only make sense when the features are sorted by id and
@@ -447,6 +447,19 @@ impl FeatureVec<FVMaybeNormed> {
 impl Default for FeatureVec<FVMaybeNormed> {
     fn default() -> Self {
         FeatureVec::new()
+    }
+}
+
+impl Debug for FeatureVec<FVMaybeNormed> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{")?;
+        for (i, (k, v)) in self.features.iter().enumerate() {
+            write!(f, "{:?} => {}", readable_feature(*k), *v)?;
+            if i+1 < self.features.len() {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "}}")
     }
 }
 
