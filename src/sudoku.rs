@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{full_set, to_value, unpack_values, ConstraintResult, DecisionGrid, Error, Index, UVSet, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+use crate::core::{full_set, to_value, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
 use crate::constraint::Constraint;
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
@@ -518,12 +518,19 @@ pub fn four_standard_overlay() -> StandardSudokuOverlay<4, 4> {
     StandardSudokuOverlay::new(2, 2, 2, 2)
 }
 
+pub const ROW_CONFLICT_ATTRIBUTION: &str = "ROW_CONFLICT";
+pub const COL_CONFLICT_ATTRIBUTION: &str = "COL_CONFLICT";
+pub const BOX_CONFLICT_ATTRIBUTION: &str = "BOX_CONFLICT";
+
 pub struct StandardSudokuChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
     overlay: StandardSudokuOverlay<N, M>,
     row: [UVSet<u8>; N],
     col: [UVSet<u8>; M],
     boxes: Box<[UVSet<u8>]>,
-    illegal: Option<(Index, SVal<MIN, MAX>)>,
+    row_attribution: Attribution<WithId>,
+    col_attribution: Attribution<WithId>,
+    box_attribution: Attribution<WithId>,
+    illegal: Option<(Index, SVal<MIN, MAX>, Attribution<WithId>)>,
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StandardSudokuChecker<N, M, MIN, MAX> {
@@ -533,6 +540,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StandardSudo
             row: std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>()),
             col: std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>()),
             boxes: vec![full_set::<u8, SVal<MIN, MAX>>(); state.get_overlay().boxes()].into_boxed_slice(),
+            row_attribution: Attribution::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
+            col_attribution: Attribution::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
+            box_attribution: Attribution::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
             illegal: None,
         }
     }
@@ -541,8 +551,8 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StandardSudo
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Debug for StandardSudokuChecker<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v)) = self.illegal {
-            write!(f, "Illegal move: {:?}; {:?}\n", i, v)?;
+        if let Some((i, v, a)) = &self.illegal {
+            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.get_name())?;
         }
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
@@ -580,8 +590,14 @@ Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
             return Err(ILLEGAL_ACTION_RC);
         }
         let (b, _) = self.overlay.to_box_coords(index);
-        if !self.row[index[0]].contains(uv) || !self.col[index[1]].contains(uv) || !self.boxes[b].contains(uv){
-            self.illegal = Some((index, value));
+        if !self.row[index[0]].contains(uv) {
+            self.illegal = Some((index, value, self.row_attribution.clone()));
+            return Ok(());
+        } else if !self.col[index[1]].contains(uv) {
+            self.illegal = Some((index, value, self.col_attribution.clone()));
+            return Ok(());
+        } else if !self.boxes[b].contains(uv){
+            self.illegal = Some((index, value, self.box_attribution.clone()));
             return Ok(());
         }
         self.row[index[0]].remove(uv);
@@ -591,7 +607,7 @@ Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
     }
 
     fn undo(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
-        if let Some((i, v)) = self.illegal {
+        if let Some((i, v, _)) = self.illegal {
             if i != index || v != value {
                 return Err(UNDO_MISMATCH);
             } else {
@@ -611,8 +627,8 @@ Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, MAX> {
     fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
-        if self.illegal.is_some() {
-            return ConstraintResult::Contradiction;
+        if let Some((_, _, a)) = &self.illegal {
+            return ConstraintResult::Contradiction(a.clone());
         }
         for r in 0..N {
             for c in 0..M {
@@ -635,6 +651,7 @@ mod test {
     use super::*;
     use crate::{core::{empty_set, UInt}, ranker::LinearRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
+    use crate::constraint::test_util::assert_contradiction;
 
     #[test]
     fn test_sval() {
@@ -766,7 +783,7 @@ mod test {
         let mut grid = DecisionGrid::new(9, 9);
         assert!(checker.check(&sudoku, &mut grid).is_ok());
         apply2(&mut sudoku, &mut checker, [5, 8], SVal(1));
-        assert_eq!(checker.check(&sudoku, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(checker.check(&sudoku, &mut grid), "ROW_CONFLICT");
     }
 
     #[test]
@@ -778,7 +795,7 @@ mod test {
         let mut grid = DecisionGrid::new(9, 9);
         assert!(checker.check(&sudoku, &mut grid).is_ok());
         apply2(&mut sudoku, &mut checker, [6, 3], SVal(2));
-        assert_eq!(checker.check(&sudoku, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(checker.check(&sudoku, &mut grid), "COL_CONFLICT");
     }
 
     #[test]
@@ -790,7 +807,7 @@ mod test {
         let mut grid = DecisionGrid::new(9, 9);
         assert!(checker.check(&sudoku, &mut grid).is_ok());
         apply2(&mut sudoku, &mut checker, [5, 2], SVal(8));
-        assert_eq!(checker.check(&sudoku, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(checker.check(&sudoku, &mut grid), "BOX_CONFLICT");
     }
 
     #[test]

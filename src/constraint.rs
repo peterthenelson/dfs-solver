@@ -84,8 +84,8 @@ where
 {
     fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value> {
         match self.x.check(puzzle, grid) {
-            ConstraintResult::Contradiction => ConstraintResult::Contradiction,
-            ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
+            ConstraintResult::Contradiction(a) => ConstraintResult::Contradiction(a),
+            ConstraintResult::Certainty(d, a) => ConstraintResult::Certainty(d, a),
             ConstraintResult::Ok => self.y.check(puzzle, grid),
         }
     }
@@ -144,8 +144,8 @@ impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
     fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value> {
         for c in &self.constraints {
             match c.check(puzzle, grid) {
-                ConstraintResult::Contradiction => return ConstraintResult::Contradiction,
-                ConstraintResult::Certainty(d) => return ConstraintResult::Certainty(d),
+                ConstraintResult::Contradiction(a) => return ConstraintResult::Contradiction(a),
+                ConstraintResult::Certainty(d, a) => return ConstraintResult::Certainty(d, a),
                 ConstraintResult::Ok => {},
             }
         }
@@ -154,9 +154,40 @@ impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
 }
 
 #[cfg(test)]
+pub mod test_util {
+    use super::*;
+    use crate::core::{Value};
+
+    pub fn assert_contradiction<U: UInt, V: Value<U>>(
+        cr: ConstraintResult<U, V>,
+        expected_attribution: &'static str,
+    ) {
+        if let ConstraintResult::Contradiction(a) = cr {
+            let actual_attribution = a.get_name();
+            assert_eq!(
+                actual_attribution, expected_attribution,
+                "Expected Contradiction to be attributed to {}; got {}",
+                expected_attribution, actual_attribution,
+            );
+        } else {
+            panic!("Expected a contradiction; got: {:?}", cr);
+        }
+    }
+
+    pub fn assert_no_contradiction<U: UInt, V: Value<U>>(
+        cr: ConstraintResult<U, V>,
+    ) {
+        if let ConstraintResult::Contradiction(a) = cr {
+            panic!("Expected no contradiction; got: {:}", a.get_name());
+        }
+    }
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
-    use crate::core::{singleton_set, to_value, unpack_values, DecisionGrid, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+    use super::test_util::*;
+    use crate::core::{singleton_set, to_value, unpack_values, Attribution, DecisionGrid, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
@@ -197,7 +228,7 @@ mod test {
         fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<u8, Val>) -> ConstraintResult<u8, Val> {
             for j in 0..3 {
                 if puzzle.grid.get([0, j]).map(to_value) == Some(Val(self.0)) {
-                    return ConstraintResult::Contradiction;
+                    return ConstraintResult::Contradiction(Attribution::new("BLACKLISTED").unwrap());
                 } else {
                     grid.get_mut([0, j]).0.remove(Val(self.0).to_uval());
                 }
@@ -214,7 +245,7 @@ mod test {
             for j in 0..3 {
                 if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<u8, Val>) {
                     if v.0 % self.0 != self.1 {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(Attribution::new("WRONG_MOD").unwrap());
                     }
                     grid.get_mut([0, j]).0 = singleton_set(v);
                 } else {
@@ -239,11 +270,11 @@ mod test {
         let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
         assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 0], Val(1)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(conjunction.check(&puzzle, &mut grid), "BLACKLISTED");
         puzzle.apply([0, 0], Val(3)).unwrap();
         assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 1], Val(2)).unwrap();
-        assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(conjunction.check(&puzzle, &mut grid), "BLACKLISTED");
     }
 
     #[test]
@@ -255,11 +286,11 @@ mod test {
         let mut grid = DecisionGrid::full(ThreeVals::ROWS, ThreeVals::COLS);
         assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 0], Val(1)).unwrap();
-        assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(constraint.check(&puzzle, &mut grid), "BLACKLISTED");
         puzzle.apply([0, 0], Val(3)).unwrap();
         assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 1], Val(2)).unwrap();
-        assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Contradiction);
+        assert_contradiction(constraint.check(&puzzle, &mut grid), "BLACKLISTED");
     }
 
     fn unpack_set(g: &DecisionGrid<u8, Val>, index: Index) -> Vec<u8> {

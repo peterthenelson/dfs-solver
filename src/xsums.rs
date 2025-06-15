@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::core::{empty_set, ConstraintResult, DecisionGrid, Error, WithId, FeatureKey, Index, State, Stateful, Value};
+use crate::core::{empty_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
 use crate::sudoku::{sval_sum_bound, SState, SVal, StandardSudokuOverlay};
 
@@ -180,6 +180,10 @@ XSum<MIN, MAX, N, M> {
 
 pub const XSUM_HEAD_FEATURE: &str = "XSUM_HEAD";
 pub const XSUM_TAIL_FEATURE: &str = "XSUM_TAIL";
+pub const XSUM_SUM_OVER_ATTRIBUTION: &str = "XSUM_SUM_OVER";
+pub const XSUM_SUM_BAD_ATTRIBUTION: &str = "XSUM_SUM_BAD";
+pub const XSUM_SUM_INFEASIBLE_ATTRIBUTION: &str = "XSUM_SUM_INFEASIBLE";
+pub const XSUM_LEN_INFEASIBLE_ATTRIBUTION: &str = "XSUM_LEN_INFEASIBLE";
 
 pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: usize> {
     xsums: Vec<XSum<MIN, MAX, N, M>>,
@@ -191,6 +195,10 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     grid: Vec<Option<SVal<MIN, MAX>>>,
     xsum_head_feature: FeatureKey<WithId>,
     xsum_tail_feature: FeatureKey<WithId>,
+    xsum_sum_over_attribution: Attribution<WithId>,
+    xsum_sum_bad_attribution: Attribution<WithId>,
+    xsum_sum_if_attribution: Attribution<WithId>,
+    xsum_len_if_attribution: Attribution<WithId>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
@@ -198,9 +206,15 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
         let xsums_remaining = xsums.iter().map(|x| x.target as i16).collect();
         let xsums_empty = vec![None; xsums.len()];
         let grid = vec![None; N * M];
-        let mut hf = FeatureKey::new(XSUM_HEAD_FEATURE);
-        let mut tf = FeatureKey::new(XSUM_TAIL_FEATURE);
-        XSumChecker { xsums, xsums_remaining, xsums_empty, grid, xsum_head_feature: hf.unwrap(), xsum_tail_feature: tf.unwrap() }
+        XSumChecker {
+            xsums, xsums_remaining, xsums_empty, grid,
+            xsum_head_feature: FeatureKey::new(XSUM_HEAD_FEATURE).unwrap(),
+            xsum_tail_feature: FeatureKey::new(XSUM_TAIL_FEATURE).unwrap(),
+            xsum_sum_over_attribution: Attribution::new(XSUM_SUM_OVER_ATTRIBUTION).unwrap(),
+            xsum_sum_bad_attribution: Attribution::new(XSUM_SUM_BAD_ATTRIBUTION).unwrap(),
+            xsum_sum_if_attribution: Attribution::new(XSUM_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
+            xsum_len_if_attribution: Attribution::new(XSUM_LEN_INFEASIBLE_ATTRIBUTION).unwrap(),
+        }
     }
 }
 
@@ -401,8 +415,12 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
-                if r < 0 || (e == 0 && r != 0) {
-                    return ConstraintResult::Contradiction;
+                print!("r={};e={}\n", r, e);
+                if r < 0 {
+                    return ConstraintResult::Contradiction(self.xsum_sum_over_attribution.clone());
+                } else if e == 0 && r != 0 {
+                    print!("asdf\n");
+                    return ConstraintResult::Contradiction(self.xsum_sum_bad_attribution.clone());
                 } else if r == 0 {
                     // Satisfied!
                     continue;
@@ -420,7 +438,7 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
                         g.1.add(&self.xsum_tail_feature, 1.0);
                     }
                 } else {
-                    return ConstraintResult::Contradiction;
+                    return ConstraintResult::Contradiction(self.xsum_sum_if_attribution.clone());
                 }
             } else {
                 // We can constrain length based on total target sum
@@ -435,7 +453,7 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
                     g.1.add(&self.xsum_head_feature, 1.0);
 
                 } else {
-                    return ConstraintResult::Contradiction;
+                    return ConstraintResult::Contradiction(self.xsum_len_if_attribution.clone());
                 }
             }
         }
@@ -447,7 +465,8 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
 mod test {
     use super::*;
     use std::vec;
-    use crate::solver::test_util::{assert_contradiction_eq, PuzzleReplay};
+    use crate::constraint::test_util::*;
+    use crate::solver::test_util::PuzzleReplay;
     use crate::ranker::LinearRanker;
     use crate::sudoku::four_standard_parse;
 
@@ -559,12 +578,16 @@ mod test {
         let x1 = XSum{ direction: XSumDirection::RR, index: 0, target: 3 };
         // XSum 2 is a failure (3 + 4 + 2 != 10).
         let x2 = XSum{ direction: XSumDirection::CD, index: 2, target: 10 };
-        // XSum 3 is a failure even though it's incomplete (4 + 3 + 2 > 5).
+        // XSum 3 is a failure even though it's incomplete (after 4, 1 in remaining 3 is infeasible).
         let x3 = XSum{ direction: XSumDirection::RR, index: 2, target: 5 };
         // XSum 4 has no violations because it's incomplete and not over target.
         let x4 = XSum{ direction: XSumDirection::CD, index: 3, target: 10 };
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RR, index: 3, target: 1 };
+        // XSum 6 is a failure because there isn't a feasible length.
+        let x6 = XSum{ direction: XSumDirection::RR, index: 3, target: 20 };
+        // XSum 7 is a failure (3 + 4 > 6)
+        let x7 = XSum{ direction: XSumDirection::CD, index: 2, target: 6 };
 
         let puzzle = four_standard_parse(
             "2134\n\
@@ -573,12 +596,24 @@ mod test {
              ....\n"
         ).unwrap();
 
-        for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
+        for (x, expected) in vec![
+            (x1, None),
+            (x2, Some("XSUM_SUM_BAD")),
+            (x3, Some("XSUM_SUM_INFEASIBLE")),
+            (x4, None),
+            (x5, None),
+            (x6, Some("XSUM_LEN_INFEASIBLE")),
+            (x7, Some("XSUM_SUM_OVER")),
+        ] {
             let mut puzzle = puzzle.clone();
             let ranker = LinearRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
-            assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
+            if let Some(expected_attribution) = expected {
+                assert_contradiction(result, expected_attribution);
+            } else {
+                assert_no_contradiction(result);
+            }
         }
     }
 
@@ -594,6 +629,8 @@ mod test {
         let x4 = XSum{ direction: XSumDirection::CU, index: 0, target: 10 };
         // XSum 5 has no violations because it doesn't even have a first digit yet.
         let x5 = XSum{ direction: XSumDirection::RL, index: 0, target: 1 };
+        // XSum 6 is a failure because there isn't a feasible length.
+        let x6 = XSum{ direction: XSumDirection::RL, index: 0, target: 20 };
 
         let puzzle = four_standard_parse(
             "....\n\
@@ -602,12 +639,23 @@ mod test {
              4312\n"
         ).unwrap();
 
-        for (x, expected) in vec![(x1, false), (x2, true), (x3, true), (x4, false), (x5, false)] {
+        for (x, expected) in vec![
+            (x1, None),
+            (x2, Some("XSUM_SUM_BAD")),
+            (x3, Some("XSUM_SUM_OVER")),
+            (x4, None),
+            (x5, None),
+            (x6, Some("XSUM_LEN_INFEASIBLE")),
+        ] {
             let mut puzzle = puzzle.clone();
             let ranker = LinearRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
-            assert_contradiction_eq(&xsum_checker, &puzzle, &result, expected);
+            if let Some(expected_attribution) = expected {
+                assert_contradiction(result, expected_attribution);
+            } else {
+                assert_no_contradiction(result);
+            }
         }
     }
 }

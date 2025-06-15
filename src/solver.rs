@@ -113,7 +113,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn is_valid(&self) -> bool {
         match self.check_result {
-            ConstraintResult::Contradiction => false,
+            ConstraintResult::Contradiction(_) => false,
             _ => true,
         }
     }
@@ -254,7 +254,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn suggest(&self) -> BranchPoint<U, S> {
-        if let ConstraintResult::Certainty(d) = self.check_result {
+        if let ConstraintResult::Certainty(d, _) = self.check_result {
             return BranchPoint::unique(self.step, d.index, d.value);
         }
         let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
@@ -554,37 +554,19 @@ pub mod test_util {
                     observer.after_step(&self.solver);
                 }
                 let result = self.solver.constraint_result();
-                if let ConstraintResult::Contradiction = result {
+                if let ConstraintResult::Contradiction(_) = result {
                     return Ok(result);
                 }
             }
             return Ok(self.solver.constraint_result());
         }
     }
-
-    // Assertion for a contradiction or lack-thereof
-    pub fn assert_contradiction_eq<U: UInt, S: State<U>>(
-        constraint: &dyn Constraint<U, S>,
-        puzzle: &S,
-        result: &ConstraintResult<U, S::Value>,
-        expected_contradiction: bool,
-    ) {
-        let actual = if let ConstraintResult::Contradiction = result {
-            true
-        } else {
-            false
-        };
-        if expected_contradiction && !actual {
-            panic!("Expected contradiction; none found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
-        } else if actual && !expected_contradiction {
-            panic!("Expected no contradiction; one found:\nPuzzle state:\n{:?}\n{:?}\nResult: {:?}\n", puzzle, constraint, result);
-        }
-    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::core::{to_value, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
+    use crate::constraint::test_util::assert_contradiction;
+    use crate::core::{to_value, Attribution, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
     use crate::ranker::LinearRanker;
     use super::*;
 
@@ -688,11 +670,11 @@ mod test {
                     }
                     let j_val = to_value::<u8, GwValue>(puzzle.digits.get([0, j]).unwrap()).0;
                     if i_val == j_val {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(Attribution::new("GW_DUPE").unwrap())
                     }
                     let diff: i16 = (i_val as i16) - (j_val as i16);
                     if j == i+1 && diff.abs() < 5 {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(Attribution::new("GW_TOO_CLOSE").unwrap());
                     }
                 }
             }
@@ -739,11 +721,11 @@ mod test {
         assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 5], GwValue(1)).unwrap();
         let violation = constraint.check(&puzzle, &mut grid);
-        assert_eq!(violation, ConstraintResult::Contradiction);
+        assert_contradiction(violation, "GW_DUPE");
         puzzle.undo([0, 5], GwValue(1)).unwrap();
         puzzle.apply([0, 1], GwValue(3)).unwrap();
         let violation = constraint.check(&puzzle, &mut grid);
-        assert_eq!(violation, ConstraintResult::Contradiction);
+        assert_contradiction(violation, "GW_TOO_CLOSE");
         puzzle.undo([0, 1], GwValue(3)).unwrap();
         puzzle.apply([0, 1], GwValue(6)).unwrap();
         let violation = constraint.check(&puzzle, &mut grid);

@@ -293,30 +293,90 @@ impl <U: UInt> UVSet<U> {
     }
 }
 
-struct FeatureRegistry {
-    features: HashMap<&'static str, usize>,
+struct ConstStringRegistry {
+    mapping: HashMap<&'static str, usize>,
     next_id: usize,
 }
 
-impl FeatureRegistry {
+impl ConstStringRegistry {
+    pub fn new() -> Self { Self { mapping: HashMap::new(), next_id: 0 } }
     pub fn register(&mut self, name: &'static str) -> usize {
-        if let Some(id) = self.features.get(name) {
+        if let Some(id) = self.mapping.get(name) {
             *id
         } else {
             let id = self.next_id;
-            self.features.insert(name, id);
+            self.mapping.insert(name, id);
             self.next_id += 1;
             id
         }
     }
+    pub fn get_name(&self, id: usize) -> Option<&'static str> {
+        for (name, feature_id) in self.mapping.iter() {
+            if *feature_id == id {
+                return Some(name);
+            }
+        }
+        None
+    }
+}
+
+/// Marker structs to indicate whether a compile-time string has already been
+/// interned (or normalized to its usize representation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaybeId;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WithId;
+
+lazy_static::lazy_static! {
+    static ref ATTRIBUTION_REGISTRY: Mutex<ConstStringRegistry> = {
+        Mutex::new(ConstStringRegistry::new())
+    };
+}
+
+// NOTE: This is an expensive operation, so only use it for human-interface
+// purposes (e.g., debugging, logging, etc.) and not during the solving process.
+pub fn readable_attribution(id: usize) -> Option<Attribution<WithId>> {
+    let registry = ATTRIBUTION_REGISTRY.lock().unwrap();
+    registry.get_name(id).map(|name| {
+        Attribution { name, id: Some(id), _state: PhantomData}
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attribution<S>{
+    name: &'static str,
+    id: Option<usize>,
+    _state: PhantomData<S>,
+}
+
+impl <S> Attribution<S> {
+    pub fn get_name(&self) -> &'static str { self.name }
+}
+
+impl Attribution<MaybeId> {
+    // Attributions are lazily initialized; the id is set when it is first used.
+    pub fn new(name: &'static str) -> Self {
+        Attribution { name, id: None, _state: PhantomData }
+    }
+
+    pub fn unwrap(&mut self) -> Attribution<WithId> {
+        if let Some(id) = self.id {
+            return Attribution { name: self.name, id: Some(id), _state: PhantomData };
+        } else {
+            let id = ATTRIBUTION_REGISTRY.lock().unwrap().register(self.name);
+            self.id = Some(id);
+            return Attribution { name: self.name, id: Some(id), _state: PhantomData };
+        }
+    }
+}
+
+impl Attribution<WithId> {
+    pub fn get_id(&self) -> usize { self.id.unwrap() }
 }
 
 lazy_static::lazy_static! {
-    static ref FEATURE_REGISTRY: Mutex<FeatureRegistry> = {
-        Mutex::new(FeatureRegistry {
-            features: HashMap::new(),
-            next_id: 0,
-        })
+    static ref FEATURE_REGISTRY: Mutex<ConstStringRegistry> = {
+        Mutex::new(ConstStringRegistry::new())
     };
 }
 
@@ -324,18 +384,11 @@ lazy_static::lazy_static! {
 // purposes (e.g., debugging, logging, etc.) and not during the solving process.
 pub fn readable_feature(id: usize) -> Option<FeatureKey<WithId>> {
     let registry = FEATURE_REGISTRY.lock().unwrap();
-    for (name, feature_id) in &registry.features {
-        if *feature_id == id {
-            return Some(FeatureKey { name, id: Some(id), _state: PhantomData});
-        }
-    }
-    None
+    registry.get_name(id).map(|name| {
+        FeatureKey { name, id: Some(id), _state: PhantomData}
+    })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MaybeId;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WithId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureKey<S>{
     name: &'static str,
@@ -511,8 +564,8 @@ impl <U: UInt, V: Value<U>> CertainDecision<U, V> {
 /// short-circuiting.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstraintResult<U: UInt, V: Value<U>> {
-    Contradiction,
-    Certainty(CertainDecision<U, V>),
+    Contradiction(Attribution<WithId>),
+    Certainty(CertainDecision<U, V>, Attribution<WithId>),
     Ok,
 }
 

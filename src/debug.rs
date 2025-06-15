@@ -12,9 +12,11 @@ impl <U: UInt, S: State<U>> StepObserver<U, S> for NullObserver {
 
 fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>) -> String {
     match result {
-        ConstraintResult::Contradiction => "Contradiction".to_string(),
-        ConstraintResult::Certainty(d) => {
-            format!("Certainty({:?}, {:?})", d.index, d.value).to_string()
+        ConstraintResult::Contradiction(a) => {
+            format!("Contradiction({})", a.get_name())
+        },
+        ConstraintResult::Certainty(d, a) => {
+            format!("Certainty({:?}, {:?}, {})", d.index, d.value, a.get_name())
         },
         ConstraintResult::Ok => "Ok".to_string(),
     }
@@ -260,7 +262,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             DfsSolverState::Advancing(state) => {
                 *self.advance_hist.entry(state.streak).or_default() += 1;
                 *self.width_hist.entry(state.possibilities).or_default() += 1;
-                if let ConstraintResult::Certainty(_) = solver.constraint_result() {
+                if let ConstraintResult::Certainty(_, _) = solver.constraint_result() {
                     self.certainty_streak += 1;
                 }
             },

@@ -11,7 +11,7 @@ use ratatui::{
     widgets::{Block, Padding, Paragraph, Widget},
     DefaultTerminal, Frame,
 };
-use variant_sudoku_dfs::{cages::{CageBuilder, CageChecker, CAGE_FEATURE}, constraint::MultiConstraint, core::{FeatureVec, Index, State}, kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE}, ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE}, solver::{DfsSolver, DfsSolverState, DfsSolverView}, sudoku::{nine_standard_overlay, unpack_sval_vals, SState, StandardSudokuChecker, StandardSudokuOverlay}};
+use variant_sudoku_dfs::{cages::{CageBuilder, CageChecker, CAGE_FEATURE}, constraint::MultiConstraint, core::{ConstraintResult, FeatureVec, Index, State}, kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE}, ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE}, solver::{DfsSolver, DfsSolverState, DfsSolverView}, sudoku::{nine_standard_overlay, unpack_sval_vals, SState, StandardSudokuChecker, StandardSudokuOverlay}};
 
 type NineStd = SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>;
 const MIN_HEIGHT: u16 = 30;
@@ -163,12 +163,28 @@ impl <'a> Widget for HeaderWidget<'a> {
             DfsSolverState::Exhausted => "Exhausted".magenta(),
             DfsSolverState::Solved => "Solved".blue(),
         };
-        let counter_text = Text::from(Line::from(vec![
-            "State: ".into(), solver_state,
-            " Steps: ".into(), self.0.solver.step_count().to_string().yellow(),
-            " Mode: ".into(), format!("{:?}", self.0.mode).yellow(),
-        ]));
-        Paragraph::new(counter_text)
+        let header_lines = vec![
+            Line::from(vec![
+                "State: ".into(), solver_state,
+                " Steps: ".into(), self.0.solver.step_count().to_string().yellow(),
+                " Mode: ".into(), format!("{:?}", self.0.mode).yellow(),
+            ]),
+            if let DfsSolverState::Initializing(_) = self.0.solver.solver_state() {
+                Line::from("Replaying given cells...")
+            } else {
+                match self.0.solver.constraint_result() {
+                    ConstraintResult::Contradiction(a) => {
+                        Line::from(format!("Contradiction: ({})", a.get_name()).red())
+                    },
+                    ConstraintResult::Certainty(cd, a) => {
+                        Line::from(format!("Certainty: {:?}={} ({})", cd.index, cd.value.val(), a.get_name()).green())
+                    },
+                    _ => Line::from(""),
+                }
+
+            }
+        ];
+        Paragraph::new(Text::from(header_lines))
             .centered()
             .block(block)
             .render(area, buf);
@@ -220,7 +236,11 @@ impl <'a> GridWidget<'a> {
             }
         };
         s = match most_recent {
-            Some(mr) if mr == index => s.red(),
+            Some(mr) if mr == index => if self.0.solver.is_valid() {
+                s.green()
+            } else {
+                s.red()
+            },
             _ => s,
         };
         s
@@ -409,7 +429,7 @@ impl <'a> App<'a> {
         let vertical_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                ratatui::layout::Constraint::Length(3),  // Header
+                ratatui::layout::Constraint::Length(4),  // Header
                 ratatui::layout::Constraint::Min(0),     // Body (fills remaining space)
                 ratatui::layout::Constraint::Length(1),  // Footer
             ])

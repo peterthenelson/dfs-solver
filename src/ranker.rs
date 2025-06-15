@@ -1,4 +1,4 @@
-use crate::core::{empty_map, empty_set, readable_feature, unpack_values, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, WithId, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UInt, Value};
+use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UInt, Value, WithId};
 use crate::sudoku::{Overlay, SState, SVal};
 
 /// A ranker finds the "best" place in the grid to make a guess. In theory, we
@@ -16,14 +16,20 @@ pub trait Ranker<U: UInt, S: State<U>> {
     fn to_constraint_result(&self, grid: &DecisionGrid<U, S::Value>, puzzle: &S) -> ConstraintResult<U, S::Value>;
 }
 
+pub const NUM_POSSIBLE_FEATURE: &str = "NUM_POSSIBLE";
+pub const DG_NO_VALS_ATTRIBUTION: &str = "DG_CELL_NO_VALS";
+pub const DG_ONE_VAL_ATTRIBUTION: &str = "DG_CELL_ONE_VAL";
+pub const DG_NO_CELLS_ATTRIBUTION: &str = "DG_VAL_NO_CELLS";
+pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
+
 /// A linear scorer. Note that NUM_POSSIBLE is the (most important!) feature
 /// that indicates how many possible values are left for a cell.
 pub struct LinearRanker {
     weights: FeatureVec<FVNormed>,
     num_possible: FeatureKey<WithId>,
+    no_vals_attribution: Attribution<WithId>,
+    one_val_attribution: Attribution<WithId>,
 }
-
-pub const NUM_POSSIBLE_FEATURE: &str = "NUM_POSSIBLE";
 
 impl LinearRanker {
     pub fn new(feature_weights: FeatureVec<FVMaybeNormed>) -> Self {
@@ -34,6 +40,8 @@ impl LinearRanker {
         LinearRanker {
             weights: weights.try_normalized().unwrap().clone(),
             num_possible: num_possible.unwrap(),
+            no_vals_attribution: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
+            one_val_attribution: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
         }
     }
 
@@ -78,10 +86,13 @@ impl <U: UInt, S: State<U>> Ranker<U, S> for LinearRanker {
                 if puzzle.get([r, c]).is_none() {
                     let cell = &grid.get([r, c]).0;
                     if cell.len() == 0 {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(self.no_vals_attribution.clone());
                     } else if cell.len() == 1 {
                         let v = unpack_values::<U, S::Value>(cell)[0];
-                        return ConstraintResult::Certainty(CertainDecision::new([r, c], v));
+                        return ConstraintResult::Certainty(
+                            CertainDecision::new([r, c], v),
+                            self.one_val_attribution.clone(),
+                        );
                     }
                 }
             }
@@ -98,6 +109,10 @@ pub struct OverlaySensitiveLinearRanker {
     weights: FeatureVec<FVNormed>,
     num_possible: FeatureKey<WithId>,
     combinator: fn (usize, f64, f64) -> f64,
+    no_vals_attribution: Attribution<WithId>,
+    one_val_attribution: Attribution<WithId>,
+    no_cells_attribution: Attribution<WithId>,
+    one_cell_attribution: Attribution<WithId>,
 }
 
 impl OverlaySensitiveLinearRanker {
@@ -110,6 +125,10 @@ impl OverlaySensitiveLinearRanker {
             weights: weights.try_normalized().unwrap().clone(),
             num_possible: num_possible.unwrap(),
             combinator: combine_features,
+            no_vals_attribution: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
+            one_val_attribution: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
+            no_cells_attribution: Attribution::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
+            one_cell_attribution: Attribution::new(DG_ONE_CELL_ATTRIBUTION).unwrap(),
         }
     }
 
@@ -196,10 +215,13 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
                 if puzzle.get([r, c]).is_none() {
                     let cell = &grid.get([r, c]).0;
                     if cell.len() == 0 {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(self.no_vals_attribution.clone())
                     } else if cell.len() == 1 {
                         let v = unpack_values::<u8, SVal<MIN, MAX>>(cell)[0];
-                        return ConstraintResult::Certainty(CertainDecision::new([r, c], v));
+                        return ConstraintResult::Certainty(
+                            CertainDecision::new([r, c], v),
+                            self.one_val_attribution.clone(),
+                        );
                     }
                 }
             }
@@ -230,9 +252,12 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
                     let uv = v.to_uval();
                     let c = count.get(uv);
                     if *c == 0 {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(self.no_cells_attribution.clone());
                     } else if *c == 1 && first_index.get(uv).is_some() {
-                        return ConstraintResult::Certainty(CertainDecision::new(first_index.get(uv).unwrap(), v));
+                        return ConstraintResult::Certainty(
+                            CertainDecision::new(first_index.get(uv).unwrap(), v),
+                            self.one_cell_attribution.clone(),
+                        );
                     }
                 }
             }

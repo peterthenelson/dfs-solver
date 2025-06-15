@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, ConstraintResult, DecisionGrid, WithId, FeatureKey, Index, State, Stateful, UVSet, Value};
+use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, FeatureKey, Index, State, Stateful, UVSet, Value, WithId};
 use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -200,12 +200,16 @@ fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &
 // TODO: Useful functions for kropki white dots
 
 pub const KROPKI_BLACK_FEATURE: &str = "KROPKI_BLACK";
+pub const KROPKI_BLACK_CONFLICT_ATTRIBUTION: &str = "KROPKI_BLACK_CONFLICT";
+pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 
 // TODO: Add support for white kropki dots
 pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, UVSet<u8>>,
     kb_feature: FeatureKey<WithId>,
+    kb_conflict_attribute: Attribution<WithId>,
+    kb_if_attribute: Attribution<WithId>,
 }
 
 impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
@@ -226,6 +230,8 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
             blacks: chains,
             black_remaining: HashMap::new(),
             kb_feature: FeatureKey::new(KROPKI_BLACK_FEATURE).unwrap(),
+            kb_conflict_attribute: Attribution::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
+            kb_if_attribute: Attribution::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
         };
         kc.reset();
         kc
@@ -268,6 +274,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for KropkiCheck
         }
     }
 
+    // TODO: Check for direct conflicts
     fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), crate::core::Error> {
         if let Some(r) = self.black_remaining.get_mut(&index) {
             *r = singleton_set::<u8, SVal<MIN, MAX>>(value);
@@ -325,7 +332,7 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
                         );
                     }
                     if !kropki_black_adj_ok::<MIN, MAX>(&prev, &grid.get(*cell).0) {
-                        return ConstraintResult::Contradiction;
+                        return ConstraintResult::Contradiction(self.kb_if_attribute.clone());
                     }
                 }
             }
