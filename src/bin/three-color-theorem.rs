@@ -11,11 +11,17 @@ use variant_sudoku_dfs::tui::cli_solve;
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRV
 pub struct ThreeColorTheorem;
-impl PuzzleSetter<u8, NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>> for ThreeColorTheorem {
+impl PuzzleSetter for ThreeColorTheorem {
+    type U = u8;
+    type State = NineStd;
+    type Ranker = OverlaySensitiveLinearRanker;
+    type Constraint = MultiConstraint<u8, NineStd>;
+
     fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
+
     fn setup_with_givens(given: NineStd) -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
         let puzzle = given;
         let cb = CageBuilder::new(true, puzzle.get_overlay());
@@ -93,7 +99,7 @@ pub fn main() {
     let mut dbg = DbgObserver::new();
     dbg.sample_print(Sample::every_n(10000))
         .sample_stats("figures/three-color-theorem.png", Sample::time(Duration::from_secs(30)));
-    cli_solve::<_, _, ThreeColorTheorem>(None, dbg);
+    cli_solve::<ThreeColorTheorem, _>(None, dbg);
 }
 
 #[cfg(test)]
@@ -114,6 +120,6 @@ mod test {
                            84763521.\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
-        cli_solve::<_, _, ThreeColorTheorem>(Some(sudoku), obs);
+        cli_solve::<ThreeColorTheorem, _>(Some(sudoku), obs);
     }
 }

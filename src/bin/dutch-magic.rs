@@ -12,7 +12,12 @@ use variant_sudoku_dfs::tui::cli_solve;
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRF
 pub struct DutchMagic;
-impl PuzzleSetter<u8, NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>> for DutchMagic {
+impl PuzzleSetter for DutchMagic {
+    type U = u8;
+    type State = NineStd;
+    type Ranker = OverlaySensitiveLinearRanker;
+    type Constraint = MultiConstraint<u8, NineStd>;
+
     fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
@@ -60,7 +65,7 @@ pub fn main() {
     let mut dbg = DbgObserver::new();
     dbg.sample_print(Sample::every_n(1000))
         .sample_stats("figures/dutch-magic.png", Sample::time(Duration::from_secs(30)));
-    cli_solve::<_, _, DutchMagic>(None, dbg);
+    cli_solve::<DutchMagic, _>(None, dbg);
 }
 
 #[cfg(test)]
@@ -81,6 +86,6 @@ mod test {
                            38276451.\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
-        cli_solve::<_, _, DutchMagic>(Some(sudoku), obs);
+        cli_solve::<DutchMagic, _>(Some(sudoku), obs);
     }
 }

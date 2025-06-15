@@ -10,7 +10,12 @@ use variant_sudoku_dfs::tui::cli_solve;
 
 // https://sudokupad.app/clover/dec-1-2023-dutch-whispers
 pub struct DutchClover;
-impl PuzzleSetter<u8, NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>> for DutchClover {
+impl PuzzleSetter for DutchClover {
+    type U = u8;
+    type State = NineStd;
+    type Ranker = OverlaySensitiveLinearRanker;
+    type Constraint = MultiConstraint<u8, NineStd>;
+
     fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(nine_standard_parse(
@@ -62,7 +67,7 @@ pub fn main() {
     let mut dbg = DbgObserver::new();
     dbg.sample_print(Sample::every_n(100))
         .sample_stats("figures/dutch-clover.png", Sample::time(Duration::from_secs(30)));
-    cli_solve::<_, _, DutchClover>(None, dbg);
+    cli_solve::<DutchClover, _>(None, dbg);
 }
 
 #[cfg(test)]
@@ -83,6 +88,6 @@ mod test {
                            51627384.\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
-        cli_solve::<_, _, DutchClover>(Some(sudoku), obs);
+        cli_solve::<DutchClover, _>(Some(sudoku), obs);
     }
 }

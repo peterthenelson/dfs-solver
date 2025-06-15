@@ -488,10 +488,15 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 }
 
-pub trait PuzzleSetter<U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S>> {
-    fn setup() -> (S, R, C);
+pub trait PuzzleSetter {
+    type U: UInt;
+    type State: State<Self::U>;
+    type Ranker: Ranker<Self::U, Self::State>;
+    type Constraint: Constraint<Self::U, Self::State>;
+
+    fn setup() -> (Self::State, Self::Ranker, Self::Constraint);
     // Useful for testing: setup the state with a different set of givens.
-    fn setup_with_givens(given: S) -> (S, R, C);
+    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint);
 }
 
 #[cfg(test)]

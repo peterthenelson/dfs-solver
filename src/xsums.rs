@@ -415,7 +415,6 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
-                print!("r={};e={}\n", r, e);
                 if r < 0 {
                     return ConstraintResult::Contradiction(self.xsum_sum_over_attribution.clone());
                 } else if e == 0 && r != 0 {

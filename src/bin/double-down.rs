@@ -11,7 +11,12 @@ use variant_sudoku_dfs::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEAT
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 pub struct DoubleDown;
-impl PuzzleSetter<u8, NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>> for DoubleDown {
+impl PuzzleSetter for DoubleDown {
+    type U = u8;
+    type State = NineStd;
+    type Ranker = OverlaySensitiveLinearRanker;
+    type Constraint = MultiConstraint<u8, NineStd>;
+
     fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
         // Real puzzle has no givens
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
@@ -61,7 +66,7 @@ pub fn main() {
     let mut dbg = DbgObserver::new();
     dbg.sample_print(Sample::every_n(100000))
         .sample_stats("figures/double-down-stats.png", Sample::time(Duration::from_secs(30)));
-    cli_solve::<_, _, DoubleDown>(None, dbg);
+    cli_solve::<DoubleDown, _>(None, dbg);
 }
 
 #[cfg(test)]
@@ -82,6 +87,6 @@ mod test {
                            52146793.\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
-        cli_solve::<_, _, DoubleDown>(Some(sudoku), obs);
+        cli_solve::<DoubleDown, _>(Some(sudoku), obs);
     }
 }
