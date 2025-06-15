@@ -153,7 +153,7 @@ impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_util {
     use super::*;
     use crate::core::{Value};

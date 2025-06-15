@@ -773,7 +773,7 @@ pub trait State<U: UInt> where Self: Clone + Debug + Stateful<U, Self::Value> {
     fn get(&self, index: Index) -> Option<Self::Value>;
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_util {
     use super::*;
     /// Unwrapping UVals is private to the core module, but it's valuable to

@@ -499,7 +499,7 @@ pub trait PuzzleSetter {
     fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint);
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_util {
     use super::*;
 

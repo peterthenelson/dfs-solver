@@ -20,9 +20,6 @@ use variant_sudoku_dfs::{
     sudoku::{nine_standard_overlay, unpack_sval_vals, NineStd, StandardSudokuChecker}
 };
 
-const MIN_HEIGHT: u16 = 30;
-const MIN_WIDTH: u16 = 70;
-
 fn build_puzzle() -> NineStd {
     NineStd::new(nine_standard_overlay())
 }
@@ -102,15 +99,6 @@ fn build_ranker() -> OverlaySensitiveLinearRanker {
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
-    let size = terminal.size()?;
-    if size.height < MIN_HEIGHT || size.width < MIN_WIDTH {
-        terminal.resize(Rect {
-            x: 0,
-            y: 0,
-            height: std::cmp::max(MIN_HEIGHT, size.height),
-            width: std::cmp::max(MIN_WIDTH, size.width),
-        })?;
-    }
     let mut puzzle = build_puzzle();
     let mut constraint = build_constraints(&puzzle);
     let ranker = build_ranker();
@@ -556,5 +544,4 @@ impl <'a> App<'a> {
     fn exit(&mut self, status: Status) {
         self.exit = Some(status);
     }
-
 }

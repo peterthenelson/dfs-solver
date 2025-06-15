@@ -7,7 +7,7 @@ use variant_sudoku_dfs::solver::PuzzleSetter;
 use variant_sudoku_dfs::debug::{DbgObserver, Sample};
 use variant_sudoku_dfs::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
 use variant_sudoku_dfs::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
-use variant_sudoku_dfs::tui::cli_solve;
+use variant_sudoku_dfs::tui::solve_cli;
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRV
 pub struct ThreeColorTheorem;
@@ -99,12 +99,12 @@ pub fn main() {
     let mut dbg = DbgObserver::new();
     dbg.sample_print(Sample::every_n(10000))
         .sample_stats("figures/three-color-theorem.png", Sample::time(Duration::from_secs(30)));
-    cli_solve::<ThreeColorTheorem, _>(None, dbg);
+    solve_cli::<ThreeColorTheorem, _>(dbg);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-util"))]
 mod test {
-    use variant_sudoku_dfs::{debug::NullObserver, sudoku::nine_standard_parse};
+    use variant_sudoku_dfs::{debug::NullObserver, sudoku::nine_standard_parse, tui::test_util::solve_with_given};
     use super::*;
 
     #[test]
@@ -120,6 +120,6 @@ mod test {
                            84763521.\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
-        cli_solve::<ThreeColorTheorem, _>(Some(sudoku), obs);
+        solve_with_given::<ThreeColorTheorem, _>(sudoku, obs);
     }
 }
