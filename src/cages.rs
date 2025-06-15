@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
 use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
-use crate::constraint::{Constraint, ConstraintViolationDetail};
+use crate::constraint::Constraint;
 use crate::sudoku::{unpack_sval_vals, SState, SVal, Overlay};
 
 #[derive(Debug, Clone)]
@@ -263,10 +263,6 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
             }
         }
         ConstraintResult::Ok
-    }
-
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, O>) -> Vec<ConstraintViolationDetail> {
-        todo!()
     }
 }
 

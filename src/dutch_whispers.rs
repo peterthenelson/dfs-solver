@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use crate::constraint::{Constraint, ConstraintViolationDetail};
+use crate::constraint::Constraint;
 use crate::core::{full_set, singleton_set, unpack_singleton, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, UVSet};
 use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
@@ -225,10 +225,6 @@ Constraint<u8, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
             }
         }
         ConstraintResult::Ok
-    }
-
-    fn explain_contradictions(&self, _: &SState<N, M, 1, 9, O>) -> Vec<ConstraintViolationDetail> {
-        todo!()
     }
 }
 

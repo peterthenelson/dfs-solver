@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use crate::core::{singleton_set, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
-use crate::constraint::{Constraint, ConstraintViolationDetail};
+use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -50,7 +50,6 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
     fn get_constraint(&self) -> &dyn Constraint<U, S>;
     fn constraint_result(&self) -> ConstraintResult<U, S::Value>;
     fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>>;
-    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail>;
     fn get_state(&self) -> &S;
 }
 
@@ -144,10 +143,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
         self.decision_grid.clone()
-    }
-
-    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
-        self.constraint.explain_contradictions(self.get_state())
     }
 
     fn get_state(&self) -> &S {
@@ -385,9 +380,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
         self.solver.decision_grid()
     }
-    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
-        self.solver.explain_contradiction()
-    }
     fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
@@ -452,9 +444,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
     fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
         self.solver.decision_grid()
-    }
-    fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
-        self.solver.explain_contradiction()
     }
     fn get_state(&self) -> &S { self.solver.get_state() }
 }
@@ -533,9 +522,6 @@ pub mod test_util {
         fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
             self.solver.decision_grid()
         }
-        fn explain_contradiction(&self) -> Vec<ConstraintViolationDetail> {
-            self.solver.explain_contradiction()
-        }
         fn get_state(&self) -> &S { self.solver.get_state() }
     }
 
@@ -598,7 +584,6 @@ pub mod test_util {
 
 #[cfg(test)]
 mod test {
-    use crate::constraint::ConstraintViolationDetail;
     use crate::core::{to_value, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
     use crate::ranker::LinearRanker;
     use super::*;
@@ -713,9 +698,6 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
-            todo!()
-        }
     }
 
     #[derive(Debug)]
@@ -741,9 +723,6 @@ mod test {
                 }
             }
             ConstraintResult::Ok
-        }
-        fn explain_contradictions(&self, _: &GwLine) -> Vec<ConstraintViolationDetail> {
-            todo!()
         }
     }
 

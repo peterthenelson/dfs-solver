@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::core::{empty_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, Value};
-use crate::constraint::{Constraint, ConstraintViolationDetail};
+use crate::constraint::Constraint;
 use crate::sudoku::{sval_sum_bound, SState, SVal, StandardSudokuOverlay};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -440,10 +440,6 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
             }
         }
         ConstraintResult::Ok
-    }
-
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>) -> Vec<ConstraintViolationDetail> {
-        todo!()
     }
 }
 

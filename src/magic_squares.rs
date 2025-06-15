@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::{Constraint, ConstraintViolationDetail}, core::{empty_set, CertainDecision, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value}, sudoku::{Overlay, SState, SVal}};
+use crate::{constraint::Constraint, core::{empty_set, CertainDecision, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value}, sudoku::{Overlay, SState, SVal}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -209,10 +209,6 @@ Constraint<u8, SState<N, M, 1, 9, O>> for MagicSquareChecker {
             }
         }
         ConstraintResult::Ok
-    }
-
-    fn explain_contradictions(&self, _: &SState<N, M, 1, 9, O>) -> Vec<ConstraintViolationDetail> {
-        todo!()
     }
 }
 

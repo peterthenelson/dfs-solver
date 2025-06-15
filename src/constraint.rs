@@ -1,13 +1,6 @@
 use std::fmt::Debug;
 use crate::core::{ConstraintResult, DecisionGrid, Error, Index, State, Stateful, UInt};
 
-/// A full explanation of a violated constraint (for UI and debugging purposes).
-#[derive(Debug, Clone, PartialEq)]
-pub struct ConstraintViolationDetail {
-    pub message: String,
-    pub highlight: Option<Vec<Index>>,
-}
-
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
 /// - Return early when it hits a Contradiction or Certainty.
@@ -34,7 +27,6 @@ pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + D
     /// information about what values a cell could take on, they should update
     /// the provided grid (in a way that further constrains it).
     fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value>;
-    fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail>;
 }
 
 pub struct ConstraintConjunction<U, S, X, Y>
@@ -96,13 +88,6 @@ where
             ConstraintResult::Certainty(d) => ConstraintResult::Certainty(d),
             ConstraintResult::Ok => self.y.check(puzzle, grid),
         }
-    }
-
-    fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail> {
-        let mut violations = Vec::new();
-        violations.extend(self.x.explain_contradictions(puzzle));
-        violations.extend(self.y.explain_contradictions(puzzle));
-        violations
     }
 }
 
@@ -166,14 +151,6 @@ impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
         }
         ConstraintResult::Ok
     }
-
-    fn explain_contradictions(&self, puzzle: &S) -> Vec<ConstraintViolationDetail> {
-        let mut violations = Vec::new();
-        for c in &self.constraints {
-            violations.extend(c.explain_contradictions(puzzle));
-        }
-        violations
-    }
 }
 
 #[cfg(test)]
@@ -227,10 +204,6 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        
-        fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
-            todo!()
-        }
     }
 
     #[derive(Debug, Clone)]
@@ -254,10 +227,6 @@ mod test {
                 }
             }
             ConstraintResult::Ok
-        }
-        
-        fn explain_contradictions(&self, _: &ThreeVals) -> Vec<ConstraintViolationDetail> {
-            todo!()
         }
     }
 

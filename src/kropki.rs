@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::constraint::{Constraint, ConstraintViolationDetail};
+use crate::constraint::Constraint;
 use crate::core::{empty_set, singleton_set, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
 use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
 
@@ -331,10 +331,6 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
             }
         }
         ConstraintResult::Ok
-    }
-
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, O>) -> Vec<ConstraintViolationDetail> {
-        todo!()
     }
 }
 

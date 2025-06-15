@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
 use crate::core::{full_set, to_value, unpack_values, ConstraintResult, DecisionGrid, Error, Index, UVSet, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
-use crate::constraint::{Constraint, ConstraintViolationDetail};
+use crate::constraint::Constraint;
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -627,10 +627,6 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, M
             }
         }
         ConstraintResult::Ok
-    }
-
-    fn explain_contradictions(&self, _: &SState<N, M, MIN, MAX, O>) -> Vec<ConstraintViolationDetail> {
-        todo!()
     }
 }
 
