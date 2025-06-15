@@ -11,9 +11,15 @@ use ratatui::{
     widgets::{Block, Padding, Paragraph, Widget},
     DefaultTerminal, Frame,
 };
-use variant_sudoku_dfs::{cages::{CageBuilder, CageChecker, CAGE_FEATURE}, constraint::MultiConstraint, core::{ConstraintResult, FeatureVec, Index, State}, kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE}, ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE}, solver::{DfsSolver, DfsSolverState, DfsSolverView}, sudoku::{nine_standard_overlay, unpack_sval_vals, SState, StandardSudokuChecker, StandardSudokuOverlay}};
+use variant_sudoku_dfs::{
+    cages::{CageBuilder, CageChecker, CAGE_FEATURE},
+    constraint::MultiConstraint,
+    core::{ConstraintResult, FeatureVec, Index, State},
+    kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE},
+    ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE}, solver::{DfsSolver, DfsSolverState, DfsSolverView},
+    sudoku::{nine_standard_overlay, unpack_sval_vals, NineStd, StandardSudokuChecker}
+};
 
-type NineStd = SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>;
 const MIN_HEIGHT: u16 = 30;
 const MIN_WIDTH: u16 = 70;
 

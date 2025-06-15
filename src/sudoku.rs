@@ -210,20 +210,22 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> 
     }
 }
 
-pub fn nine_standard_parse(s: &str) -> Result<SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>, Error> {
-    SState::<9, 9, 1, 9, _>::parse(s, nine_standard_overlay())
-}
+pub type NineStd = SState<9, 9, 1, 9, StandardSudokuOverlay<9, 9>>;
+pub type EightStd = SState<8, 8, 1, 8, StandardSudokuOverlay<8, 8>>;
+pub type SixStd = SState<6, 6, 1, 6, StandardSudokuOverlay<6, 6>>;
+pub type FourStd = SState<4, 4, 1, 4, StandardSudokuOverlay<4, 4>>;
 
-pub fn eight_standard_parse(s: &str) -> Result<SState<8, 8, 1, 8, StandardSudokuOverlay<8, 8>>, Error> {
-    SState::<8, 8, 1, 8, _>::parse(s, eight_standard_overlay())
+pub fn nine_standard_parse(s: &str) -> Result<NineStd, Error> {
+    NineStd::parse(s, nine_standard_overlay())
 }
-
-pub fn six_standard_parse(s: &str) -> Result<SState<6, 6, 1, 6, StandardSudokuOverlay<6, 6>>, Error> {
-    SState::<6, 6, 1, 6, _>::parse(s, six_standard_overlay())
+pub fn eight_standard_parse(s: &str) -> Result<EightStd, Error> {
+    EightStd::parse(s, eight_standard_overlay())
 }
-
-pub fn four_standard_parse(s: &str) -> Result<SState<4, 4, 1, 4, StandardSudokuOverlay<4, 4>>, Error> {
-    SState::<4, 4, 1, 4, _>::parse(s, four_standard_overlay())
+pub fn six_standard_parse(s: &str) -> Result<SixStd, Error> {
+    SixStd::parse(s, six_standard_overlay())
+}
+pub fn four_standard_parse(s: &str) -> Result<FourStd, Error> {
+    FourStd::parse(s, four_standard_overlay())
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>

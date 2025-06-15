@@ -10,3 +10,4 @@ pub mod magic_squares;
 pub mod whispers;
 pub mod dutch_whispers;
 pub mod xsums;
+pub mod tui;

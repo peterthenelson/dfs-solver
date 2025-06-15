@@ -488,6 +488,12 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 }
 
+pub trait PuzzleSetter<U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S>> {
+    fn setup() -> (S, R, C);
+    // Useful for testing: setup the state with a different set of givens.
+    fn setup_with_givens(given: S) -> (S, R, C);
+}
+
 #[cfg(test)]
 pub mod test_util {
     use super::*;
