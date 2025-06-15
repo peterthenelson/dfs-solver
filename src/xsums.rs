@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::core::{empty_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, Value};
+use crate::core::{empty_set, ConstraintResult, DecisionGrid, Error, WithId, FeatureKey, Index, State, Stateful, Value};
 use crate::constraint::Constraint;
 use crate::sudoku::{sval_sum_bound, SState, SVal, StandardSudokuOverlay};
 
@@ -189,8 +189,8 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     xsums_empty: Vec<Option<i16>>,
     // To calculate remaining and empty when a length cell becomes known.
     grid: Vec<Option<SVal<MIN, MAX>>>,
-    xsum_head_feature: FeatureKey<FKWithId>,
-    xsum_tail_feature: FeatureKey<FKWithId>,
+    xsum_head_feature: FeatureKey<WithId>,
+    xsum_tail_feature: FeatureKey<WithId>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {

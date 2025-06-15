@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
+use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, WithId, FeatureKey, Index, State, Stateful, UVSet, Value};
 use crate::constraint::Constraint;
 use crate::sudoku::{unpack_sval_vals, SState, SVal, Overlay};
 
@@ -96,7 +96,7 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     remaining: Vec<Option<u8>>,
     empty: Vec<usize>,
     cage_sets: Vec<UVSet<u8>>,
-    cage_feature: FeatureKey<FKWithId>,
+    cage_feature: FeatureKey<WithId>,
     illegal: Option<(Index, SVal<MIN, MAX>)>,
 }
 

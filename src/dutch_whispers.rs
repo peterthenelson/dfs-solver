@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{full_set, singleton_set, unpack_singleton, ConstraintResult, DecisionGrid, Error, FKWithId, FeatureKey, Index, State, Stateful, UVSet};
+use crate::core::{full_set, singleton_set, unpack_singleton, ConstraintResult, DecisionGrid, Error, WithId, FeatureKey, Index, State, Stateful, UVSet};
 use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
 
@@ -80,7 +80,7 @@ pub struct DutchWhisperChecker {
     whispers: Vec<DutchWhisper>,
     remaining_init: HashMap<Index, UVSet<u8>>,
     remaining: HashMap<Index, UVSet<u8>>,
-    dw_feature: FeatureKey<FKWithId>,
+    dw_feature: FeatureKey<WithId>,
 }
 
 impl DutchWhisperChecker {

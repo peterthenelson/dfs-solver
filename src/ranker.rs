@@ -1,4 +1,4 @@
-use crate::core::{empty_map, empty_set, readable_feature, unpack_values, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FKWithId, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UInt, Value};
+use crate::core::{empty_map, empty_set, readable_feature, unpack_values, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, WithId, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UInt, Value};
 use crate::sudoku::{Overlay, SState, SVal};
 
 /// A ranker finds the "best" place in the grid to make a guess. In theory, we
@@ -20,7 +20,7 @@ pub trait Ranker<U: UInt, S: State<U>> {
 /// that indicates how many possible values are left for a cell.
 pub struct LinearRanker {
     weights: FeatureVec<FVNormed>,
-    num_possible: FeatureKey<FKWithId>,
+    num_possible: FeatureKey<WithId>,
 }
 
 pub const NUM_POSSIBLE_FEATURE: &str = "NUM_POSSIBLE";
@@ -96,7 +96,7 @@ impl <U: UInt, S: State<U>> Ranker<U, S> for LinearRanker {
 /// many possible indices are left for a particular value in a region.
 pub struct OverlaySensitiveLinearRanker {
     weights: FeatureVec<FVNormed>,
-    num_possible: FeatureKey<FKWithId>,
+    num_possible: FeatureKey<WithId>,
     combinator: fn (usize, f64, f64) -> f64,
 }
 

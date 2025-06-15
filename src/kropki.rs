@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value};
+use crate::core::{empty_set, singleton_set, ConstraintResult, DecisionGrid, WithId, FeatureKey, Index, State, Stateful, UVSet, Value};
 use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -205,7 +205,7 @@ pub const KROPKI_BLACK_FEATURE: &str = "KROPKI_BLACK";
 pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, UVSet<u8>>,
-    kb_feature: FeatureKey<FKWithId>,
+    kb_feature: FeatureKey<WithId>,
 }
 
 impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {

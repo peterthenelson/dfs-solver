@@ -322,7 +322,7 @@ lazy_static::lazy_static! {
 
 // NOTE: This is an expensive operation, so only use it for human-interface
 // purposes (e.g., debugging, logging, etc.) and not during the solving process.
-pub fn readable_feature(id: usize) -> Option<FeatureKey<FKWithId>> {
+pub fn readable_feature(id: usize) -> Option<FeatureKey<WithId>> {
     let registry = FEATURE_REGISTRY.lock().unwrap();
     for (name, feature_id) in &registry.features {
         if *feature_id == id {
@@ -333,9 +333,9 @@ pub fn readable_feature(id: usize) -> Option<FeatureKey<FKWithId>> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FKMaybeId;
+pub struct MaybeId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FKWithId;
+pub struct WithId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureKey<S>{
     name: &'static str,
@@ -347,13 +347,13 @@ impl <S> FeatureKey<S> {
     pub fn get_name(&self) -> &'static str { self.name }
 }
 
-impl FeatureKey<FKMaybeId> {
+impl FeatureKey<MaybeId> {
     // Features are lazily initialized; the id is set when it is first used.
     pub fn new(name: &'static str) -> Self {
         FeatureKey { name, id: None, _state: PhantomData }
     }
 
-    pub fn unwrap(&mut self) -> FeatureKey<FKWithId> {
+    pub fn unwrap(&mut self) -> FeatureKey<WithId> {
         if let Some(id) = self.id {
             return FeatureKey { name: self.name, id: Some(id), _state: PhantomData };
         } else {
@@ -364,7 +364,7 @@ impl FeatureKey<FKMaybeId> {
     }
 }
 
-impl FeatureKey<FKWithId> {
+impl FeatureKey<WithId> {
     pub fn get_id(&self) -> usize { self.id.unwrap() }
 }
 
@@ -395,7 +395,7 @@ impl FeatureVec<FVMaybeNormed> {
         fv
     }
 
-    pub fn add(&mut self, key: &FeatureKey<FKWithId>, value: f64) {
+    pub fn add(&mut self, key: &FeatureKey<WithId>, value: f64) {
         let id = key.get_id();
         self.features.push((id, value));
         self.normalized = false;
@@ -464,7 +464,7 @@ impl Debug for FeatureVec<FVMaybeNormed> {
 }
 
 impl FeatureVec<FVNormed> {
-    pub fn get(&self, key: &FeatureKey<FKWithId>) -> Option<f64> {
+    pub fn get(&self, key: &FeatureKey<WithId>) -> Option<f64> {
         let id = key.get_id();
         for (k, v) in &self.features {
             if *k == id {

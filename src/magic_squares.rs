@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{empty_set, CertainDecision, ConstraintResult, DecisionGrid, FKWithId, FeatureKey, Index, State, Stateful, UVSet, Value}, sudoku::{Overlay, SState, SVal}};
+use crate::{constraint::Constraint, core::{empty_set, CertainDecision, ConstraintResult, DecisionGrid, WithId, FeatureKey, Index, State, Stateful, UVSet, Value}, sudoku::{Overlay, SState, SVal}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -71,7 +71,7 @@ pub struct MagicSquareChecker {
     squares: Vec<MagicSquare>,
     evens: UVSet<u8>,
     odds: UVSet<u8>,
-    ms_feature: FeatureKey<FKWithId>,
+    ms_feature: FeatureKey<WithId>,
 }
 
 impl MagicSquareChecker {
