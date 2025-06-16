@@ -162,6 +162,7 @@ pub trait Overlay: Clone + Debug {
 #[derive(Clone)]
 pub struct SState<const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> {
     grid: UVGrid<u8>,
+    given: UVGrid<u8>,
     overlay: O,
 } 
 
@@ -173,7 +174,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> 
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> SState<N, M, MIN, MAX, O> {
     pub fn new(overlay: O) -> Self {
-        Self { grid: UVGrid::new(N, M), overlay }
+        Self { grid: UVGrid::new(N, M), given: UVGrid::new(N, M), overlay }
     }
 
     pub fn get_overlay(&self) -> &O { &self.overlay }
@@ -200,7 +201,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> 
                 }
             }
         }
-        Ok(Self { grid, overlay })
+        Ok(Self { given: grid.clone(), grid, overlay })
     }
 
     pub fn serialize(&self) -> String {
@@ -276,8 +277,9 @@ State<u8> for SState<N, M, MIN, MAX, O> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
 Stateful<u8, SVal<MIN, MAX>> for SState<N, M, MIN, MAX, O> {
+    // Resets back to the given values.
     fn reset(&mut self) {
-        self.grid = UVGrid::new(N, M);
+        self.grid = self.given.clone();
     }
 
     fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
@@ -877,6 +879,26 @@ mod test {
         assert_eq!(sudoku.get([0, 0]), Some(SVal::new(5)));
         assert_eq!(sudoku.get([8, 8]), Some(SVal::new(9)));
         assert_eq!(sudoku.get([2, 7]), Some(SVal::new(6)));
+        assert_eq!(sudoku.to_string(), input);
+    }
+
+    #[test]
+    fn test_sudoku_reset_keeps_initial_moves() {
+        let input: &str = "5.3......\n\
+                           6..195...\n\
+                           .98....6.\n\
+                           8...6...3\n\
+                           4..8.3..1\n\
+                           7...2...6\n\
+                           .6....28.\n\
+                           ...419..5\n\
+                           ......8.9\n";
+        let mut sudoku = nine_standard_parse(input).unwrap();
+        assert_eq!(sudoku.get([0, 1]), None);
+        sudoku.apply([0, 1], SVal::new(2)).unwrap();
+        assert_eq!(sudoku.get([0, 1]), Some(SVal::new(2)));
+        sudoku.reset();
+        assert_eq!(sudoku.get([0, 1]), None);
         assert_eq!(sudoku.to_string(), input);
     }
 

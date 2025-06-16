@@ -157,13 +157,12 @@ pub enum Pane {
 #[derive(Debug, Clone, PartialEq, Eq, IntoPrimitive, TryFromPrimitive, strum_macros::EnumCount)]
 #[repr(u8)]
 pub enum Mode {
-    GridCells = 1,
+    Readme = 1,
+    GridCells,
     /* TODO: Add these
-    Readme,
     GridRows,
     GridCols,
     GridBoxes,
-    Stats,
     */
     Stack,
     Constraints,
@@ -176,6 +175,7 @@ enum TuiStateEvent {
     PaneSwitch,
     ModeUpdate,
     Step,
+    Reset,
     Undo,
     Delegate(KeyEvent),
     Exit,
@@ -211,7 +211,7 @@ impl <'a, P: PuzzleSetter> TuiState<'a, P> {
             grid_pos: [0, 0],
             scroll_pos: 0,
             scroll_lines: Vec::new(),
-            mode: Mode::GridCells,
+            mode: Mode::Readme,
             active: Pane::Grid,
             exit: None,
         }
@@ -224,6 +224,10 @@ impl <'a, P: PuzzleSetter> TuiState<'a, P> {
                 self.exit(Status::Err(format!("{:?}", e)));
             }
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.solver.reset();
     }
 
     pub fn undo(&mut self) {
@@ -325,7 +329,7 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
         " Move ".into(),
         "W/A/S/D".blue().bold(),
         " Panes ".into(),
-        "Ctrl+A/D".blue().bold(),
+        "Space".blue().bold(),
         " Modes ".into(),
         "Tab/Shift+Tab".blue().bold(),
         " Advance ".into(),
@@ -371,20 +375,19 @@ fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>
                 state.step();
                 TuiStateEvent::Step
             },
+            KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                state.reset();
+                TuiStateEvent::Reset
+            },
             KeyCode::Char('z') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 state.undo();
                 TuiStateEvent::Undo
             },
-            KeyCode::Char('a') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                if state.active == Pane::TextArea {
-                    state.active = Pane::Grid;
-                }
-                TuiStateEvent::PaneSwitch
-            },
-            KeyCode::Char('d') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                if state.active == Pane::Grid {
-                    state.active = Pane::TextArea;
-                }
+            KeyCode::Char(' ') => {
+                state.active = match state.active {
+                    Pane::TextArea => Pane::Grid,
+                    Pane::Grid => Pane::TextArea,
+                };
                 TuiStateEvent::PaneSwitch
             },
             _ => { TuiStateEvent::Delegate(key_event) },
@@ -431,6 +434,16 @@ fn text_area_ws<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: Key
 /// Utility for converting a single string to lines.
 fn to_lines(s: &str) -> Vec<String> {
     s.lines().map(|line| line.to_string()).collect()
+}
+
+fn readme_lines() -> Vec<String> {
+    vec![
+        "[N]ext -- Move forward one step".into(),
+        "Ctrl+Z -- Undo and/or pop decision".into(),
+        "Ctrl+R -- Reset puzzle".into(),
+        // TODO: "[P]lay -- Move forward until no longer certain".into(),
+        // TODO: Manual step, force backtrack
+    ]
 }
 
 /// Generic dumping of stack
@@ -514,6 +527,7 @@ fn possible_value_lines<'a, P: PuzzleSetter<U = u8>, const MIN: u8, const MAX: u
 /// Generic rendering of text for the text_area, appropriate for all standard grids
 fn scroll_lines_generic<'a, P: PuzzleSetter<U = u8>, const MIN: u8, const MAX: u8>(state: &TuiState<'a, P>) -> Vec<String> {
     match state.mode {
+        Mode::Readme => readme_lines(),
         Mode::Stack => stack_lines(state),
         Mode::GridCells => possible_value_lines::<P, MIN, MAX>(state),
         Mode::Constraints => constraint_lines::<P>(state),
@@ -639,7 +653,8 @@ fn draw_grid<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, v_seg_len: usize, v_s
 fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
     let is_active = state.active == Pane::TextArea;
     let title_text = match state.mode {
-        Mode::Stack => "BranchPoint Stack",
+        Mode::Readme => "Debugger Hotkeys",
+        Mode::Stack => "Decision Stack",
         Mode::Constraints => "Constraints for Cell",
         Mode::ConstraintsRaw => "Full Constraint Dump",
         Mode::GridCells => "Possible Cell Vals",

@@ -368,16 +368,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
     }
 
-    // TODO: This actually resets the puzzle, including any initial moves. Oops.
     pub fn reset(&mut self) {
         self.puzzle.reset();
+        self.constraint.reset();
         self.check_result = ConstraintResult::Ok;
         self.decision_grid = None;
         self.stack.clear();
-        self.state = DfsSolverState::Advancing(AdvancingState {
-            step: 0,
-            possibilities: 0,
-        });
+        self.state = DfsSolverState::Initializing(InitializingState { last_filled: None });
         self.step = 0;
         self.backtracked_steps = None;
     }
