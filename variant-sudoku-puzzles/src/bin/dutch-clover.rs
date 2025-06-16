@@ -1,12 +1,10 @@
-use std::time::Duration;
 use variant_sudoku::core::FeatureVec;
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker, DW_FEATURE};
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::debug::{DbgObserver, Sample};
 use variant_sudoku::sudoku::{nine_standard_parse, NineStd, StandardSudokuChecker};
-use variant_sudoku::tui::solve_cli;
+use variant_sudoku::tui::{solve_main, NineStdTui};
 
 // https://sudokupad.app/clover/dec-1-2023-dutch-whispers
 pub struct DutchClover;
@@ -64,10 +62,7 @@ impl PuzzleSetter for DutchClover {
 }
 
 pub fn main() {
-    let mut dbg = DbgObserver::new();
-    dbg.sample_print(Sample::every_n(100))
-        .sample_stats("figures/dutch-clover.png", Sample::time(Duration::from_secs(30)));
-    solve_cli::<DutchClover, _>(dbg);
+    solve_main::<DutchClover, NineStdTui>("figures/dutch-clover.png");
 }
 
 #[cfg(test)]

@@ -1,12 +1,10 @@
-use std::time::Duration;
 use variant_sudoku::core::FeatureVec;
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::debug::{DbgObserver, Sample};
 use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
-use variant_sudoku::tui::{solve_cli};
+use variant_sudoku::tui::{solve_main, NineStdTui};
 use variant_sudoku::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
@@ -63,10 +61,7 @@ impl PuzzleSetter for DoubleDown {
 }
 
 pub fn main() {
-    let mut dbg = DbgObserver::new();
-    dbg.sample_print(Sample::every_n(100000))
-        .sample_stats("figures/double-down-stats.png", Sample::time(Duration::from_secs(30)));
-    solve_cli::<DoubleDown, _>(dbg);
+    solve_main::<DoubleDown, NineStdTui>("figures/double-down.png");
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use std::io;
+use std::{env, io, time::Duration};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -6,9 +6,7 @@ use ratatui::{
 };
 use strum::EnumCount;
 use crate::{
-    core::{ConstraintResult, Index, State}, 
-    solver::{DfsSolver, DfsSolverState, DfsSolverView, FindFirstSolution, PuzzleSetter, StepObserver},
-    sudoku::{unpack_sval_vals, EightStd, FourStd, NineStd, SixStd},
+    core::{ConstraintResult, Index, State}, debug::{DbgObserver, Sample}, solver::{DfsSolver, DfsSolverState, DfsSolverView, FindFirstSolution, PuzzleSetter, StepObserver}, sudoku::{unpack_sval_vals, EightStd, FourStd, NineStd, SixStd}
 };
 
 /// Solves the puzzle in command-line mode. No interactivity, but a StepObserver
@@ -31,6 +29,37 @@ pub fn solve_interactive<P: PuzzleSetter, T: Tui<P>>() -> io::Result<()> {
     app_result
 }
 
+/// Provides a convenient wrapper around solve_cli and solve_interactive that
+/// does the appropriate thing based on flags:
+///  - By default runs silently and dumps stats every 30s
+///  - Can be configured to .sample_print()
+///    --sample_secs=10 <-- Sample::time(Duration::from_secs(10))
+///    --sample_every=10000 <-- Sample::every_n(10000)
+///  - Can run in interactive mode instead:
+///    --interactive
+pub fn solve_main<P: PuzzleSetter, T: Tui<P>>(stats_file: &str) {
+    let flag = parse_main_args();
+    if let MainFlags::Interactive = &flag {
+        solve_interactive::<P, T>().unwrap();
+        return;
+    }
+    let mut dbg = DbgObserver::new();
+    dbg.sample_stats(stats_file, Sample::time(Duration::from_secs(30)));
+    match flag {
+        MainFlags::Default => {
+            dbg.sample_print(Sample::never());
+        },
+        MainFlags::SampleEvery(n) => {
+            dbg.sample_print(Sample::every_n(n));
+        },
+        MainFlags::SampleSecs(s) => {
+            dbg.sample_print(Sample::time(Duration::from_secs(s)));
+        },
+        _ => {},
+    };
+    solve_cli::<P, _>(dbg);
+}
+
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util {
     use super::*;
@@ -43,6 +72,64 @@ pub mod test_util {
         let (mut s, r, mut c) = P::setup_with_givens(given);
         let mut finder = FindFirstSolution::new(&mut s, &r, &mut c, Some(&mut observer));
         let _ = finder.solve().expect("Puzzle solver returned an error:");
+    }
+}
+
+enum MainFlags {
+    Default,
+    SampleSecs(u64),
+    SampleEvery(usize),
+    Interactive,
+}
+
+fn parse_main_args() -> MainFlags {
+    let mut args = vec![];
+    for arg in env::args().skip(1) {
+        if let Some((x, y)) = arg.split_once("=") {
+            args.push(x.to_string());
+            args.push(y.to_string());
+        } else {
+            args.push(arg);
+        }
+    }
+    let mut flag: Option<MainFlags> = None;
+    let only_one = "You may only specify one of --sample_secs, --sample_n, and --interactive";
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--sample_secs" => {
+                if flag.is_some() {
+                    panic!("{}", only_one);
+                }
+                let val = iter
+                    .next().expect("--sample_secs requires a value")
+                    .parse::<u64>()
+                    .expect("Invalid value for --sample_secs. Must be an unsigned integer.");
+                flag = Some(MainFlags::SampleSecs(val))
+            },
+            "--sample_every" => {
+                if flag.is_some() {
+                    panic!("{}", only_one);
+                }
+                let val = iter
+                    .next().expect("--sample_every requires a value")
+                    .parse::<usize>()
+                    .expect("Invalid value for --sample_every. Must be an unsigned integer.");
+                flag = Some(MainFlags::SampleEvery(val))
+            },
+            "--interactive" => {
+                if flag.is_some() {
+                    panic!("{}", only_one);
+                }
+                flag = Some(MainFlags::Interactive)
+            },
+            _ => panic!("Unknown flag: {}", arg),
+        }
+    }
+    if let Some(f) = flag {
+        f
+    } else {
+        MainFlags::Default
     }
 }
 
@@ -335,7 +422,7 @@ fn possible_value_lines<'a, P: PuzzleSetter<U = u8>, const MIN: u8, const MAX: u
             "".to_string(),
             "Features:".to_string(),
         ];
-        lines.extend(format!("{:?}", g.get(state.grid_pos).1)
+        lines.extend(format!("{}", g.get(state.grid_pos).1)
             .lines()
             .map(|line| line.to_string()));
     } else {

@@ -200,7 +200,7 @@ fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &
 // TODO: Useful functions for kropki white dots
 
 pub const KROPKI_BLACK_FEATURE: &str = "KROPKI_BLACK";
-pub const KROPKI_BLACK_CONFLICT_ATTRIBUTION: &str = "KROPKI_BLACK_CONFLICT";
+// TODO: pub const KROPKI_BLACK_CONFLICT_ATTRIBUTION: &str = "KROPKI_BLACK_CONFLICT";
 pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 
 // TODO: Add support for white kropki dots
@@ -208,7 +208,7 @@ pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, UVSet<u8>>,
     kb_feature: FeatureKey<WithId>,
-    kb_conflict_attribute: Attribution<WithId>,
+    // TODO: kb_conflict_attribute: Attribution<WithId>,
     kb_if_attribute: Attribution<WithId>,
 }
 
@@ -230,7 +230,7 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
             blacks: chains,
             black_remaining: HashMap::new(),
             kb_feature: FeatureKey::new(KROPKI_BLACK_FEATURE).unwrap(),
-            kb_conflict_attribute: Attribution::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
+            // TODO: kb_conflict_attribute: Attribution::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
             kb_if_attribute: Attribution::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
         };
         kc.reset();

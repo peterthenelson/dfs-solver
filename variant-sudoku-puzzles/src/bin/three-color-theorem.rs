@@ -1,13 +1,11 @@
-use std::time::Duration;
 use variant_sudoku::core::FeatureVec;
 use variant_sudoku::kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE};
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::debug::{DbgObserver, Sample};
 use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
-use variant_sudoku::tui::solve_cli;
+use variant_sudoku::tui::{solve_main, NineStdTui};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRV
 pub struct ThreeColorTheorem;
@@ -96,10 +94,7 @@ impl PuzzleSetter for ThreeColorTheorem {
 }
 
 pub fn main() {
-    let mut dbg = DbgObserver::new();
-    dbg.sample_print(Sample::every_n(10000))
-        .sample_stats("figures/three-color-theorem.png", Sample::time(Duration::from_secs(30)));
-    solve_cli::<ThreeColorTheorem, _>(dbg);
+    solve_main::<ThreeColorTheorem, NineStdTui>("figures/three-color-theorem.png");
 }
 
 #[cfg(test)]
