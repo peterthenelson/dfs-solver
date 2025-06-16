@@ -159,7 +159,7 @@ pub enum Pane {
 pub enum Mode {
     GridCells = 1,
     /* TODO: Add these
-    StackIntro,
+    Readme,
     GridRows,
     GridCols,
     GridBoxes,
@@ -193,7 +193,7 @@ pub struct TuiState<'a, P: PuzzleSetter> {
 
 /// Support for integrating a particular State implementation with the generic
 /// Tui code. This library provides a working integration for any PuzzleSetter
-/// with State = NineStd. TODO -- support the other standard ones.
+/// whose State is NineStd, EightStd, SixStd, or FourStd.
 pub trait Tui<P: PuzzleSetter> {
     fn init<'a>(state: &mut TuiState<'a, P>);
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>);

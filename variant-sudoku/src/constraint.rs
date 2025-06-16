@@ -227,7 +227,12 @@ mod test {
         }
     }
     impl Value<u8> for Val {
-        fn parse(_: &str) -> Result<Self, Error> { todo!() }
+        fn parse(s: &str) -> Result<Self, Error> {
+            match s.parse::<u8>() {
+                Ok(u) => Ok(Self(u)),
+                Err(_) => Err(Error::new_const("not a valid u8")),
+            }
+        }
         fn cardinality() -> usize { 9 }
         fn possibilities() -> Vec<Self> { (1..=9).map(Val).collect() }
         fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { Val(u.value()+1) }
@@ -270,7 +275,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { todo!() }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { Some("NA".into()) }
     }
 
     #[derive(Debug, Clone)]
@@ -295,7 +300,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { todo!() }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { Some("NA".into()) }
     }
 
     #[test]

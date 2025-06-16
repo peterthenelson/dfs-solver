@@ -68,11 +68,13 @@ static SVAL_SUM_TO_LEN: LazyLock<Mutex<HashMap<(u8, u8), HashMap<u8, Option<(u8,
 // of sums that are possible to from len exclusive numbers drawn from the range
 // min..=max.
 pub fn min_max_sum(min: u8, max: u8, len: u8) -> Option<(u8, u8)> {
-    // TODO: Use n(n+1)/2 formula instead of loops
     if min + len - 1 > max {
         None
     } else {
-        Some(((min..=(min+len-1)).sum(), ((max+1-len)..=max).sum()))
+        Some((
+            ((min+len-1)*(min+len)-min*(min-1))/2,
+            (max*(max+1)-(max-len)*(max+1-len))/2,
+        ))
     }
 }
 
@@ -679,6 +681,29 @@ mod test {
     use crate::{core::{empty_set, UInt}, ranker::LinearRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
     use crate::constraint::test_util::assert_contradiction;
+
+    pub fn naive_min_max_sum(min: u8, max: u8, len: u8) -> Option<(u8, u8)> {
+        if min + len - 1 > max {
+            None
+        } else {
+            Some(((min..=(min+len-1)).sum(), ((max+1-len)..=max).sum()))
+        }
+    }
+
+    #[test]
+    fn test_min_max_sum() {
+        for min in 1..=8 {
+            for max in (min+1)..=9 {
+                for len in 1..=9 {
+                    assert_eq!(
+                        min_max_sum(min, max, len),
+                        naive_min_max_sum(min, max, len),
+                        "for min_max_sum({}, {}, {})", min, max, len
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_sval() {
