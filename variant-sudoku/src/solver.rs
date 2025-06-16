@@ -280,18 +280,17 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     /// Undoes the previous action and applies the previous one from the same
     /// stack frame, if any. Unlike force_backtrack(), the solver will
-    /// eventually revisit() the state before retreat() was called. (Due to the
-    /// way backtracking works, it may take multiple steps to get back to the
-    /// same place again.) Returns false if there are no more actions to undo.
-    /// Note that this also decreases the step count.
+    /// eventually revisit the state before retreat() was called. (Due to the
+    /// way backtracking works, it may return immediately or take many steps to
+    /// do so.) Returns false if there are no more actions to undo. Note that
+    /// the step_count continues to increase.
     pub fn retreat(&mut self) -> Result<bool, Error> {
+        self.step += 1;
         if self.stack.is_empty() {
             return Ok(false);
         }
-        let was_done = self.is_done();
         let mut decision = self.stack.pop().unwrap();
         self.unapply(&decision)?;
-        self.step -= if was_done { 2 } else { 1 };
         if decision.retreat() {
             self.apply(decision)?;
         } else {
