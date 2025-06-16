@@ -291,6 +291,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                         possibilities: 0,
                         step: self.step,
                     });
+                    self.check();
                     if self.decision_grid.is_none() {
                         self.decision_grid = Some(DecisionGrid::full(S::ROWS, S::COLS));
                     }
