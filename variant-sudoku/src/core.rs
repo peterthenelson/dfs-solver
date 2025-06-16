@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::{borrow::Cow, marker::PhantomData};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use bit_set::BitSet;
 use num::{PrimInt, Unsigned};
 
@@ -108,7 +108,7 @@ impl <U: UInt> UVal<U, UVUnwrapped> {
 /// Values in puzzles are drawn from a finite set of possible values. They are
 /// represented as unsigned integers, but it's entirely up to the Value, State,
 /// and Constraint implementations to interpret them.
-pub trait Value<U: UInt>: Copy + Clone + Debug + PartialEq + Eq {
+pub trait Value<U: UInt>: Copy + Clone + Display + Debug + PartialEq + Eq {
     fn cardinality() -> usize;
     fn possibilities() -> Vec<Self>;
     fn parse(s: &str) -> Result<Self, Error>;

@@ -576,6 +576,8 @@ pub mod test_util {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Display;
+
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::{to_value, Attribution, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
     use crate::ranker::LinearRanker;
@@ -583,6 +585,11 @@ mod test {
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     struct GwValue(pub u8);
+    impl Display for GwValue {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
     impl Value<u8> for GwValue {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 9 }

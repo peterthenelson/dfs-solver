@@ -185,12 +185,19 @@ pub mod test_util {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Display;
+
     use super::*;
     use super::test_util::*;
     use crate::core::{singleton_set, to_value, unpack_values, Attribution, DecisionGrid, Error, State, Stateful, UVGrid, UVUnwrapped, UVWrapped, UVal, Value};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Val(pub u8);
+    impl Display for Val {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
     impl Value<u8> for Val {
         fn parse(_: &str) -> Result<Self, Error> { todo!() }
         fn cardinality() -> usize { 9 }

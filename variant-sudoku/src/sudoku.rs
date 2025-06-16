@@ -1,8 +1,15 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
+
 use crate::core::{full_set, to_value, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
 use crate::constraint::Constraint;
+
+impl <const MIN: u8, const MAX: u8> Display for SVal<MIN, MAX> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.val())
+    }
+}
 
 /// Standard Sudoku value, ranging from a minimum to a maximum value (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
