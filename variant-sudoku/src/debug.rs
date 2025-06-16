@@ -225,6 +225,8 @@ pub struct DbgObserver<U: UInt, S: State<U>> {
     backtrack_hist: HashMap<usize, usize>,
     backtrack_delay_hist: HashMap<usize, usize>,
     filled_hist: HashMap<usize, usize>,
+    prev_state: Option<DfsSolverState>,
+    streak: usize,
     steps: usize,
     _marker: std::marker::PhantomData<(U, S)>,
 }
@@ -242,6 +244,8 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             backtrack_hist: HashMap::new(),
             backtrack_delay_hist: HashMap::new(),
             filled_hist: HashMap::new(),
+            prev_state: None,
+            streak: 0,
             steps: 0,
             _marker: std::marker::PhantomData,
         }
@@ -260,14 +264,24 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
     fn update_stats(&mut self, solver: &dyn DfsSolverView<U, S>) {
         match solver.solver_state() {
             DfsSolverState::Advancing(state) => {
-                *self.advance_hist.entry(state.streak).or_default() += 1;
+                if let Some(DfsSolverState::Advancing(_)) = self.prev_state {
+                    self.streak += 1;
+                } else {
+                    self.streak = 1;
+                }
+                *self.advance_hist.entry(self.streak).or_default() += 1;
                 *self.width_hist.entry(state.possibilities).or_default() += 1;
                 if let ConstraintResult::Certainty(_, _) = solver.constraint_result() {
                     self.certainty_streak += 1;
                 }
             },
-            DfsSolverState::Backtracking(state) => {
-                *self.backtrack_hist.entry(state.streak).or_default() += 1;
+            DfsSolverState::Backtracking(_) => {
+                if let Some(DfsSolverState::Backtracking(_)) = self.prev_state {
+                    self.streak += 1;
+                } else {
+                    self.streak = 1;
+                }
+                *self.backtrack_hist.entry(self.streak).or_default() += 1;
                 if self.certainty_streak > 0 {
                     *self.certainty_hist.entry(self.certainty_streak).or_default() += 1;
                     self.certainty_streak = 0
@@ -281,6 +295,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
             },
             _ => {},
         }
+        self.prev_state = Some(solver.solver_state());
         if let Some(backtracked_steps) = solver.backtracked_steps() {
             *self.backtrack_delay_hist.entry(backtracked_steps).or_default() += 1;
         }

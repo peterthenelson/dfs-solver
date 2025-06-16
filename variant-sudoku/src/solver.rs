@@ -12,8 +12,6 @@ pub struct InitializingState {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub struct AdvancingState {
-    // Number of uninterrupted advancing steps.
-    pub streak: usize,
     // The number of possibilities at the BranchPoint where this advance was taken.
     pub possibilities: usize,
     // The step at which this advance was taken.
@@ -21,10 +19,7 @@ pub struct AdvancingState {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub struct BacktrackingState {
-    // Number of uninterrupted backtracking steps.
-    pub streak: usize,
-}
+pub struct BacktrackingState {}
 
 /// The state of the DFS solver. At any point in time, the solver is either
 /// advancing (ready to take a new action), backtracking (undoing actions),
@@ -237,13 +232,9 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             DfsSolverState::Advancing(AdvancingState {
                 possibilities: decision_width,
                 step: self.step,
-                streak: match self.state {
-                    DfsSolverState::Advancing(adv) => adv.streak + 1,
-                    _ => 1,
-                },
             })
         } else {
-            DfsSolverState::Backtracking(BacktrackingState { streak: 1 })
+            DfsSolverState::Backtracking(BacktrackingState {})
         };
         return Ok(());
     }
@@ -283,7 +274,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             return false;
         }
         self.step += 1;
-        self.state = DfsSolverState::Backtracking(BacktrackingState { streak: 1 });
+        self.state = DfsSolverState::Backtracking(BacktrackingState {});
         true
     }
 
@@ -309,20 +300,13 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 Some(d) => d.remaining() + 1,
                 None => 0,
             };
-            // Manual undo messes up tracking of advancement streaks.
-            let streak = if self.stack.is_empty() {
-                0
-            } else {
-                1
-            };
             self.state = if self.is_valid() {
                 DfsSolverState::Advancing(AdvancingState {
                     possibilities: decision_width,
                     step: self.step,
-                    streak,
                 })
             } else {
-                DfsSolverState::Backtracking(BacktrackingState { streak: 1 })
+                DfsSolverState::Backtracking(BacktrackingState {})
             };
         }
         Ok(true)
@@ -338,7 +322,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                     self.state = DfsSolverState::Initializing(InitializingState { last_filled: Some(i) });
                 } else {
                     self.state = DfsSolverState::Advancing(AdvancingState {
-                        streak: 0,
                         possibilities: 0,
                         step: self.step,
                     });
@@ -362,7 +345,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 self.backtracked_steps = None;
                 Ok(())
             }
-            DfsSolverState::Backtracking(state) => {
+            DfsSolverState::Backtracking(_) => {
                 if self.stack.is_empty() {
                     self.state = DfsSolverState::Exhausted;
                     self.backtracked_steps = Some(self.step);
@@ -378,9 +361,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                         Ok(())
                     }
                     None => {
-                        self.state = DfsSolverState::Backtracking(BacktrackingState {
-                            streak: state.streak + 1,
-                        });
+                        self.state = DfsSolverState::Backtracking(BacktrackingState {});
                         Ok(())
                     },
                 }
@@ -396,7 +377,6 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.stack.clear();
         self.state = DfsSolverState::Advancing(AdvancingState {
             step: 0,
-            streak: 0,
             possibilities: 0,
         });
         self.step = 0;
