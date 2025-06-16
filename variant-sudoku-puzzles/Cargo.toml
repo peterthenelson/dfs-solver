@@ -1,0 +1,8 @@
+[package]
+name = "variant_sudoku_puzzles"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+variant_sudoku = { path = "../variant-sudoku", features = ["test-util"] }
+vec_box = "1.0.0"

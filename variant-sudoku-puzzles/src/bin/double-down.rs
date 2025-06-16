@@ -69,7 +69,7 @@ pub fn main() {
     solve_cli::<DoubleDown, _>(dbg);
 }
 
-#[cfg(all(test, feature = "test-util"))]
+#[cfg(test)]
 mod test {
     use variant_sudoku::{debug::NullObserver, sudoku::nine_standard_parse, tui::test_util::solve_with_given};
     use super::*;

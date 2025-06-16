@@ -1,14 +1,14 @@
 use std::time::Duration;
-use variant_sudoku_dfs::core::FeatureVec;
-use variant_sudoku_dfs::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker};
-use variant_sudoku_dfs::magic_squares::{MagicSquare, MagicSquareChecker, MS_FEATURE};
-use variant_sudoku_dfs::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
-use variant_sudoku_dfs::constraint::MultiConstraint;
-use variant_sudoku_dfs::solver::PuzzleSetter;
-use variant_sudoku_dfs::debug::{DbgObserver, Sample};
-use variant_sudoku_dfs::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
-use variant_sudoku_dfs::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
-use variant_sudoku_dfs::tui::{solve_cli};
+use variant_sudoku::core::FeatureVec;
+use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker};
+use variant_sudoku::magic_squares::{MagicSquare, MagicSquareChecker, MS_FEATURE};
+use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
+use variant_sudoku::constraint::MultiConstraint;
+use variant_sudoku::solver::PuzzleSetter;
+use variant_sudoku::debug::{DbgObserver, Sample};
+use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
+use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
+use variant_sudoku::tui::{solve_cli};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRF
 pub struct DutchMagic;
@@ -68,9 +68,9 @@ pub fn main() {
     solve_cli::<DutchMagic, _>(dbg);
 }
 
-#[cfg(all(test, feature = "test-util"))]
+#[cfg(test)]
 mod test {
-    use variant_sudoku_dfs::{debug::NullObserver, sudoku::nine_standard_parse, tui::test_util::solve_with_given};
+    use variant_sudoku::{debug::NullObserver, sudoku::nine_standard_parse, tui::test_util::solve_with_given};
     use super::*;
 
     #[test]

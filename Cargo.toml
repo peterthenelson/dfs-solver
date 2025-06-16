@@ -1,21 +1,6 @@
-[package]
-name = "variant_sudoku_dfs"
-version = "0.1.0"
-edition = "2021"
-
-[features]
-test-util = []
-
-[dependencies]
-bit-set = "0.8.0"
-color-eyre = "0.6.5"
-crossterm = "0.29.0"
-lazy_static = "1.5.0"
-num = "0.4.3"
-num_enum = "0.7.3"
-plotters = "0.3.7"
-rand = "0.9.1"
-ratatui = "0.29.0"
-strum = "0.27.1"
-strum_macros = "0.27.1"
-vec_box = "1.0.0"
+[workspace]
+members = [
+    "variant-sudoku",
+    "variant-sudoku-puzzles",
+]
+resolver = "2"
