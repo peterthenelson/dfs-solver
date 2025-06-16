@@ -237,6 +237,23 @@ Constraint<u8, SState<N, M, 1, 9, O>> for MagicSquareChecker {
         }
         ConstraintResult::Ok
     }
+
+    fn debug_at(&self, _: &SState<N, M, 1, 9, O>, index: Index) -> Option<String> {
+        for square in &self.squares {
+            let [ul, mm, lr] = square.diag_0();
+            let [ll, _, ur] = square.diag_1();
+            let [ml, _, mr] = square.row_1();
+            let [mu, _, md] = square.col_1();
+            if index == ul || index == lr || index == ll || index == ur {
+                return Some("Magic Square: corner cell (must be even)".to_string());
+            } else if index == ml || index == mr || index == mu || index == md {
+                return Some("Magic Square: side cell (must be odd)".to_string());
+            } else if index == mm {
+                return Some("Magic Square: middle cell (must be 5)".to_string())
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]

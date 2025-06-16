@@ -15,6 +15,12 @@ pub struct KropkiDotChain {
     mutually_visible: bool,
 }
 
+impl KropkiDotChain {
+    pub fn contains(&self, index: Index) -> bool {
+        self.cells.contains(&index)
+    }
+}
+
 pub struct KropkiBuilder<'a, O: Overlay>(&'a O);
 
 impl <'a, O: Overlay> KropkiBuilder<'a, O> {
@@ -338,6 +344,30 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
             }
         }
         ConstraintResult::Ok
+    }
+    
+    fn debug_at(&self, _: &SState<N, M, MIN, MAX, O>, index: Index) -> Option<String> {
+        let header = "KropkiChecker:\n";
+        let mut lines = vec![];
+        for (i, b) in self.blacks.iter().enumerate() {
+            if !b.contains(index) {
+                continue;
+            }
+            lines.push(format!(" Black[{}]: ", i));
+            for cell in &b.cells {
+                if *cell != index {
+                    continue;
+                }
+                let rem = self.black_remaining.get(cell)
+                    .expect(format!("remaining[{:?}] not found!", cell).as_str());
+                lines.push(format!(" - remaining vals: {:?} ", unpack_sval_vals::<MIN, MAX>(rem)));
+            }
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(format!("{}{}", header, lines.join("\n")))
+        }
     }
 }
 

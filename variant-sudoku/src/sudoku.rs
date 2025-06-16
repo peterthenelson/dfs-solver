@@ -653,6 +653,24 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, M
         }
         ConstraintResult::Ok
     }
+
+    fn debug_at(&self, _: &SState<N, M, MIN, MAX, O>, index: Index) -> Option<String> {
+        let header = "StandardSudokuChecker:\n";
+        if let Some((i, v, a)) = &self.illegal {
+            if *i == index {
+                return Some(format!("{}Illegal move: {} ({})", header, v, a.get_name()));
+            }
+        }
+        let [r, c] = index;
+        let (b, _) = self.overlay.to_box_coords(index);
+        Some(format!(
+            "{} Unused vals in this row: {:?}\n Unused vals in this col: {:?}\n Unused vals in this box: {:?}",
+            header,
+            unpack_sval_vals::<MIN, MAX>(&self.row[r]),
+            unpack_sval_vals::<MIN, MAX>(&self.col[c]),
+            unpack_sval_vals::<MIN, MAX>(&self.boxes[b]),
+        ))
+    }
 }
 
 #[cfg(test)]

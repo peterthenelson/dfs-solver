@@ -698,6 +698,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
+        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { todo!() }
     }
 
     #[derive(Debug)]
@@ -724,6 +725,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
+        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { todo!() }
     }
 
     #[test]

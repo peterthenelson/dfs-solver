@@ -150,12 +150,14 @@ pub enum Pane {
 pub enum Mode {
     GridCells = 1,
     /* TODO: Add these
+    StackIntro,
     GridRows,
     GridCols,
     GridBoxes,
     Stats,
     */
-    Contraints,
+    Constraints,
+    ConstraintsRaw,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,6 +408,15 @@ fn text_area_ws<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: Key
 
 /// Generic dumping of constraints
 fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String> {
+    if let Some(s) = state.solver.get_constraint().debug_at(state.solver.get_state(), state.grid_pos) {
+        s.lines().map(|line| line.to_string()).collect()
+    } else {
+        vec!["No constraint information for this cell".to_string()]
+    }
+}
+
+/// Generic dumping of constraints
+fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String> {
     format!("{:?}", state.solver.get_constraint())
         .lines()
         .map(|line| line.to_string())
@@ -549,7 +560,8 @@ fn draw_grid<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, v_seg_len: usize, v_s
 fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
     let is_active = state.active == Pane::TextArea;
     let title_text = match state.mode {
-        Mode::Contraints => "Constraints",
+        Mode::Constraints => "Constraints for Cell",
+        Mode::ConstraintsRaw => "Full Constraint Dump",
         Mode::GridCells => "Possible Cell Vals",
     };
     let title = Line::from(if is_active {
@@ -580,7 +592,8 @@ impl <P: PuzzleSetter<U = u8, State = NineStd>> Tui<P> for NineStdTui {
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = match state.mode {
             Mode::GridCells => possible_value_lines::<P, 1, 9>(state),
-            Mode::Contraints => constraint_lines::<P>(state),
+            Mode::Constraints => constraint_lines::<P>(state),
+            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
         };
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -609,7 +622,8 @@ impl <P: PuzzleSetter<U = u8, State = EightStd>> Tui<P> for EightStdTui {
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = match state.mode {
             Mode::GridCells => possible_value_lines::<P, 1, 8>(state),
-            Mode::Contraints => constraint_lines::<P>(state),
+            Mode::Constraints => constraint_lines::<P>(state),
+            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
         };
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -638,7 +652,8 @@ impl <P: PuzzleSetter<U = u8, State = SixStd>> Tui<P> for SixStdTui {
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = match state.mode {
             Mode::GridCells => possible_value_lines::<P, 1, 6>(state),
-            Mode::Contraints => constraint_lines::<P>(state),
+            Mode::Constraints => constraint_lines::<P>(state),
+            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
         };
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -667,7 +682,8 @@ impl <P: PuzzleSetter<U = u8, State = FourStd>> Tui<P> for FourStdTui {
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = match state.mode {
             Mode::GridCells => possible_value_lines::<P, 1, 4>(state),
-            Mode::Contraints => constraint_lines::<P>(state),
+            Mode::Constraints => constraint_lines::<P>(state),
+            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
         };
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {

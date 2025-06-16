@@ -27,6 +27,9 @@ pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + D
     /// information about what values a cell could take on, they should update
     /// the provided grid (in a way that further constrains it).
     fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value>;
+    /// Provide debug information at a particular grid in the puzzle (if any
+    /// is available).
+    fn debug_at(&self, puzzle: &S, index: Index) -> Option<String>;
 }
 
 pub struct ConstraintConjunction<U, S, X, Y>
@@ -87,6 +90,20 @@ where
             ConstraintResult::Contradiction(a) => ConstraintResult::Contradiction(a),
             ConstraintResult::Certainty(d, a) => ConstraintResult::Certainty(d, a),
             ConstraintResult::Ok => self.y.check(puzzle, grid),
+        }
+    }
+
+    fn debug_at(&self, puzzle: &S, index: Index) -> Option<String> {
+        let xd = self.x.debug_at(puzzle, index.clone());
+        let yd = self.y.debug_at(puzzle, index);
+        if let Some(xds) = &xd {
+            if let Some(yds) = yd {
+                Some(xds.clone() + "\n" + &yds)
+            } else {
+                xd
+            }
+        } else {
+            yd
         }
     }
 }
@@ -150,6 +167,17 @@ impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
             }
         }
         ConstraintResult::Ok
+    }
+    
+    fn debug_at(&self, puzzle: &S, index: Index) -> Option<String> {
+        let somes = self.constraints.iter()
+            .filter_map(|c| c.debug_at(puzzle, index.clone()))
+            .collect::<Vec<String>>();
+        if somes.is_empty() {
+            None
+        } else {
+            Some(somes.join("\n"))
+        }
     }
 }
 
@@ -242,6 +270,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { todo!() }
     }
 
     #[derive(Debug, Clone)]
@@ -266,6 +295,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { todo!() }
     }
 
     #[test]

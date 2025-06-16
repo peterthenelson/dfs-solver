@@ -278,6 +278,35 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
         }
         ConstraintResult::Ok
     }
+
+    fn debug_at(&self, _: &SState<N, M, MIN, MAX, O>, index: Index) -> Option<String> {
+        let header = "CageChecker:\n";
+        let mut lines = vec![];
+        if let Some((i, v, a)) = &self.illegal {
+            if *i == index {
+                lines.push(format!("Illegal move: {:?}={:?} ({})", i, v, a.get_name()));
+            }
+        }
+        for (i, c) in self.cages.iter().enumerate() {
+            if !c.contains(index) {
+                continue;
+            }
+            lines.push(format!(" Cage{:?}\n", c.cells));
+            if let Some(r) = self.remaining[i] {
+                lines.push(format!(" - {} remaining to target", r));
+            }
+            lines.push(format!(" - {} cells empty\n", self.empty[i]));
+            if c.exclusive {
+                let vals = unpack_sval_vals::<MIN, MAX>(&self.cage_sets[i]);
+                lines.push(format!(" - Unused vals: {:?}\n", vals));
+            }
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(format!("{}{}", header, lines.join("\n")))
+        }
+    }
 }
 
 #[cfg(test)]

@@ -226,6 +226,30 @@ Constraint<u8, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
         }
         ConstraintResult::Ok
     }
+
+    fn debug_at(&self, _: &SState<N, M, 1, 9, O>, index: Index) -> Option<String> {
+        let header = "DutchWhisperChecker:\n";
+        let mut lines = vec![];
+        for (i, w) in self.whispers.iter().enumerate() {
+            if !w.contains(index) {
+                continue;
+            }
+            lines.push(format!(" Whisper[{}]: ", i));
+            for (cell, _) in &w.cells {
+                if *cell != index {
+                    continue;
+                }
+                let rem = self.remaining.get(cell)
+                    .expect(format!("remaining[{:?}] not found!", cell).as_str());
+                lines.push(format!(" - remaining vals: {:?} ", unpack_sval_vals::<1, 9>(rem)));
+            }
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(format!("{}{}", header, lines.join("\n")))
+        }
+    }
 }
 
 #[cfg(test)]

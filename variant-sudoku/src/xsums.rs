@@ -458,6 +458,28 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
         }
         ConstraintResult::Ok
     }
+
+    fn debug_at(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, index: Index) -> Option<String> {
+        let header = "XSumChecker:\n";
+        let mut lines = vec![];
+        for (i, x) in self.xsums.iter().enumerate() {
+            if !x.contains(puzzle, index) {
+                continue;
+            }
+            lines.push(format!(" {:?}\n", x));
+            lines.push(format!(" - Remaining to target: {}\n", self.xsums_remaining[i]));
+            if let Some(empty) = self.xsums_empty[i] {
+                lines.push(format!(" - Empty cells remaining: {}\n", empty));
+            } else {
+                lines.push(format!(" - Length unknown\n"));
+            }
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(format!("{}{}", header, lines.join("\n")))
+        }
+    }
 }
 
 #[cfg(test)]
