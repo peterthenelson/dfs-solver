@@ -244,7 +244,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         return Ok(());
     }
 
-    fn undo(&mut self, decision: &BranchPoint<U, S>) -> Result<(), Error> {
+    fn unapply(&mut self, decision: &BranchPoint<U, S>) -> Result<(), Error> {
         let (i, v) = decision.chosen.unwrap();
         if let Err(e) = self.puzzle.undo(i, v) {
             self.constraint.undo(i, v)?;
@@ -259,15 +259,21 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
         let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
         let mut bp = self.ranker.top(g, self.puzzle);
-        bp.chosen_step = self.step;
+        bp.branch_step = self.step;
         bp
     }
 
+    /// The stack of BranchPoints
+    pub fn stack(&self) -> &Vec<BranchPoint<U, S>> { &self.stack }
+
+    /// Overriding any logic the solver has, manually do a move.
     pub fn manual_step(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
         self.step += 1;
         self.apply(BranchPoint::unique(self.step, index, value))
     }
 
+    /// Force the solver into the backtracking state. (Useful for exhaustively
+    /// listing all solutions.)
     pub fn force_backtrack(&mut self) -> bool {
         if self.state == DfsSolverState::Exhausted {
             return false;
@@ -275,6 +281,47 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.step += 1;
         self.state = DfsSolverState::Backtracking(BacktrackingState { streak: 1 });
         true
+    }
+
+    /// Undoes the previous action and applies the previous one from the same
+    /// stack frame, if any. Unlike force_backtrack(), the solver will
+    /// eventually revisit() the state before retreat() was called. (Due to the
+    /// way backtracking works, it may take multiple steps to get back to the
+    /// same place again.) Returns false if there are no more actions to undo.
+    /// Note that this also decreases the step count.
+    pub fn retreat(&mut self) -> Result<bool, Error> {
+        if self.stack.is_empty() {
+            return Ok(false);
+        }
+        let was_done = self.is_done();
+        let mut decision = self.stack.pop().unwrap();
+        self.unapply(&decision)?;
+        self.step -= if was_done { 2 } else { 1 };
+        if decision.retreat() {
+            self.apply(decision)?;
+        } else {
+            self.check();
+            let decision_width = match self.stack.last() {
+                Some(d) => d.len(),
+                None => 0,
+            };
+            // Manual undo messes up tracking of advancement streaks.
+            let streak = if self.stack.is_empty() {
+                0
+            } else {
+                1
+            };
+            self.state = if self.is_valid() {
+                DfsSolverState::Advancing(AdvancingState {
+                    possibilities: decision_width,
+                    step: self.step,
+                    streak,
+                })
+            } else {
+                DfsSolverState::Backtracking(BacktrackingState { streak: 1 })
+            };
+        }
+        Ok(true)
     }
 
     pub fn step(&mut self) -> Result<(), Error> {
@@ -319,8 +366,8 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
                 }
                 // Backtrack, attempting to advance an existing action set
                 let mut decision = self.stack.pop().unwrap();
-                self.backtracked_steps = Some(self.step - decision.chosen_step);
-                self.undo(&decision)?;
+                self.backtracked_steps = Some(self.step - decision.branch_step);
+                self.unapply(&decision)?;
                 match decision.advance() {
                     Some(_) => {
                         self.apply(decision)?;
@@ -827,6 +874,41 @@ mod test {
         let (steps, solution_count) = finder.solve_all()?;
         assert!(steps < 500);
         assert_eq!(solution_count, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_german_whispers_undo_works() -> Result<(), Error> {
+        // First runthrough to collect the moves in order.
+        let expected_solution = {
+            let mut puzzle = GwLine::new();
+            let ranker = LinearRanker::default();
+            let mut constraint = GwSmartLineConstraint {};
+            let mut solver = DfsSolver::new(&mut puzzle, &ranker, &mut constraint);
+            while !solver.is_done() {
+                solver.step()?;
+            }
+            assert!(solver.is_valid());
+            (0..puzzle.digits.cols()).map(|i| puzzle.digits.get([0, i])).collect::<Vec<_>>()
+        };
+        // Next runthrough does undo every once in a while.
+        let actual_solution = {
+            let mut puzzle = GwLine::new();
+            let ranker = LinearRanker::default();
+            let mut constraint = GwSmartLineConstraint {};
+            let mut i = 1;
+            let mut solver = DfsSolver::new(&mut puzzle, &ranker, &mut constraint);
+            while !solver.is_done() {
+                if i % 23 == 0 {
+                    solver.retreat()?;
+                } else {
+                    solver.step()?;
+                }
+                i += 1;
+            }
+            (0..puzzle.digits.cols()).map(|i| puzzle.digits.get([0, i])).collect::<Vec<_>>()
+        };
+        assert_eq!(actual_solution, expected_solution);
         Ok(())
     }
 }

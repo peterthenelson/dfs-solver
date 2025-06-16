@@ -2,11 +2,20 @@ use std::{env, io, time::Duration};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
-    layout::{Direction, Layout, Rect}, style::{Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, DefaultTerminal, Frame
+    layout::{Direction, Layout, Rect},
+    style::{Style, Stylize},
+    symbols::border,
+    text::{Line, Span, Text},
+    widgets::{Block, Padding, Paragraph},
+    DefaultTerminal,
+    Frame,
 };
 use strum::EnumCount;
 use crate::{
-    core::{ConstraintResult, Index, State}, debug::{DbgObserver, Sample}, solver::{DfsSolver, DfsSolverState, DfsSolverView, FindFirstSolution, PuzzleSetter, StepObserver}, sudoku::{unpack_sval_vals, EightStd, FourStd, NineStd, SixStd}
+    core::{BranchOver, ConstraintResult, Index, State},
+    debug::{DbgObserver, Sample},
+    solver::{DfsSolver, DfsSolverState, DfsSolverView, FindFirstSolution, PuzzleSetter, StepObserver},
+    sudoku::{unpack_sval_vals, EightStd, FourStd, NineStd, SixStd},
 };
 
 /// Solves the puzzle in command-line mode. No interactivity, but a StepObserver
@@ -156,6 +165,7 @@ pub enum Mode {
     GridBoxes,
     Stats,
     */
+    Stack,
     Constraints,
     ConstraintsRaw,
 }
@@ -166,6 +176,7 @@ enum TuiStateEvent {
     PaneSwitch,
     ModeUpdate,
     Step,
+    Undo,
     Delegate(KeyEvent),
     Exit,
 }
@@ -212,6 +223,13 @@ impl <'a, P: PuzzleSetter> TuiState<'a, P> {
             if let Err(e) = result {
                 self.exit(Status::Err(format!("{:?}", e)));
             }
+        }
+    }
+
+    pub fn undo(&mut self) {
+        let result = self.solver.retreat();
+        if let Err(e) = result {
+            self.exit(Status::Err(format!("{:?}", e)));
         }
     }
 
@@ -353,6 +371,10 @@ fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>
                 state.step();
                 TuiStateEvent::Step
             },
+            KeyCode::Char('z') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                state.undo();
+                TuiStateEvent::Undo
+            },
             KeyCode::Char('a') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 if state.active == Pane::TextArea {
                     state.active = Pane::Grid;
@@ -406,6 +428,52 @@ fn text_area_ws<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: Key
     true
 }
 
+/// Utility for converting a single string to lines.
+fn to_lines(s: &str) -> Vec<String> {
+    s.lines().map(|line| line.to_string()).collect()
+}
+
+/// Generic dumping of stack
+fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String> {
+    let mut lines = vec![];
+    for bp in state.solver.stack() {
+        let chosen = if let Some((i, v)) = bp.chosen {
+            format!("{:?}={}@step#{} (TODO: attr)", i, v, bp.branch_step)
+        } else {
+            format!("None@step#{} (TODO: attr)", bp.branch_step)
+        };
+        let mut alt2 = None;
+        let alt1 = match &bp.alternatives {
+            BranchOver::Empty => "EMPTY".to_string(),
+            BranchOver::Cell(_, vals, i) => {
+                let parts = vals.iter().map(|v| format!("{}", v)).collect::<Vec<_>>();
+                let joined = format!("[{}]", parts.join(", "));
+                let mut underline = " ".to_string();
+                let underlen = parts[0..*i].iter().map(|s| s.len()+2).fold(0, |a, b| a+b);
+                underline.push_str(&*"-".repeat(underlen));
+                underline.push_str("^");
+                alt2 = Some(underline);
+                joined
+            },
+            BranchOver::Value(_, cells, i) => {
+                let parts = cells.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>();
+                let joined = format!("[{}]", parts.join(", "));
+                let mut underline = " ".to_string();
+                let underlen = parts[0..*i].iter().map(|s| s.len()+2).fold(0, |a, b| a+b);
+                underline.push_str(&*"-".repeat(underlen));
+                underline.push_str("^");
+                alt2 = Some(underline);
+                joined
+            },
+        };
+        lines.push(format!("{} -- {}", chosen, alt1));
+        if let Some(s) = alt2 {
+            lines.push(" ".repeat(chosen.len()+4) + &s);
+        }
+    }
+    lines
+}
+
 /// Generic dumping of constraints
 fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String> {
     if let Some(s) = state.solver.get_constraint().debug_at(state.solver.get_state(), state.grid_pos) {
@@ -417,10 +485,7 @@ fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String>
 
 /// Generic dumping of constraints
 fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String> {
-    format!("{:?}", state.solver.get_constraint())
-        .lines()
-        .map(|line| line.to_string())
-        .collect()
+    to_lines(&*format!("{:?}", state.solver.get_constraint()))
 }
 
 /// Generic dumping of possible values
@@ -440,6 +505,16 @@ fn possible_value_lines<'a, P: PuzzleSetter<U = u8>, const MIN: u8, const MAX: u
         lines = vec!["No Decision Grid Available".to_string()];
     }
     lines
+}
+
+/// Generic rendering of text for the text_area, appropriate for all standard grids
+fn scroll_lines_generic<'a, P: PuzzleSetter<U = u8>, const MIN: u8, const MAX: u8>(state: &TuiState<'a, P>) -> Vec<String> {
+    match state.mode {
+        Mode::Stack => stack_lines(state),
+        Mode::GridCells => possible_value_lines::<P, MIN, MAX>(state),
+        Mode::Constraints => constraint_lines::<P>(state),
+        Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
+    }
 }
 
 /// Generic rendering of the top of the grid
@@ -560,6 +635,7 @@ fn draw_grid<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, v_seg_len: usize, v_s
 fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
     let is_active = state.active == Pane::TextArea;
     let title_text = match state.mode {
+        Mode::Stack => "BranchPoint Stack",
         Mode::Constraints => "Constraints for Cell",
         Mode::ConstraintsRaw => "Full Constraint Dump",
         Mode::GridCells => "Possible Cell Vals",
@@ -590,11 +666,12 @@ impl <P: PuzzleSetter<U = u8, State = NineStd>> Tui<P> for NineStdTui {
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = match state.mode {
-            Mode::GridCells => possible_value_lines::<P, 1, 9>(state),
-            Mode::Constraints => constraint_lines::<P>(state),
-            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
-        };
+        state.scroll_lines = scroll_lines_generic::<P, 1, 9>(state);
+        if state.scroll_lines.len() == 0 {
+            state.scroll_pos = 0;
+        } else if state.scroll_pos+1 > state.scroll_lines.len() {
+            state.scroll_pos = state.scroll_lines.len() - 1;
+        }
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
@@ -620,11 +697,7 @@ impl <P: PuzzleSetter<U = u8, State = EightStd>> Tui<P> for EightStdTui {
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = match state.mode {
-            Mode::GridCells => possible_value_lines::<P, 1, 8>(state),
-            Mode::Constraints => constraint_lines::<P>(state),
-            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
-        };
+        state.scroll_lines = scroll_lines_generic::<P, 1, 8>(state);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
@@ -650,11 +723,7 @@ impl <P: PuzzleSetter<U = u8, State = SixStd>> Tui<P> for SixStdTui {
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = match state.mode {
-            Mode::GridCells => possible_value_lines::<P, 1, 6>(state),
-            Mode::Constraints => constraint_lines::<P>(state),
-            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
-        };
+        state.scroll_lines = scroll_lines_generic::<P, 1, 6>(state);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
@@ -680,11 +749,7 @@ impl <P: PuzzleSetter<U = u8, State = FourStd>> Tui<P> for FourStdTui {
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = match state.mode {
-            Mode::GridCells => possible_value_lines::<P, 1, 4>(state),
-            Mode::Constraints => constraint_lines::<P>(state),
-            Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
-        };
+        state.scroll_lines = scroll_lines_generic::<P, 1, 4>(state);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
