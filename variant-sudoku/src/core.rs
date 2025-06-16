@@ -596,85 +596,78 @@ pub enum BranchOver<U: UInt, S: State<U>> {
 /// alternative values/indices that have not been tried yet.
 #[derive(Debug, Clone)]
 pub struct BranchPoint<U: UInt, S: State<U>> {
-    pub chosen: Option<(Index, S::Value)>,
     pub branch_step: usize,
-    pub alternatives: BranchOver<U, S>,
-    // TODO: Add attribution!
+    pub branch_attribution: Attribution<WithId>,
+    pub choices: BranchOver<U, S>,
 }
 
 impl <U: UInt, S: State<U>> BranchPoint<U, S> {
-    pub fn unique(step: usize, index: Index, value: S::Value) -> Self {
-        BranchPoint {
-            chosen: Some((index, value)),
-            branch_step: step,
-            alternatives: BranchOver::Empty,
-        }
+    pub fn unique(step: usize, attribution: Attribution<WithId>, index: Index, value: S::Value) -> Self {
+        Self::for_cell(step, attribution, index, vec![value])
     }
 
-    pub fn empty(step: usize) -> Self {
-        BranchPoint { chosen: None, branch_step: step, alternatives: BranchOver::Empty }
+    pub fn empty(step: usize, attribution: Attribution<WithId>) -> Self {
+        BranchPoint { branch_step: step, branch_attribution: attribution, choices: BranchOver::Empty }
     }
 
-    pub fn for_cell(step: usize, index: Index, alternatives: Vec<S::Value>) -> Self {
-        if alternatives.len() > 0 {
+    pub fn for_cell(step: usize, attribution: Attribution<WithId>, index: Index, values: Vec<S::Value>) -> Self {
+        if values.len() > 0 {
             BranchPoint {
-                chosen: Some((index, *alternatives.first().unwrap())),
                 branch_step: step,
-                alternatives: BranchOver::Cell(index, alternatives, 1),
+                branch_attribution: attribution,
+                choices: BranchOver::Cell(index, values, 0),
             }
         } else {
-            panic!("Cannot create a BranchPoint for a cell with no alternatives");
+            panic!("Cannot create a BranchPoint for a cell with no values");
         }
     }
 
-    pub fn for_value(step: usize, val: S::Value, alternatives: Vec<Index>) -> Self {
-        if alternatives.len() > 0 {
+    pub fn for_value(step: usize, attribution: Attribution<WithId>, val: S::Value, cells: Vec<Index>) -> Self {
+        if cells.len() > 0 {
             BranchPoint {
-                chosen: Some((*alternatives.first().unwrap(), val)),
                 branch_step: step,
-                alternatives: BranchOver::Value(val, alternatives, 1),
+                branch_attribution: attribution,
+                choices: BranchOver::Value(val, cells, 0),
             }
         } else {
-            panic!("Cannot create a BranchPoint for a value with no alternatives");
+            panic!("Cannot create a BranchPoint for a value with no cells");
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.chosen.is_none() && match &self.alternatives {
-            BranchOver::Empty => true,
-            BranchOver::Cell(_, vs, i) =>  *i == vs.len(),
-            BranchOver::Value(_, cs, i) => *i == cs.len(),
+    pub fn chosen(&self) -> Option<(Index, S::Value)> {
+        match &self.choices {
+            BranchOver::Empty => None,
+            BranchOver::Cell(c, vs, i) => Some((*c, vs[*i].clone())),
+            BranchOver::Value(v, cs, i) => Some((cs[*i], v.clone())),
         }
     }
 
-    pub fn len(&self) -> usize {
-        match &self.alternatives {
+    pub fn remaining(&self) -> usize {
+        match &self.choices {
             BranchOver::Empty => 0,
-            BranchOver::Cell(_, vs, i) => vs.len() - i,
-            BranchOver::Value(_, cs, i) => cs.len() - i,
+            BranchOver::Cell(_, vs, i) => vs.len() - 1 - i,
+            BranchOver::Value(_, cs, i) => cs.len() - 1 - i,
         }
     }
 
     pub fn advance(&mut self) -> Option<(Index, S::Value)> {
-        match &mut self.alternatives {
+        match &mut self.choices {
             BranchOver::Empty => None,
-            BranchOver::Cell(index, values, i) => {
-                if *i == values.len() {
-                    self.chosen = None;
-                } else {
-                    self.chosen = Some((*index, values[*i]));
+            BranchOver::Cell(cell, values, i) => {
+                if *i < values.len() - 1 {
                     *i += 1;
+                    Some((*cell, values[*i]))
+                } else {
+                    None
                 }
-                self.chosen
             },
             BranchOver::Value(val, cells, i) => {
-                if *i == cells.len() {
-                    self.chosen = None;
-                } else {
-                    self.chosen = Some((cells[*i], val.clone()));
+                if *i < cells.len() - 1 {
                     *i += 1;
+                    Some((cells[*i], val.clone()))
+                } else {
+                    None
                 }
-                self.chosen
             },
         }
     }
@@ -682,25 +675,21 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
     // Opposite of advance. Returns true if this decision should be re-applied,
     // or false if it should be left off the stack.
     pub fn retreat(&mut self) -> bool {
-        match &mut self.alternatives {
+        match &mut self.choices {
             BranchOver::Empty => false,
-            BranchOver::Cell(index, values, i) => {
-                assert!(*i >= 1, "BranchOvers generally should start with next-index=1, not 0");
-                if *i == 1 {
+            BranchOver::Cell(_, _, i) => {
+                if *i == 0 {
                     false
                 } else {
                     *i -= 1;
-                    self.chosen = Some((*index, values[*i-1]));
                     true
                 }
             },
-            BranchOver::Value(val, cells, i) => {
-                assert!(*i >= 1, "BranchOvers generally should start with next-index=1, not 0");
-                if *i == 1 {
+            BranchOver::Value(_, _, i) => {
+                if *i == 0 {
                     false
                 } else {
                     *i -= 1;
-                    self.chosen = Some((cells[*i-1], val.clone()));
                     true
                 }
             },

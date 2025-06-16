@@ -437,38 +437,42 @@ fn to_lines(s: &str) -> Vec<String> {
 fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<String> {
     let mut lines = vec![];
     for bp in state.solver.stack() {
-        let chosen = if let Some((i, v)) = bp.chosen {
-            format!("{:?}={}@step#{} (TODO: attr)", i, v, bp.branch_step)
-        } else {
-            format!("None@step#{} (TODO: attr)", bp.branch_step)
-        };
+        let leader = format!("@step#{} ({})", bp.branch_step, bp.branch_attribution.get_name());
         let mut alt2 = None;
-        let alt1 = match &bp.alternatives {
+        let alt1 = match &bp.choices {
             BranchOver::Empty => "EMPTY".to_string(),
-            BranchOver::Cell(_, vals, i) => {
-                let parts = vals.iter().map(|v| format!("{}", v)).collect::<Vec<_>>();
-                let joined = format!("[{}]", parts.join(", "));
-                let mut underline = " ".to_string();
-                let underlen = parts[0..*i].iter().map(|s| s.len()+2).fold(0, |a, b| a+b);
-                underline.push_str(&*"-".repeat(underlen));
-                underline.push_str("^");
-                alt2 = Some(underline);
-                joined
+            BranchOver::Cell(cell, vals, i) => {
+                let start = format!("{:?}: ", cell);
+                if vals.len() == 1 {
+                    format!("{}[{}]", start, vals[0])
+                } else {
+                    let parts = vals.iter().map(|v| format!("{}", v)).collect::<Vec<_>>();
+                    let mut underline = " ".repeat(start.len()+1);
+                    let underlen = parts[0..*i].iter().map(|s| s.len()+2).fold(0, |a, b| a+b);
+                    underline.push_str(&*"-".repeat(underlen));
+                    underline.push_str("^");
+                    alt2 = Some(underline);
+                    format!("{}[{}]", start, parts.join(", "))
+                }
             },
-            BranchOver::Value(_, cells, i) => {
-                let parts = cells.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>();
-                let joined = format!("[{}]", parts.join(", "));
-                let mut underline = " ".to_string();
-                let underlen = parts[0..*i].iter().map(|s| s.len()+2).fold(0, |a, b| a+b);
-                underline.push_str(&*"-".repeat(underlen));
-                underline.push_str("^");
-                alt2 = Some(underline);
-                joined
+            BranchOver::Value(val, cells, i) => {
+                let start = format!("{}: ", val);
+                if cells.len() == 1 {
+                    format!("{}[{:?}]", start, cells[0])
+                } else {
+                    let parts = cells.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>();
+                    let mut underline = " ".repeat(start.len()+1);
+                    let underlen = parts[0..*i].iter().map(|s| s.len()+2).fold(0, |a, b| a+b);
+                    underline.push_str(&*"-".repeat(underlen));
+                    underline.push_str("^");
+                    alt2 = Some(underline);
+                    format!("{}[{}]", start, parts.join(", "))
+                }
             },
         };
-        lines.push(format!("{} -- {}", chosen, alt1));
+        lines.push(format!("{} -- {}", leader, alt1));
         if let Some(s) = alt2 {
-            lines.push(" ".repeat(chosen.len()+4) + &s);
+            lines.push(" ".repeat(leader.len()+4) + &s);
         }
     }
     lines

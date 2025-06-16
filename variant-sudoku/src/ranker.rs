@@ -17,8 +17,11 @@ pub trait Ranker<U: UInt, S: State<U>> {
 }
 
 pub const NUM_POSSIBLE_FEATURE: &str = "NUM_POSSIBLE";
+pub const DG_EMPTY_ATTRIBUTION: &str = "DG_EMPTY";
+pub const DG_TOP_CELL_ATTRIBUTION: &str = "DG_CELL_TOP";
 pub const DG_NO_VALS_ATTRIBUTION: &str = "DG_CELL_NO_VALS";
 pub const DG_ONE_VAL_ATTRIBUTION: &str = "DG_CELL_ONE_VAL";
+pub const DG_TOP_VAL_ATTRIBUTION: &str = "DG_VAL_TOP";
 pub const DG_NO_CELLS_ATTRIBUTION: &str = "DG_VAL_NO_CELLS";
 pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
 
@@ -27,6 +30,8 @@ pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
 pub struct LinearRanker {
     weights: FeatureVec<FVNormed>,
     num_possible: FeatureKey<WithId>,
+    empty_attribution: Attribution<WithId>,
+    top_cell_attribution: Attribution<WithId>,
     no_vals_attribution: Attribution<WithId>,
     one_val_attribution: Attribution<WithId>,
 }
@@ -40,6 +45,8 @@ impl LinearRanker {
         LinearRanker {
             weights: weights.try_normalized().unwrap().clone(),
             num_possible: num_possible.unwrap(),
+            empty_attribution: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
+            top_cell_attribution: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
             no_vals_attribution: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
             one_val_attribution: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
         }
@@ -74,9 +81,9 @@ impl <U: UInt, S: State<U>> Ranker<U, S> for LinearRanker {
             }
         }
         if let Some(index) = top_index {
-            BranchPoint::for_cell(0, index, unpack_values(&grid.get(index).0))
+            BranchPoint::for_cell(0, self.top_cell_attribution.clone(), index, unpack_values(&grid.get(index).0))
         } else {
-            BranchPoint::empty(0)
+            BranchPoint::empty(0, self.empty_attribution.clone())
         }
     }
 
@@ -109,6 +116,9 @@ pub struct OverlaySensitiveLinearRanker {
     weights: FeatureVec<FVNormed>,
     num_possible: FeatureKey<WithId>,
     combinator: fn (usize, f64, f64) -> f64,
+    empty_attribution: Attribution<WithId>,
+    top_cell_attribution: Attribution<WithId>,
+    top_val_attribution: Attribution<WithId>,
     no_vals_attribution: Attribution<WithId>,
     one_val_attribution: Attribution<WithId>,
     no_cells_attribution: Attribution<WithId>,
@@ -125,6 +135,9 @@ impl OverlaySensitiveLinearRanker {
             weights: weights.try_normalized().unwrap().clone(),
             num_possible: num_possible.unwrap(),
             combinator: combine_features,
+            empty_attribution: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
+            top_cell_attribution: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
+            top_val_attribution: Attribution::new(DG_TOP_VAL_ATTRIBUTION).unwrap(),
             no_vals_attribution: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
             one_val_attribution: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
             no_cells_attribution: Attribution::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
@@ -200,12 +213,12 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
         }
         match top_choice {
             Some(OSLRChoice::Cell(index)) => {
-                BranchPoint::for_cell(0, index, unpack_values(&grid.get(index).0))
+                BranchPoint::for_cell(0, self.top_cell_attribution.clone(), index, unpack_values(&grid.get(index).0))
             },
             Some(OSLRChoice::ValueInRegion(val, alternatives)) => {
-                BranchPoint::for_value(0, val, alternatives)
+                BranchPoint::for_value(0, self.top_val_attribution.clone(), val, alternatives)
             },
-            None => BranchPoint::empty(0),
+            None => BranchPoint::empty(0, self.empty_attribution.clone()),
         }
     }
 

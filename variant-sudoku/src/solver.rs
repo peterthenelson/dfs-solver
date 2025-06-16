@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{singleton_set, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt};
+use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -63,6 +63,8 @@ pub trait StepObserver<U: UInt, S: State<U>> {
     fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>);
 }
 
+pub const MANUAL_ATTRIBUTION: &str = "MANUAL_STEP";
+
 /// DFS solver. If you want a lower-level API that allows for more control over
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
@@ -77,6 +79,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     decision_grid: Option<DecisionGrid<U, S::Value>>,
     stack: Vec<BranchPoint<U, S>>,
     backtracked_steps: Option<usize>,
+    manual_attribution: Attribution<WithId>,
     state: DfsSolverState,
 }
 
@@ -120,7 +123,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn most_recent_action(&self) -> Option<(Index, S::Value)> {
         if let Some(b) = self.stack.last() {
-            b.chosen
+            b.chosen()
         } else {
             match self.state {
                 DfsSolverState::Initializing(InitializingState{ last_filled: Some(index) }) => {
@@ -188,6 +191,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             decision_grid: None,
             stack: Vec::new(),
             backtracked_steps: None,
+            manual_attribution: Attribution::new(MANUAL_ATTRIBUTION).unwrap(),
             state: DfsSolverState::Initializing(InitializingState { last_filled: None }),
         }
     }
@@ -215,18 +219,18 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             return Err(NOT_INITIALIZED);
         } else if self.is_done() {
             return Err(PUZZLE_ALREADY_DONE);
-        } else if decision.chosen.is_none() {
+        } else if decision.chosen().is_none() {
             return Err(NO_CHOICE);
         }
         {
-            let (i, v) = decision.chosen.unwrap();
+            let (i, v) = decision.chosen().unwrap();
             self.puzzle.apply(i, v)?;
             if let Err(e) = self.constraint.apply(i, v) {
                 self.puzzle.undo(i, v)?;
                 return Err(e);
             }
         }
-        let decision_width = decision.len() + 1;
+        let decision_width = decision.remaining() + 1;
         self.stack.push(decision);
         self.check();
         self.state = if self.is_valid() {
@@ -245,7 +249,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn unapply(&mut self, decision: &BranchPoint<U, S>) -> Result<(), Error> {
-        let (i, v) = decision.chosen.unwrap();
+        let (i, v) = decision.chosen().unwrap();
         if let Err(e) = self.puzzle.undo(i, v) {
             self.constraint.undo(i, v)?;
             return Err(e);
@@ -254,8 +258,8 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     fn suggest(&self) -> BranchPoint<U, S> {
-        if let ConstraintResult::Certainty(d, _) = self.check_result {
-            return BranchPoint::unique(self.step, d.index, d.value);
+        if let ConstraintResult::Certainty(d, a) = &self.check_result {
+            return BranchPoint::unique(self.step, a.clone(), d.index, d.value);
         }
         let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
         let mut bp = self.ranker.top(g, self.puzzle);
@@ -269,7 +273,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     /// Overriding any logic the solver has, manually do a move.
     pub fn manual_step(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
         self.step += 1;
-        self.apply(BranchPoint::unique(self.step, index, value))
+        self.apply(BranchPoint::unique(self.step, self.manual_attribution.clone(), index, value))
     }
 
     /// Force the solver into the backtracking state. (Useful for exhaustively
@@ -302,7 +306,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         } else {
             self.check();
             let decision_width = match self.stack.last() {
-                Some(d) => d.len(),
+                Some(d) => d.remaining() + 1,
                 None => 0,
             };
             // Manual undo messes up tracking of advancement streaks.
@@ -350,7 +354,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
             DfsSolverState::Advancing(_) => {
                 // Take a new action
                 let decision = self.suggest();
-                if decision.chosen.is_some() {
+                if decision.chosen().is_some() {
                     self.apply(decision)?;
                 } else {
                     self.state = DfsSolverState::Solved;
