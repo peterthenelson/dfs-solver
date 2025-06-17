@@ -5,7 +5,8 @@ use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
-use variant_sudoku::tui::{solve_main, NineStdTui};
+use variant_sudoku::tui::solve_main;
+use variant_sudoku::tui_std::NineStdTui;
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRV
 pub struct ThreeColorTheorem;

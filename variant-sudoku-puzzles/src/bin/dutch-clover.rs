@@ -4,7 +4,8 @@ use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE}
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_parse, NineStd, StandardSudokuChecker};
-use variant_sudoku::tui::{solve_main, NineStdTui};
+use variant_sudoku::tui::solve_main;
+use variant_sudoku::tui_std::NineStdTui;
 
 // https://sudokupad.app/clover/dec-1-2023-dutch-whispers
 pub struct DutchClover;
