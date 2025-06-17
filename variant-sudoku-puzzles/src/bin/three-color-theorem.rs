@@ -3,7 +3,7 @@ use variant_sudoku::kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE}
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
+use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, SVal, StandardSudokuChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
@@ -12,6 +12,7 @@ use variant_sudoku::tui_std::NineStdTui;
 pub struct ThreeColorTheorem;
 impl PuzzleSetter for ThreeColorTheorem {
     type U = u8;
+    type Value = SVal<1, 9>;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
     type Constraint = MultiConstraint<u8, NineStd>;
@@ -95,7 +96,7 @@ impl PuzzleSetter for ThreeColorTheorem {
 }
 
 pub fn main() {
-    solve_main::<ThreeColorTheorem, NineStdTui>("figures/three-color-theorem.png");
+    solve_main::<ThreeColorTheorem, NineStdTui<ThreeColorTheorem>>("figures/three-color-theorem.png");
 }
 
 #[cfg(test)]

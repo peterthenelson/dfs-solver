@@ -2,7 +2,7 @@ use variant_sudoku::core::FeatureVec;
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, StandardSudokuChecker};
+use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, SVal, StandardSudokuChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
@@ -12,6 +12,7 @@ use variant_sudoku::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE,
 pub struct DoubleDown;
 impl PuzzleSetter for DoubleDown {
     type U = u8;
+    type Value = SVal<1, 9>;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
     type Constraint = MultiConstraint<u8, NineStd>;
@@ -62,7 +63,7 @@ impl PuzzleSetter for DoubleDown {
 }
 
 pub fn main() {
-    solve_main::<DoubleDown, NineStdTui>("figures/double-down.png");
+    solve_main::<DoubleDown, NineStdTui<DoubleDown>>("figures/double-down.png");
 }
 
 #[cfg(test)]

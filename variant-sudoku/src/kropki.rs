@@ -353,14 +353,14 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
             if !b.contains(index) {
                 continue;
             }
-            lines.push(format!(" Black[{}]: ", i));
+            lines.push(format!("  Black[{}]: ", i));
             for cell in &b.cells {
                 if *cell != index {
                     continue;
                 }
                 let rem = self.black_remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                lines.push(format!(" - remaining vals: {:?} ", unpack_sval_vals::<MIN, MAX>(rem)));
+                lines.push(format!("  - remaining vals: {:?}", unpack_sval_vals::<MIN, MAX>(rem)));
             }
         }
         if lines.is_empty() {

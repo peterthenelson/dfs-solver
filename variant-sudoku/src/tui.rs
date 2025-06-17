@@ -168,11 +168,9 @@ pub enum Pane {
 pub enum Mode {
     Readme = 1,
     GridCells,
-    /* TODO: Add these
     GridRows,
     GridCols,
     GridBoxes,
-    */
     Stack,
     Constraints,
     ConstraintsRaw,
@@ -194,7 +192,7 @@ pub struct TuiState<'a, P: PuzzleSetter> {
     pub solver: DfsSolver<'a, P::U, P::State, P::Ranker, P::Constraint>,
     pub grid_pos: Index,
     pub scroll_pos: usize,
-    pub scroll_lines: Vec<String>,
+    pub scroll_lines: Vec<Line<'a>>,
     pub mode: Mode,
     pub active: Pane,
     pub exit: Option<Status>,
@@ -318,12 +316,17 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
             Line::from("Replaying given cells...")
         } else {
             match state.solver.constraint_result() {
-                ConstraintResult::Contradiction(a) => {
-                    Line::from(format!("Contradiction: ({})", a.get_name()).red())
-                },
-                ConstraintResult::Certainty(cd, a) => {
-                    Line::from(format!("Certainty: {:?}={} ({})", cd.index, cd.value, a.get_name()).green())
-                },
+                ConstraintResult::Contradiction(a) => Line::from(vec![
+                    "Contradiction: ".red(),
+                    format!("({})", a.get_name()).cyan(),
+                ]),
+                ConstraintResult::Certainty(cd, a) => Line::from(vec![
+                    "Certainty: ".green(),
+                    format!("{:?}", cd.index).blue(),
+                    " = ".into(),
+                    format!("{} ", cd.value).green(),
+                    format!("({})", a.get_name()).cyan(),
+                ]),
                 _ => Line::from(""),
             }
         },
@@ -341,8 +344,6 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
         "Space".blue().bold(),
         " Modes ".into(),
         "Tab/Shift+Tab".blue().bold(),
-        " Advance ".into(),
-        "N".blue().bold(),
         " Quit ".into(),
         "Ctrl+C ".blue().bold(),
     ]);

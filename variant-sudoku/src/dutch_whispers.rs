@@ -234,14 +234,14 @@ Constraint<u8, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
             if !w.contains(index) {
                 continue;
             }
-            lines.push(format!(" Whisper[{}]: ", i));
+            lines.push(format!("  Whisper[{}]: ", i));
             for (cell, _) in &w.cells {
                 if *cell != index {
                     continue;
                 }
                 let rem = self.remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                lines.push(format!(" - remaining vals: {:?} ", unpack_sval_vals::<1, 9>(rem)));
+                lines.push(format!("  - remaining vals: {:?}", unpack_sval_vals::<1, 9>(rem)));
             }
         }
         if lines.is_empty() {

@@ -3,7 +3,7 @@ use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker, D
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::sudoku::{nine_standard_parse, NineStd, StandardSudokuChecker};
+use variant_sudoku::sudoku::{nine_standard_parse, NineStd, SVal, StandardSudokuChecker};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
 
@@ -11,6 +11,7 @@ use variant_sudoku::tui_std::NineStdTui;
 pub struct DutchClover;
 impl PuzzleSetter for DutchClover {
     type U = u8;
+    type Value = SVal<1, 9>;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
     type Constraint = MultiConstraint<u8, NineStd>;
@@ -63,7 +64,7 @@ impl PuzzleSetter for DutchClover {
 }
 
 pub fn main() {
-    solve_main::<DutchClover, NineStdTui>("figures/dutch-clover.png");
+    solve_main::<DutchClover, NineStdTui<DutchClover>>("figures/dutch-clover.png");
 }
 
 #[cfg(test)]

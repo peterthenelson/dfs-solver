@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt, WithId};
+use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -518,6 +518,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
 pub trait PuzzleSetter {
     type U: UInt;
+    type Value: Value<Self::U>;
     type State: State<Self::U>;
     type Ranker: Ranker<Self::U, Self::State>;
     type Constraint: Constraint<Self::U, Self::State>;
@@ -619,9 +620,11 @@ mod test {
         }
     }
     impl Value<u8> for GwValue {
-        fn parse(_: &str) -> Result<Self, Error> { todo!() }
+        fn parse(_: &str) -> Result<Self, Error> { Err(Error::new_const("NOT_IMPL"))  }
         fn cardinality() -> usize { 9 }
         fn possibilities() -> Vec<Self> { (1..10).map(GwValue).collect() }
+        fn nth(ord: usize) -> Self { Self(ord as u8 + 1) }
+        fn ordinal(&self) -> usize { self.0 as usize - 1 }
         fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { GwValue(u.value()+1) }
         fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0-1) }
     }
@@ -726,7 +729,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { todo!() }
+        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { Some("NA".to_string()) }
     }
 
     #[derive(Debug)]
@@ -753,7 +756,7 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { todo!() }
+        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { Some("NA".to_string()) }
     }
 
     #[test]

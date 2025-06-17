@@ -111,8 +111,10 @@ impl <U: UInt> UVal<U, UVUnwrapped> {
 pub trait Value<U: UInt>: Copy + Clone + Display + Debug + PartialEq + Eq {
     fn cardinality() -> usize;
     fn possibilities() -> Vec<Self>;
+    fn nth(ord: usize) -> Self;
     fn parse(s: &str) -> Result<Self, Error>;
 
+    fn ordinal(&self) -> usize;
     fn from_uval(u: UVal<U, UVUnwrapped>) -> Self;
     fn to_uval(self) -> UVal<U, UVWrapped>;
 }

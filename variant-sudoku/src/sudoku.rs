@@ -39,8 +39,16 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
         (MAX - MIN + 1) as usize
     }
 
+    fn nth(ord: usize) -> Self {
+        Self::new(ord as u8 + MIN)
+    }
+
     fn possibilities() -> Vec<Self> {
         (MIN..=MAX).map(|v| SVal(v)).collect()
+    }
+
+    fn ordinal(&self) -> usize {
+        (self.val() - MIN) as usize
     }
 
     fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self {
@@ -441,6 +449,10 @@ impl <const N: usize, const M: usize> StandardSudokuOverlay<N, M> {
         }
         Self { br, bc, bh, bw }
     }
+    pub fn box_rows(&self) -> usize { self.br }
+    pub fn box_height(&self) -> usize { self.bh }
+    pub fn box_cols(&self) -> usize { self.bc }
+    pub fn box_width(&self) -> usize { self.bw }
     pub const fn rows(&self) -> usize { N }
     pub fn row_iter(&self, r: usize) -> StandardSudokuOverlayIterator<N, M> {
         StandardSudokuOverlayIterator::row(self, r)
@@ -662,13 +674,13 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, M
         let header = "StandardSudokuChecker:\n";
         if let Some((i, v, a)) = &self.illegal {
             if *i == index {
-                return Some(format!("{}Illegal move: {} ({})", header, v, a.get_name()));
+                return Some(format!("{}  Illegal move: {} ({})", header, v, a.get_name()));
             }
         }
         let [r, c] = index;
         let (b, _) = self.overlay.to_box_coords(index);
         Some(format!(
-            "{} Unused vals in this row: {:?}\n Unused vals in this col: {:?}\n Unused vals in this box: {:?}",
+            "{}  Unused vals in this row: {:?}\n  Unused vals in this col: {:?}\n  Unused vals in this box: {:?}",
             header,
             unpack_sval_vals::<MIN, MAX>(&self.row[r]),
             unpack_sval_vals::<MIN, MAX>(&self.col[c]),

@@ -466,12 +466,12 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
             if !x.contains(puzzle, index) {
                 continue;
             }
-            lines.push(format!(" {:?}\n", x));
-            lines.push(format!(" - Remaining to target: {}\n", self.xsums_remaining[i]));
+            lines.push(format!("  {:?}", x));
+            lines.push(format!("  - Remaining to target: {}", self.xsums_remaining[i]));
             if let Some(empty) = self.xsums_empty[i] {
-                lines.push(format!(" - Empty cells remaining: {}\n", empty));
+                lines.push(format!("  - Empty cells remaining: {}", empty));
             } else {
-                lines.push(format!(" - Length unknown\n"));
+                lines.push(format!("  - Length unknown"));
             }
         }
         if lines.is_empty() {

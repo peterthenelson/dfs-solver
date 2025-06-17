@@ -284,21 +284,21 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
         let mut lines = vec![];
         if let Some((i, v, a)) = &self.illegal {
             if *i == index {
-                lines.push(format!("Illegal move: {:?}={:?} ({})", i, v, a.get_name()));
+                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.get_name()));
             }
         }
         for (i, c) in self.cages.iter().enumerate() {
             if !c.contains(index) {
                 continue;
             }
-            lines.push(format!(" Cage{:?}\n", c.cells));
+            lines.push(format!("  Cage{:?}", c.cells));
             if let Some(r) = self.remaining[i] {
-                lines.push(format!(" - {} remaining to target", r));
+                lines.push(format!("  - {} remaining to target", r));
             }
-            lines.push(format!(" - {} cells empty\n", self.empty[i]));
+            lines.push(format!("  - {} cells empty", self.empty[i]));
             if c.exclusive {
                 let vals = unpack_sval_vals::<MIN, MAX>(&self.cage_sets[i]);
-                lines.push(format!(" - Unused vals: {:?}\n", vals));
+                lines.push(format!("  - Unused vals: {:?}", vals));
             }
         }
         if lines.is_empty() {
