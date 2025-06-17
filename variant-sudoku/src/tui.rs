@@ -28,7 +28,7 @@ pub fn solve_cli<P: PuzzleSetter, D: StepObserver<P::U, P::State>>(mut observer:
     println!("Solution:\n{:?}", maybe_solution.expect("No solution found!").get_state());
 }
 
-/// Solves the puzzle in the interactive debugger. This 
+/// Solves the puzzle in the interactive debugger.
 pub fn solve_interactive<P: PuzzleSetter, T: Tui<P>>() -> io::Result<()> {
     let mut terminal = ratatui::init();
     let (mut s, r, mut c) = P::setup();
@@ -73,7 +73,8 @@ pub fn solve_main<P: PuzzleSetter, T: Tui<P>>(stats_file: &str) {
 pub mod test_util {
     use super::*;
     /// Solves the puzzle (silently, unless a StepObserver is used), replacing the
-    /// real givens with the provided ones. This is useful for testing.
+    /// real givens with the provided ones. This works similar to solve_cli, but
+    /// it's useful in testing situations.
     pub fn solve_with_given<P: PuzzleSetter, D: StepObserver<P::U, P::State>>(
         given: P::State,
         mut observer: D,
@@ -81,6 +82,15 @@ pub mod test_util {
         let (mut s, r, mut c) = P::setup_with_givens(given);
         let mut finder = FindFirstSolution::new(&mut s, &r, &mut c, Some(&mut observer));
         let _ = finder.solve().expect("Puzzle solver returned an error:");
+    }
+
+    /// You can use the interactive debugger in your tests to debug problems.
+    pub fn debug<P: PuzzleSetter, T: Tui<P>>(state: &mut P::State, ranker: &P::Ranker, constraint: &mut P::Constraint) {
+        let mut terminal = ratatui::init();
+        let mut ts = TuiState::<P>::new(state, ranker, constraint);
+        let app_result = tui_run::<P, T>(&mut ts, &mut terminal);
+        ratatui::restore();
+        app_result.unwrap();
     }
 }
 
