@@ -167,6 +167,7 @@ pub enum Pane {
 #[repr(u8)]
 pub enum Mode {
     Readme = 1,
+    // TODO: Collapse the Grid* ones into PossibilityHeatmap
     GridCells,
     GridRows,
     GridCols,
