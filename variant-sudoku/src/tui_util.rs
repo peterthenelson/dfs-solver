@@ -5,13 +5,10 @@ use std::marker::PhantomData;
 /// to implement the standard Tui impls.
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
+    layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    core::{empty_map, empty_set, BranchOver, Index, State, Value},
-    solver::{DfsSolverView, PuzzleSetter},
-    sudoku::{Overlay, StandardSudokuOverlay},
-    tui::{Mode, Pane, TuiState},
+    constraint::Constraint, core::{empty_map, empty_set, BranchOver, Index, State, Value}, solver::{DfsSolverView, PuzzleSetter}, sudoku::{Overlay, StandardSudokuOverlay}, tui::{Mode, Pane, TuiState}
 };
 
 pub struct GridConfig<P: PuzzleSetter, const N: usize, const M: usize> {
@@ -330,7 +327,8 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         },
     };
     if let Some(grid) = state.solver.decision_grid() {
-        // Assumes that all rows have the same size (and same for cols, boxes).
+        // Note: We are assuming that all rows have the same size (and same for cols, boxes).
+        // TODO: Use the ranker
         let partition_size = cfg.overlay.partition_size(dim, 0);
         let mut filled = vec![empty_set::<P::Value>(); partition_size];
         let mut alternatives = vec![empty_map::<P::Value, Vec<_>>(); partition_size];
@@ -554,15 +552,15 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     );
     let grid_rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(ul.height() as u16), Constraint::Min(0)])
+        .constraints([layout::Constraint::Length(ul.height() as u16), layout::Constraint::Min(0)])
         .split(inner);
     let grid_upper = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([layout::Constraint::Percentage(50), layout::Constraint::Percentage(50)])
         .split(grid_rows[0]);
     let grid_lower = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([layout::Constraint::Percentage(50), layout::Constraint::Percentage(50)])
         .split(grid_rows[1]);
     frame.render_widget(Paragraph::new(ul).right_aligned(), grid_upper[0]);
     frame.render_widget(Paragraph::new(ur).left_aligned(), grid_upper[1]);

@@ -1,4 +1,5 @@
-use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, Value, WithId};
+use std::marker::PhantomData;
+use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UVMap, UVSet, Value, WithId};
 use crate::sudoku::{Overlay, SState, SVal};
 
 /// A ranker finds the "best" place in the grid to make a guess. In theory, we
@@ -38,13 +39,11 @@ pub struct LinearRanker {
 
 impl LinearRanker {
     pub fn new(feature_weights: FeatureVec<FVMaybeNormed>) -> Self {
-        // Put the dummy feature NUM_POSSIBLE into the registry.
-        let mut num_possible = FeatureKey::new(NUM_POSSIBLE_FEATURE);
         let mut weights = feature_weights.clone();
         weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
         LinearRanker {
             weights: weights.try_normalized().unwrap().clone(),
-            num_possible: num_possible.unwrap(),
+            num_possible: FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(),
             empty_attribution: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
             top_cell_attribution: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
             no_vals_attribution: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
@@ -125,15 +124,34 @@ pub struct OverlaySensitiveLinearRanker {
     one_cell_attribution: Attribution<WithId>,
 }
 
+pub struct OSLRRegionInfo<V: Value> {
+    // Values that have already been filled into the puzzle.
+    filled: UVSet<V::U>,
+    // Cells that a given value can go into.
+    cell_choices: UVMap<V::U, Vec<Index>>,
+    // Feature vectors for a given value.
+    feature_vecs: UVMap<V::U, FeatureVec<FVMaybeNormed>>,
+    p_v_: PhantomData<V>,
+}
+
+impl <V: Value> OSLRRegionInfo<V> {
+    pub fn new() -> Self {
+        Self {
+            filled: empty_set::<V>(),
+            cell_choices: empty_map::<V, Vec<Index>>(),
+            feature_vecs: empty_map::<V, FeatureVec<FVMaybeNormed>>(),
+            p_v_: PhantomData,
+        }
+    }
+}
+
 impl OverlaySensitiveLinearRanker {
     pub fn new(feature_weights: FeatureVec<FVMaybeNormed>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
-        // Put the dummy feature NUM_POSSIBLE into the registry.
-        let mut num_possible = FeatureKey::new(NUM_POSSIBLE_FEATURE);
         let mut weights = feature_weights.clone();
         weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
         OverlaySensitiveLinearRanker {
             weights: weights.try_normalized().unwrap().clone(),
-            num_possible: num_possible.unwrap(),
+            num_possible: FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(),
             combinator: combine_features,
             empty_attribution: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
             top_cell_attribution: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
@@ -152,6 +170,40 @@ impl OverlaySensitiveLinearRanker {
         let mut weights = FeatureVec::new();
         weights.add(&FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(), -100.0);
         Self::new(weights, |_, a, b| f64::max(a, b))
+    }
+
+    /// Exposes how the ranker looks at the grid when calculating
+    /// ::ValueInRegion candidates. Useful for debugging without needing to
+    /// duplicate the implementation of the ranker.
+    pub fn region_info<const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>(
+        &self, grid: &DecisionGrid<SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>, dim: usize, p: usize,
+    ) -> OSLRRegionInfo<SVal<MIN, MAX>> {
+        let mut info = OSLRRegionInfo::new();
+        for index in puzzle.get_overlay().partition_iter(dim, p) {
+            if let Some(val) = puzzle.get(index) {
+                info.filled.insert(val.to_uval());
+                continue;
+            }
+            let g = grid.get(index);
+            for uv in g.0.iter() {
+                info.cell_choices.get_mut(uv).push(index);
+                info.feature_vecs.get_mut(uv).extend(&g.1);
+            }
+        }
+        for v in SVal::<MIN, MAX>::possibilities() {
+            let uv = v.to_uval();
+            if info.filled.contains(uv) {
+                continue;
+            }
+            // TODO: Should we normalize the other feature values by
+            // 1/alternatives? Otherwise we're implicitly overweighting
+            // towards choosing a ::ValueInRegion over a ::Cell.
+            info.feature_vecs.get_mut(uv).add(
+                &self.num_possible,
+                info.cell_choices.get(uv).len() as f64,
+            );
+        }
+        info
     }
 }
 
@@ -183,30 +235,16 @@ Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRank
         let overlay = puzzle.get_overlay();
         for dim in 0..overlay.partition_dimension() {
             for p in 0..overlay.n_partitions(dim) {
-                let mut filled = empty_set::<SVal<MIN, MAX>>();
-                let mut alternatives = empty_map::<SVal::<MIN, MAX>, Vec<_>>();
-                let mut fvs = empty_map::<SVal::<MIN, MAX>, FeatureVec<FVMaybeNormed>>();
-                for index in overlay.partition_iter(dim, p) {
-                    if let Some(val) = puzzle.get(index) {
-                        filled.insert(val.to_uval());
-                        continue;
-                    }
-                    let g = grid.get(index);
-                    for uv in g.0.iter() {
-                        alternatives.get_mut(uv).push(index);
-                        fvs.get_mut(uv).extend(&g.1);
-                    }
-                }
+                let mut info = self.region_info(grid, puzzle, dim, p);
                 for v in SVal::<MIN, MAX>::possibilities() {
                     let uv = v.to_uval();
-                    if filled.contains(uv) {
+                    if info.filled.contains(uv) {
                         continue;
                     }
-                    fvs.get_mut(uv).add(&self.num_possible, alternatives.get(uv).len() as f64);
-                    let score = fvs.get_mut(uv).normalize_and(self.combinator).dot_product(&self.weights);
+                    let score = info.feature_vecs.get_mut(uv).normalize_and(self.combinator).dot_product(&self.weights);
                     if top_choice.is_none() || score > top_score {
                         top_score = score;
-                        top_choice = Some(OSLRChoice::ValueInRegion(v, alternatives.get(uv).clone()));
+                        top_choice = Some(OSLRChoice::ValueInRegion(v, info.cell_choices.get(uv).clone()));
                     }
                 }
             }

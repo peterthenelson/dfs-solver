@@ -34,7 +34,8 @@ pub enum DfsSolverState {
 }
 
 // A view on the state and associated data for the solver.
-pub trait DfsSolverView<V: Value, S: State<V>> {
+pub trait DfsSolverView<V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize;
     fn solver_state(&self) -> DfsSolverState;
     fn is_initializing(&self) -> bool;
@@ -42,7 +43,8 @@ pub trait DfsSolverView<V: Value, S: State<V>> {
     fn is_valid(&self) -> bool;
     fn most_recent_action(&self) -> Option<(Index, V)>;
     fn backtracked_steps(&self) -> Option<usize>;
-    fn get_constraint(&self) -> &dyn Constraint<V, S>;
+    fn get_ranker(&self) -> &R;
+    fn get_constraint(&self) -> &C;
     fn constraint_result(&self) -> ConstraintResult<V>;
     fn decision_grid(&self) -> Option<DecisionGrid<V>>;
     fn get_state(&self) -> &S;
@@ -54,8 +56,9 @@ pub trait DfsSolverView<V: Value, S: State<V>> {
 // debugger (and certainly not sufficient for a UI), but when debugging failing
 // tests, it is much easier to inject a StepObserver than it is to invert
 // control and fully instrument the whole solving process.
-pub trait StepObserver<V: Value, S: State<V>> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<V, S>);
+pub trait StepObserver<V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<V, S, R, C>);
 }
 
 pub const MANUAL_ATTRIBUTION: &str = "MANUAL_STEP";
@@ -86,7 +89,7 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     }
 }
 
-impl <'a, V, S, R, C> DfsSolverView<V, S>
+impl <'a, V, S, R, C> DfsSolverView<V, S, R, C>
 for DfsSolver<'a, V, S, R, C>
 where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize {
@@ -131,8 +134,12 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
 
     fn backtracked_steps(&self) -> Option<usize> { self.backtracked_steps }
 
-    fn get_constraint(&self) -> &dyn Constraint<V, S> {
+    fn get_constraint(&self) -> &C {
         self.constraint
+    }
+
+    fn get_ranker(&self) -> &R {
+        self.ranker
     }
 
     fn constraint_result(&self) -> ConstraintResult<V> {
@@ -384,10 +391,10 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
 pub struct FindFirstSolution<'a, V, S, R, C>
 where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     solver: DfsSolver<'a, V, S, R, C>,
-    observer: Option<&'a mut dyn StepObserver<V, S>>,
+    observer: Option<&'a mut dyn StepObserver<V, S, R, C>>,
 }
 
-impl <'a, V, S, R, C> DfsSolverView<V, S>
+impl <'a, V, S, R, C> DfsSolverView<V, S, R, C>
 for FindFirstSolution<'a, V, S, R, C>
 where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize { self.solver.step_count() }
@@ -399,7 +406,10 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         self.solver.most_recent_action()
     }
     fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-    fn get_constraint(&self) -> &dyn Constraint<V, S> {
+    fn get_ranker(&self) -> &R {
+        self.solver.get_ranker()
+    }
+    fn get_constraint(&self) -> &C {
         self.solver.get_constraint()
     }
     fn constraint_result(&self) -> ConstraintResult<V> {
@@ -417,7 +427,7 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         puzzle: &'a mut S,
         ranker: &'a R,
         constraint: &'a mut C,
-        observer: Option<&'a mut dyn StepObserver<V, S>>,
+        observer: Option<&'a mut dyn StepObserver<V, S, R, C>>,
     ) -> Self {
         FindFirstSolution {
             solver: DfsSolver::new(puzzle, ranker, constraint),
@@ -425,12 +435,12 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         }
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S, R, C>, Error> {
         self.solver.step()?;
         Ok(&self.solver)
     }
 
-    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<V, S>>, Error> {
+    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<V, S, R, C>>, Error> {
         while !self.solver.is_done() {
             self.step()?;
             if let Some(observer) = &mut self.observer {
@@ -449,10 +459,10 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
 pub struct FindAllSolutions<'a, V, S, R, C>
 where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     solver: DfsSolver<'a, V, S, R, C>,
-    observer: Option<&'a mut dyn StepObserver<V, S>>,
+    observer: Option<&'a mut dyn StepObserver<V, S, R, C>>,
 }
 
-impl <'a, V, S, R, C> DfsSolverView<V, S>
+impl <'a, V, S, R, C> DfsSolverView<V, S, R, C>
 for FindAllSolutions<'a, V, S, R, C>
 where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize { self.solver.step_count() }
@@ -464,7 +474,10 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         self.solver.most_recent_action()
     }
     fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-    fn get_constraint(&self) -> &dyn Constraint<V, S> {
+    fn get_ranker(&self) -> &R {
+        self.solver.get_ranker()
+    }
+    fn get_constraint(&self) -> &C {
         self.solver.get_constraint()
     }
     fn constraint_result(&self) -> ConstraintResult<V> {
@@ -482,14 +495,14 @@ where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         puzzle: &'a mut S,
         ranker: &'a R,
         constraint: &'a mut C,
-        observer: Option<&'a mut dyn StepObserver<V, S>>,
+        observer: Option<&'a mut dyn StepObserver<V, S, R, C>>,
     ) -> Self {
         FindAllSolutions {
             solver: DfsSolver::new(puzzle, ranker, constraint), observer,
         }
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S, R, C>, Error> {
         if self.solver.state == DfsSolverState::Solved {
             self.solver.force_backtrack();
         }
@@ -537,10 +550,10 @@ pub mod test_util {
     pub struct PuzzleReplay<'a, V, S, R, C>
     where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         solver: DfsSolver<'a, V, S, R, C>,
-        observer: Option<&'a mut dyn StepObserver<V, S>>,
+        observer: Option<&'a mut dyn StepObserver<V, S, R, C>>,
     }
 
-    impl <'a, V, S, R, C> DfsSolverView<V, S>
+    impl <'a, V, S, R, C> DfsSolverView<V, S, R, C>
     for PuzzleReplay<'a, V, S, R, C>
     where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         fn step_count(&self) -> usize { self.solver.step_count() }
@@ -552,7 +565,10 @@ pub mod test_util {
             self.solver.most_recent_action()
         }
         fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-        fn get_constraint(&self) -> &dyn Constraint<V, S> {
+        fn get_ranker(&self) -> &R {
+            self.solver.get_ranker()
+        }
+        fn get_constraint(&self) -> &C {
             self.solver.get_constraint()
         }
         fn constraint_result(&self) -> ConstraintResult<V> {
@@ -570,7 +586,7 @@ pub mod test_util {
             puzzle: &'a mut S,
             ranker: &'a R,
             constraint: &'a mut C,
-            observer: Option<&'a mut dyn StepObserver<V, S>>,
+            observer: Option<&'a mut dyn StepObserver<V, S, R, C>>,
         ) -> Self {
             Self {
                 solver: DfsSolver::new(puzzle, ranker, constraint),
@@ -578,7 +594,7 @@ pub mod test_util {
             }
         }
 
-        pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S>, Error> {
+        pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S, R, C>, Error> {
             self.solver.step()?;
             Ok(&self.solver)
         }
@@ -814,8 +830,9 @@ mod test {
     }
 
     struct ContraCounter(pub usize);
-    impl StepObserver<GwValue, GwLine> for ContraCounter {
-        fn after_step(&mut self, solver: &dyn DfsSolverView<GwValue, GwLine>) {
+    impl <R: Ranker<GwValue, GwLine>, C: Constraint<GwValue, GwLine>>
+    StepObserver<GwValue, GwLine, R, C> for ContraCounter {
+        fn after_step(&mut self, solver: &dyn DfsSolverView<GwValue, GwLine, R, C>) {
             if !solver.is_valid() {
                 self.0 += 1;
             }

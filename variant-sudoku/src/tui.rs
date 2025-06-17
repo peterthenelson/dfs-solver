@@ -20,7 +20,7 @@ use crate::{
 /// Solves the puzzle in command-line mode. No interactivity, but a StepObserver
 /// can be passed in to periodically print out or save debug information. The
 /// solution will be printed at the end.
-pub fn solve_cli<P: PuzzleSetter, D: StepObserver<P::Value, P::State>>(mut observer: D) {
+pub fn solve_cli<P: PuzzleSetter, D: StepObserver<P::Value, P::State, P::Ranker, P::Constraint>>(mut observer: D) {
     let (mut s, r, mut c) = P::setup();
     let mut finder = FindFirstSolution::new(&mut s, &r, &mut c, Some(&mut observer));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
@@ -74,7 +74,7 @@ pub mod test_util {
     /// Solves the puzzle (silently, unless a StepObserver is used), replacing the
     /// real givens with the provided ones. This works similar to solve_cli, but
     /// it's useful in testing situations.
-    pub fn solve_with_given<P: PuzzleSetter, D: StepObserver<P::Value, P::State>>(
+    pub fn solve_with_given<P: PuzzleSetter, D: StepObserver<P::Value, P::State, P::Ranker, P::Constraint>>(
         given: P::State,
         mut observer: D,
     ) {
