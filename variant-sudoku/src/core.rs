@@ -155,7 +155,7 @@ impl<U: UInt> UVGrid<U> {
 
 /// This is a mapping from values to some other type. It is densely represented
 /// as a slice of values, indexed by their unsigned representations.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UVMap<U: UInt, V: Clone> {
     vals: Box<[V]>,
     _p_u: PhantomData<U>,

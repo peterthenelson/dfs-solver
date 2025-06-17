@@ -5,12 +5,12 @@ use std::marker::PhantomData;
 /// to implement the standard Tui impls.
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
-    layout::Rect, style::{Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
+    layout::Rect, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    core::{unpack_values, BranchOver, Index, State, UInt, Value},
+    core::{empty_map, empty_set, unpack_values, BranchOver, Index, State, UInt, Value},
     solver::{DfsSolverView, PuzzleSetter},
-    sudoku::StandardSudokuOverlay,
+    sudoku::{Overlay, StandardSudokuOverlay},
     tui::{Mode, Pane, TuiState},
 };
 
@@ -183,6 +183,15 @@ pub fn scroll_lines<'a, P: PuzzleSetter<U = u8>, const N: usize, const M: usize>
     }
 }
 
+/// Concrete information about how cells should be highlighted when rendering
+/// the grid.
+struct GridHighlight<P: PuzzleSetter, const N: usize, const M: usize> {
+    cursor: Index,
+    val: [[Option<P::Value>; M]; N],
+    fg: [[Option<Color>; M]; N],
+    bg: [[Option<Color>; M]; N],
+}
+
 pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<N, M, P::U, P::Value>) -> Line<'static> {
     let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
     let seg = "─".repeat(bw*3);
@@ -228,73 +237,48 @@ pub fn grid_crossbar<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &Grid
     Line::from(pieces)
 }
 
-pub fn grid_cell<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+fn grid_cell<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    highlight: &GridHighlight<P, N, M>,
     index: Index,
-    cursor: Index,
-    most_recent: Option<Index>,
 ) -> Span<'static> {
-    let val = match state.mode {
-        Mode::GridRows => Some(format!("{}", cfg.nth(index[1]))),
-        Mode::GridCols => Some(format!("{}", cfg.nth(index[0]))),
-        Mode::GridBoxes => {
-            let (_, [r, c]) = cfg.overlay.to_box_coords(index);
-            Some(format!("{}", cfg.nth(r*cfg.overlay.box_width() + c)))
-        },
-        _ => state.solver.get_state().get(index).map(|v| format!("{}", v)),
-    };
-    // TODO: Add heatmap data
+    let val = highlight.val[index[0]][index[1]];
     let mut s: Span<'_> = if let Some(v) = val {
-        if index == cursor {
+        if index == highlight.cursor {
             format!("[{}]", v).bold()
         } else {
             format!(" {} ", v).into()
         }
     } else {
-        if index == cursor {
+        if index == highlight.cursor {
             "[ ]".bold()
         } else {
             "   ".into()
         }
     };
-    let local_mr = most_recent.map(|[r, c]| {
-        let ord = state.solver.get_state().get([r, c]).unwrap().ordinal();
-        match state.mode {
-            Mode::GridRows => [r, ord],
-            Mode::GridCols => [ord, c],
-            Mode::GridBoxes => {
-                let (b, _) = cfg.overlay.to_box_coords([r, c]);
-                let bw = cfg.overlay.box_width();
-                cfg.overlay.from_box_coords(b, [ord/bw, ord%bw])
-            },
-            _ => [r, c],
-        }
-    });
-    s = match local_mr {
-        Some(mr) if mr == index => if state.solver.is_valid() {
-            s.green()
-        } else {
-            s.red()
-        },
-        _ => s,
+    s = if let Some(c) = highlight.fg[index[0]][index[1]] {
+        s.fg(c)
+    } else {
+        s
+    };
+    s = if let Some(c) = highlight.bg[index[0]][index[1]] {
+        s.bg(c)
+    } else {
+        s
     };
     s
 }
 
-pub fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>,
+fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     cfg: &GridConfig<N, M, P::U, P::Value>,
+    highlight: &GridHighlight<P, N, M>,
     row: usize,
-    cursor: Index,
-    most_recent: Option<Index>,
 ) -> Line<'static> {
     let mut spans: Vec<Span<'_>> = vec![];
     spans.push("│".into());
     let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
     for i in 0..bc {
         for c in 0..bw {
-            spans.push(grid_cell(state, cfg, [row, i*bw + c], cursor, most_recent))
+            spans.push(grid_cell(highlight, [row, i*bw + c]))
         }
         if i+1 < bc {
             spans.push("│".into());
@@ -302,6 +286,162 @@ pub fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     } 
     spans.push("│".into());
     Line::from(spans)
+}
+
+fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+    cfg: &GridConfig<N, M, P::U, P::Value>,
+    index: Index,
+) -> Option<P::Value> {
+    let [r, c] = index;
+    match state.mode {
+        Mode::GridRows => Some(cfg.nth(c)),
+        Mode::GridCols => Some(cfg.nth(r)),
+        Mode::GridBoxes => {
+            let (_, [br, bc]) = cfg.overlay.to_box_coords([r, c]);
+            Some(cfg.nth(br*cfg.overlay.box_width() + bc))
+        },
+        // TODO: Fix the stupid template params
+        _ => state.solver.get_state().get([r, c]).map(|v| {
+            cfg.nth(v.ordinal())
+        }),
+    }
+}
+
+fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+    cfg: &GridConfig<N, M, P::U, P::Value>,
+) -> [[Option<P::Value>; M]; N] {
+    let mut vm = [[None; M]; N];
+    for r in 0..N {
+        for c in 0..M {
+            vm[r][c] = grid_val_for_index(state, cfg, [r, c]);
+        }
+    }
+    vm
+}
+
+fn gen_heatmap_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
+    let max = P::Value::cardinality();
+    let ratio = n_possibilities as f32 / max as f32;
+    let red = (255.0 * ratio) as u8;
+    let green = (255.0 * (1.0 - ratio)) as u8;
+    Color::Rgb(red, green, 0)
+}
+
+fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+    cfg: &GridConfig<N, M, P::U, P::Value>,
+) -> [[Option<Color>; M]; N] {
+    let mut hm = [[None; M]; N];
+    // TODO: Add blue text (and the text) for showing possible locations of
+    // particular digits.
+    match state.mode {
+        Mode::GridRows => {},
+        Mode::GridCols => {},
+        Mode::GridBoxes => {},
+        _ => {},
+    };
+    if let Some((i, v)) = state.solver.most_recent_action() {
+        let ord = v.ordinal();
+        let [r, c] = match state.mode {
+            Mode::GridRows => [i[0], ord],
+            Mode::GridCols => [ord, i[1]],
+            Mode::GridBoxes => {
+                let (b, _) = cfg.overlay.to_box_coords(i);
+                let bw = cfg.overlay.box_width();
+                cfg.overlay.from_box_coords(b, [ord/bw, ord%bw])
+            },
+            _ => i,
+        };
+        hm[r][c] = Some(if state.solver.is_valid() { Color::Green } else { Color::Red });
+    }
+    hm
+}
+
+fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+    cfg: &GridConfig<N, M, P::U, P::Value>,
+) -> [[Option<Color>; M]; N] {
+    let mut hm = [[None; M]; N];
+    if let Mode::GridCells = state.mode {
+        if let Some(grid) = state.solver.decision_grid() {
+            for r in 0..N {
+                for c in 0..M {
+                    if state.solver.get_state().get([r, c]).is_some() {
+                        continue;
+                    }
+                    hm[r][c] = Some(gen_heatmap_color::<P>(grid.get([r, c]).0.len()))
+                }
+            }
+        }
+        return hm;
+    }
+    let dim = match state.mode {
+        Mode::GridRows => 0,
+        Mode::GridCols => 1,
+        Mode::GridBoxes => 2,
+        _ => return hm,
+    };
+    // TODO: Check that this is actually working
+    // - One, it seems too green
+    // - Two, I'm definitely marking the filled cells wrong
+    if let Some(grid) = state.solver.decision_grid() {
+        // Assumes that all rows have the same size (and same for cols, boxes).
+        let partition_size = cfg.overlay.partition_size(dim, 0);
+        let mut filled = vec![empty_set::<P::U, P::Value>(); partition_size];
+        let mut alternatives = vec![empty_map::<P::U, P::Value, Vec<_>>(); partition_size];
+        for p in 0..cfg.overlay.n_partitions(dim) {
+            for index in cfg.overlay.partition_iter(dim, p) {
+                if let Some(val) = state.solver.get_state().get(index) {
+                    filled[p].insert(val.to_uval());
+                    continue;
+                }
+                let g = grid.get(index);
+                for uv in g.0.iter() {
+                    alternatives[p].get_mut(uv).push(index);
+                }
+            }
+        }
+        for r in 0..N {
+            for c in 0..M {
+                let p = cfg.overlay.enclosing_partition([r, c], dim).unwrap();
+                let v = grid_val_for_index(state, cfg, [r, c]).unwrap();
+                let uv = v.to_uval();
+                if filled[p].contains(uv) {
+                    continue;
+                }
+                hm[r][c] = Some(gen_heatmap_color::<P>(alternatives[p].get(uv).len()));
+            }
+        }
+    }
+    hm
+}
+
+pub fn grid_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+    cfg: &GridConfig<N, M, P::U, P::Value>,
+    // TODO: Allow configuring the right side for the row/col/box ones
+) -> Vec<Line<'static>> {
+    let highlight = GridHighlight::<P, N, M> {
+        cursor: state.grid_pos,
+        val: gen_val(state, cfg),
+        fg: gen_fg(state, cfg),
+        bg: gen_bg(state, cfg),
+    };
+    let mut lines = vec![];
+    lines.push(grid_top::<P, N, M>(cfg));
+    let (br, bh) = (cfg.overlay.box_rows(), cfg.overlay.box_height());
+    for i in 0..br {
+        for r in 0..bh {
+            lines.push(grid_line(cfg, &highlight, r+i*bh));
+        }
+        if i+1 < br {
+            lines.push(grid_crossbar::<P, N, M>(cfg));
+        }
+    }
+    lines.push(grid_bottom::<P, N, M>(cfg));
+    lines
 }
 
 pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -327,21 +467,9 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let block = Block::bordered()
         .title(title.centered())
         .border_set(if is_active { border::DOUBLE } else { border::PLAIN });
-    let mr = state.solver.most_recent_action().map(|(i, _)| i);
-    let mut grid_lines = vec![];
-    grid_lines.push(grid_top::<P, N, M>(cfg));
-    let (br, bh) = (cfg.overlay.box_rows(), cfg.overlay.box_height());
-    for i in 0..br {
-        for r in 0..bh {
-            grid_lines.push(grid_line(state, cfg, r+i*bh, state.grid_pos, mr))
-        }
-        if i+1 < br {
-            grid_lines.push(grid_crossbar::<P, N, M>(cfg));
-        }
-    }
-    grid_lines.push(grid_bottom::<P, N, M>(cfg));
+    let lines = grid_lines(state, cfg);
     frame.render_widget(
-        Paragraph::new(Text::from(grid_lines)).centered().block(block),
+        Paragraph::new(Text::from(lines)).centered().block(block),
         area,
     );
 }

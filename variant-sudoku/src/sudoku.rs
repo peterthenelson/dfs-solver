@@ -146,6 +146,7 @@ pub trait Overlay: Clone + Debug {
     type Iter<'a>: Iterator<Item = Index> where Self: 'a;
     fn partition_dimension(&self) -> usize;
     fn n_partitions(&self, dim: usize) -> usize;
+    fn partition_size(&self, dim: usize, index: usize) -> usize;
     fn enclosing_partition(&self, index: Index, dim: usize) -> Option<usize>;
     fn enclosing_partitions(&self, index: Index) -> Vec<Option<usize>> {
         (0..self.partition_dimension())
@@ -498,6 +499,17 @@ impl <const N: usize, const M: usize> Overlay for StandardSudokuOverlay<N, M> {
             0 => self.rows(),
             1 => self.cols(),
             2 => self.boxes(),
+            _ => panic!("Invalid dimension for StandardSudokuOverlay: {}", dim),
+        }
+    }
+    fn partition_size(&self, dim: usize, _: usize) -> usize {
+        match dim {
+            // All rows have cols() cells
+            0 => self.cols(),
+            // All cols have rows() cells
+            1 => self.rows(),
+            // Boxes all have bh*bw cells
+            2 => self.box_height()*self.box_width(),
             _ => panic!("Invalid dimension for StandardSudokuOverlay: {}", dim),
         }
     }
