@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, UInt, Value, WithId};
+use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, State, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -34,17 +34,17 @@ pub enum DfsSolverState {
 }
 
 // A view on the state and associated data for the solver.
-pub trait DfsSolverView<U: UInt, S: State<U>> {
+pub trait DfsSolverView<V: Value, S: State<V>> {
     fn step_count(&self) -> usize;
     fn solver_state(&self) -> DfsSolverState;
     fn is_initializing(&self) -> bool;
     fn is_done(&self) -> bool;
     fn is_valid(&self) -> bool;
-    fn most_recent_action(&self) -> Option<(Index, S::Value)>;
+    fn most_recent_action(&self) -> Option<(Index, V)>;
     fn backtracked_steps(&self) -> Option<usize>;
-    fn get_constraint(&self) -> &dyn Constraint<U, S>;
-    fn constraint_result(&self) -> ConstraintResult<U, S::Value>;
-    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>>;
+    fn get_constraint(&self) -> &dyn Constraint<V, S>;
+    fn constraint_result(&self) -> ConstraintResult<V>;
+    fn decision_grid(&self) -> Option<DecisionGrid<V>>;
     fn get_state(&self) -> &S;
 }
 
@@ -54,8 +54,8 @@ pub trait DfsSolverView<U: UInt, S: State<U>> {
 // debugger (and certainly not sufficient for a UI), but when debugging failing
 // tests, it is much easier to inject a StepObserver than it is to invert
 // control and fully instrument the whole solving process.
-pub trait StepObserver<U: UInt, S: State<U>> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>);
+pub trait StepObserver<V: Value, S: State<V>> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<V, S>);
 }
 
 pub const MANUAL_ATTRIBUTION: &str = "MANUAL_STEP";
@@ -64,31 +64,31 @@ pub const MANUAL_ATTRIBUTION: &str = "MANUAL_STEP";
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
 /// if you are implementing a UI or debugging, this API may be useful.
-pub struct DfsSolver<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+pub struct DfsSolver<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     step: usize,
     puzzle: &'a mut S,
     ranker: &'a R,
     constraint: &'a mut C,
-    check_result: ConstraintResult<U, S::Value>,
-    decision_grid: Option<DecisionGrid<U, S::Value>>,
-    stack: Vec<BranchPoint<U, S>>,
+    check_result: ConstraintResult<V>,
+    decision_grid: Option<DecisionGrid<V>>,
+    stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
     manual_attribution: Attribution<WithId>,
     state: DfsSolverState,
 }
 
-impl <'a, U, S, R, C> Debug
-for DfsSolver<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> Debug
+for DfsSolver<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State:\n{:?}Constraint:\n{:?}\n", self.puzzle, self.constraint)
     }
 }
 
-impl <'a, U, S, R, C> DfsSolverView<U, S>
-for DfsSolver<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> DfsSolverView<V, S>
+for DfsSolver<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize {
         self.step
     }
@@ -116,7 +116,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
     }
 
-    fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+    fn most_recent_action(&self) -> Option<(Index, V)> {
         if let Some(b) = self.stack.last() {
             b.chosen()
         } else {
@@ -131,15 +131,15 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 
     fn backtracked_steps(&self) -> Option<usize> { self.backtracked_steps }
 
-    fn get_constraint(&self) -> &dyn Constraint<U, S> {
+    fn get_constraint(&self) -> &dyn Constraint<V, S> {
         self.constraint
     }
 
-    fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+    fn constraint_result(&self) -> ConstraintResult<V> {
         self.check_result.clone()
     }
 
-    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+    fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.decision_grid.clone()
     }
 
@@ -152,7 +152,7 @@ const NOT_INITIALIZED: Error = Error::new_const("Must call init() before steppin
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
 
-fn next_filled<U: UInt, S: State<U>>(index: Option<Index>, puzzle: &S) -> Option<(Index, S::Value)> {
+fn next_filled<V: Value, S: State<V>>(index: Option<Index>, puzzle: &S) -> Option<(Index, V)> {
     let mut i = if index.is_none() {
         [0, 0]
     } else {
@@ -170,8 +170,8 @@ fn next_filled<U: UInt, S: State<U>>(index: Option<Index>, puzzle: &S) -> Option
     None
 }
 
-impl <'a, U, S, R, C> DfsSolver<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> DfsSolver<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     pub fn new(
         puzzle: &'a mut S,
         ranker: &'a R,
@@ -196,7 +196,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         for r in 0..S::ROWS {
             for c in 0..S::COLS {
                 if let Some(v) = self.puzzle.get([r, c]) {
-                    grid.get_mut([r, c]).0 = singleton_set::<U, S::Value>(v);
+                    grid.get_mut([r, c]).0 = singleton_set::<V>(v);
                 }
             }
         }
@@ -209,7 +209,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
     }
 
-    fn apply(&mut self, decision: BranchPoint<U, S>) -> Result<(), Error> {
+    fn apply(&mut self, decision: BranchPoint<V>) -> Result<(), Error> {
         if self.is_initializing() {
             return Err(NOT_INITIALIZED);
         } else if self.is_done() {
@@ -239,7 +239,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         return Ok(());
     }
 
-    fn unapply(&mut self, decision: &BranchPoint<U, S>) -> Result<(), Error> {
+    fn unapply(&mut self, decision: &BranchPoint<V>) -> Result<(), Error> {
         let (i, v) = decision.chosen().unwrap();
         if let Err(e) = self.puzzle.undo(i, v) {
             self.constraint.undo(i, v)?;
@@ -248,7 +248,7 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         self.constraint.undo(i, v)
     }
 
-    fn suggest(&self) -> BranchPoint<U, S> {
+    fn suggest(&self) -> BranchPoint<V> {
         if let ConstraintResult::Certainty(d, a) = &self.check_result {
             return BranchPoint::unique(self.step, a.clone(), d.index, d.value);
         }
@@ -259,10 +259,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
     }
 
     /// The stack of BranchPoints
-    pub fn stack(&self) -> &Vec<BranchPoint<U, S>> { &self.stack }
+    pub fn stack(&self) -> &Vec<BranchPoint<V>> { &self.stack }
 
     /// Overriding any logic the solver has, manually do a move.
-    pub fn manual_step(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+    pub fn manual_step(&mut self, index: Index, value: V) -> Result<(), Error> {
         self.step += 1;
         self.apply(BranchPoint::unique(self.step, self.manual_attribution.clone(), index, value))
     }
@@ -381,43 +381,43 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 }
 
 /// Find first solution to the puzzle using the given ranker and constraints.
-pub struct FindFirstSolution<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
-    solver: DfsSolver<'a, U, S, R, C>,
-    observer: Option<&'a mut dyn StepObserver<U, S>>,
+pub struct FindFirstSolution<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
+    solver: DfsSolver<'a, V, S, R, C>,
+    observer: Option<&'a mut dyn StepObserver<V, S>>,
 }
 
-impl <'a, U, S, R, C> DfsSolverView<U, S>
-for FindFirstSolution<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> DfsSolverView<V, S>
+for FindFirstSolution<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize { self.solver.step_count() }
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.is_done() }
     fn is_valid(&self) -> bool { self.solver.is_valid() }
-    fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+    fn most_recent_action(&self) -> Option<(Index, V)> {
         self.solver.most_recent_action()
     }
     fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-    fn get_constraint(&self) -> &dyn Constraint<U, S> {
+    fn get_constraint(&self) -> &dyn Constraint<V, S> {
         self.solver.get_constraint()
     }
-    fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+    fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
     }
-    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+    fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.solver.decision_grid()
     }
     fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
-impl <'a, U, S, R, C> FindFirstSolution<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> FindFirstSolution<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     pub fn new(
         puzzle: &'a mut S,
         ranker: &'a R,
         constraint: &'a mut C,
-        observer: Option<&'a mut dyn StepObserver<U, S>>,
+        observer: Option<&'a mut dyn StepObserver<V, S>>,
     ) -> Self {
         FindFirstSolution {
             solver: DfsSolver::new(puzzle, ranker, constraint),
@@ -425,12 +425,12 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
         }
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S>, Error> {
         self.solver.step()?;
         Ok(&self.solver)
     }
 
-    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<U, S>>, Error> {
+    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<V, S>>, Error> {
         while !self.solver.is_done() {
             self.step()?;
             if let Some(observer) = &mut self.observer {
@@ -446,50 +446,50 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 }
 
 /// Find all solutions to the puzzle using the given ranker and constraints.
-pub struct FindAllSolutions<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
-    solver: DfsSolver<'a, U, S, R, C>,
-    observer: Option<&'a mut dyn StepObserver<U, S>>,
+pub struct FindAllSolutions<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
+    solver: DfsSolver<'a, V, S, R, C>,
+    observer: Option<&'a mut dyn StepObserver<V, S>>,
 }
 
-impl <'a, U, S, R, C> DfsSolverView<U, S>
-for FindAllSolutions<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> DfsSolverView<V, S>
+for FindAllSolutions<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     fn step_count(&self) -> usize { self.solver.step_count() }
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
     fn is_done(&self) -> bool { self.solver.solver_state() == DfsSolverState::Exhausted }
     fn is_valid(&self) -> bool { self.solver.is_valid() }
-    fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+    fn most_recent_action(&self) -> Option<(Index, V)> {
         self.solver.most_recent_action()
     }
     fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-    fn get_constraint(&self) -> &dyn Constraint<U, S> {
+    fn get_constraint(&self) -> &dyn Constraint<V, S> {
         self.solver.get_constraint()
     }
-    fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+    fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
     }
-    fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+    fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.solver.decision_grid()
     }
     fn get_state(&self) -> &S { self.solver.get_state() }
 }
 
-impl <'a, U, S, R, C> FindAllSolutions<'a, U, S, R, C>
-where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+impl <'a, V, S, R, C> FindAllSolutions<'a, V, S, R, C>
+where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
     pub fn new(
         puzzle: &'a mut S,
         ranker: &'a R,
         constraint: &'a mut C,
-        observer: Option<&'a mut dyn StepObserver<U, S>>,
+        observer: Option<&'a mut dyn StepObserver<V, S>>,
     ) -> Self {
         FindAllSolutions {
             solver: DfsSolver::new(puzzle, ranker, constraint), observer,
         }
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S>, Error> {
         if self.solver.state == DfsSolverState::Solved {
             self.solver.force_backtrack();
         }
@@ -517,11 +517,10 @@ where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
 }
 
 pub trait PuzzleSetter {
-    type U: UInt;
-    type Value: Value<Self::U>;
-    type State: State<Self::U>;
-    type Ranker: Ranker<Self::U, Self::State>;
-    type Constraint: Constraint<Self::U, Self::State>;
+    type Value: Value;
+    type State: State<Self::Value>;
+    type Ranker: Ranker<Self::Value, Self::State>;
+    type Constraint: Constraint<Self::Value, Self::State>;
 
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint);
     // Useful for testing: setup the state with a different set of givens.
@@ -535,43 +534,43 @@ pub mod test_util {
     /// Replayer for a partially or wholly complete puzzle. This is helpful if
     /// you'd like to test a constraint and would prefer to specify the state
     /// after a number of actions, rather than as a sequence of actions.
-    pub struct PuzzleReplay<'a, U, S, R, C>
-    where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
-        solver: DfsSolver<'a, U, S, R, C>,
-        observer: Option<&'a mut dyn StepObserver<U, S>>,
+    pub struct PuzzleReplay<'a, V, S, R, C>
+    where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
+        solver: DfsSolver<'a, V, S, R, C>,
+        observer: Option<&'a mut dyn StepObserver<V, S>>,
     }
 
-    impl <'a, U, S, R, C> DfsSolverView<U, S>
-    for PuzzleReplay<'a, U, S, R, C>
-    where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    impl <'a, V, S, R, C> DfsSolverView<V, S>
+    for PuzzleReplay<'a, V, S, R, C>
+    where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         fn step_count(&self) -> usize { self.solver.step_count() }
         fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
         fn is_initializing(&self) -> bool { self.solver.is_initializing() }
         fn is_done(&self) -> bool { self.solver.is_done() }
         fn is_valid(&self) -> bool { self.solver.is_valid() }
-        fn most_recent_action(&self) -> Option<(Index, S::Value)> {
+        fn most_recent_action(&self) -> Option<(Index, V)> {
             self.solver.most_recent_action()
         }
         fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-        fn get_constraint(&self) -> &dyn Constraint<U, S> {
+        fn get_constraint(&self) -> &dyn Constraint<V, S> {
             self.solver.get_constraint()
         }
-        fn constraint_result(&self) -> ConstraintResult<U, S::Value> {
+        fn constraint_result(&self) -> ConstraintResult<V> {
             self.solver.constraint_result()
         }
-        fn decision_grid(&self) -> Option<DecisionGrid<U, S::Value>> {
+        fn decision_grid(&self) -> Option<DecisionGrid<V>> {
             self.solver.decision_grid()
         }
         fn get_state(&self) -> &S { self.solver.get_state() }
     }
 
-    impl <'a, U, S, R, C> PuzzleReplay<'a, U, S, R, C>
-    where U: UInt, S: State<U>, R: Ranker<U, S>, C: Constraint<U, S> {
+    impl <'a, V, S, R, C> PuzzleReplay<'a, V, S, R, C>
+    where V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S> {
         pub fn new(
             puzzle: &'a mut S,
             ranker: &'a R,
             constraint: &'a mut C,
-            observer: Option<&'a mut dyn StepObserver<U, S>>,
+            observer: Option<&'a mut dyn StepObserver<V, S>>,
         ) -> Self {
             Self {
                 solver: DfsSolver::new(puzzle, ranker, constraint),
@@ -579,7 +578,7 @@ pub mod test_util {
             }
         }
 
-        pub fn step(&mut self) -> Result<&dyn DfsSolverView<U, S>, Error> {
+        pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, S>, Error> {
             self.solver.step()?;
             Ok(&self.solver)
         }
@@ -587,7 +586,7 @@ pub mod test_util {
         /// Replay all the existing actions in the puzzle against a constraint
         /// and report the final ConstraintResult (or a contradiction is
         /// detected during the replay).
-        pub fn replay(&mut self) -> Result<ConstraintResult<U, S::Value>, Error> {
+        pub fn replay(&mut self) -> Result<ConstraintResult<V>, Error> {
             while self.solver.is_initializing() {
                 self.step()?;
                 if let Some(observer) = &mut self.observer {
@@ -619,7 +618,8 @@ mod test {
             write!(f, "{}", self.0)
         }
     }
-    impl Value<u8> for GwValue {
+    impl Value for GwValue {
+        type U = u8;
         fn parse(_: &str) -> Result<Self, Error> { Err(Error::new_const("NOT_IMPL"))  }
         fn cardinality() -> usize { 9 }
         fn possibilities() -> Vec<Self> { (1..10).map(GwValue).collect() }
@@ -652,7 +652,7 @@ mod test {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             for i in 0..8 {
                 if let Some(v) = self.digits.get([0, i]) {
-                    write!(f, "{}", to_value::<u8, GwValue>(v).0)?;
+                    write!(f, "{}", to_value::<GwValue>(v).0)?;
                 } else {
                     write!(f, ".")?;
                 }
@@ -661,12 +661,11 @@ mod test {
         }
     }
 
-    impl State<u8> for GwLine {
-        type Value = GwValue;
+    impl State<GwValue> for GwLine {
         const ROWS: usize = 1;
         const COLS: usize = 8;
 
-        fn get(&self, index: Index) -> Option<Self::Value> {
+        fn get(&self, index: Index) -> Option<GwValue> {
             if index[0] >= 1 || index[1] >= 8 {
                 return None;
             }
@@ -674,7 +673,7 @@ mod test {
         }
     }
 
-    impl Stateful<u8, GwValue> for GwLine {
+    impl Stateful<GwValue> for GwLine {
         fn reset(&mut self) {
             self.digits = UVGrid::<u8>::new(Self::ROWS, Self::COLS);
         }
@@ -705,19 +704,19 @@ mod test {
 
     #[derive(Debug)]
     struct GwLineConstraint {}
-    impl Stateful<u8, GwValue> for GwLineConstraint {}
-    impl Constraint<u8, GwLine> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, _: &mut DecisionGrid<u8, GwValue>) -> ConstraintResult<u8, GwValue> {
+    impl Stateful<GwValue> for GwLineConstraint {}
+    impl Constraint<GwValue, GwLine> for GwLineConstraint {
+        fn check(&self, puzzle: &GwLine, _: &mut DecisionGrid<GwValue>) -> ConstraintResult<GwValue> {
             for i in 0..8 {
                 if puzzle.digits.get([0, i]).is_none() {
                     continue;
                 }
-                let i_val = to_value::<u8, GwValue>(puzzle.digits.get([0, i]).unwrap()).0;
+                let i_val = to_value::<GwValue>(puzzle.digits.get([0, i]).unwrap()).0;
                 for j in i+1..8 {
                     if puzzle.digits.get([0, j]).is_none() {
                         continue;
                     }
-                    let j_val = to_value::<u8, GwValue>(puzzle.digits.get([0, j]).unwrap()).0;
+                    let j_val = to_value::<GwValue>(puzzle.digits.get([0, j]).unwrap()).0;
                     if i_val == j_val {
                         return ConstraintResult::Contradiction(Attribution::new("GW_DUPE").unwrap())
                     }
@@ -734,12 +733,12 @@ mod test {
 
     #[derive(Debug)]
     struct GwSmartLineConstraint {}
-    impl Stateful<u8, GwValue> for GwSmartLineConstraint {}
-    impl Constraint<u8, GwLine> for GwSmartLineConstraint {
-        fn check(&self, puzzle: &GwLine, grid: &mut DecisionGrid<u8, GwValue>) -> ConstraintResult<u8, GwValue> {
+    impl Stateful<GwValue> for GwSmartLineConstraint {}
+    impl Constraint<GwValue, GwLine> for GwSmartLineConstraint {
+        fn check(&self, puzzle: &GwLine, grid: &mut DecisionGrid<GwValue>) -> ConstraintResult<GwValue> {
             for i in 0..8 {
                 if let Some(u) = puzzle.digits.get([0, i]) {
-                    let v = to_value::<u8, GwValue>(u);
+                    let v = to_value::<GwValue>(u);
                     (0..8).for_each(|j| { grid.get_mut([0, j]).0.remove(u) });
                     (1..=9).for_each(|w| {
                         if (w < v.0 && v.0-w >= 5) || (w > v.0 && w-v.0 >= 5) {
@@ -815,8 +814,8 @@ mod test {
     }
 
     struct ContraCounter(pub usize);
-    impl StepObserver<u8, GwLine> for ContraCounter {
-        fn after_step(&mut self, solver: &dyn DfsSolverView<u8, GwLine>) {
+    impl StepObserver<GwValue, GwLine> for ContraCounter {
+        fn after_step(&mut self, solver: &dyn DfsSolverView<GwValue, GwLine>) {
             if !solver.is_valid() {
                 self.0 += 1;
             }

@@ -235,7 +235,7 @@ Debug for XSumChecker<MIN, MAX, N, M> {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Stateful<u8, SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
+Stateful<SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
     fn reset(&mut self) {
         self.xsums_remaining = self.xsums.iter().map(|x| x.target as i16).collect();
         self.xsums_empty = vec![None; self.xsums.len()];
@@ -410,8 +410,8 @@ fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChecker<MIN, MAX, N, M> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, grid: &mut DecisionGrid<SVal<MIN, MAX>>) -> ConstraintResult<SVal<MIN, MAX>> {
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
@@ -426,7 +426,7 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
                 }
                 // We can constrain the empty digits based on the remaining target
                 if let Some((min, max)) = elem_in_sum_bound::<MIN, MAX>(r as u8, e as u8) {
-                    let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+                    let mut set = empty_set::<SVal<MIN, MAX>>();
                     (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
                     let len = xsum.length(puzzle).unwrap().1;
                     for i2 in xsum.xrange(len.val()) {
@@ -445,7 +445,7 @@ Constraint<u8, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChec
                 if let Some((min, max)) = xsum_len_bound::<MIN, MAX>(xsum.target) {
                     let g = &mut grid.get_mut(len_cell);
                     if puzzle.get(len_cell).is_none() {
-                        let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+                        let mut set = empty_set::<SVal<MIN, MAX>>();
                         (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
                         g.0.intersect_with(&set);
                     }

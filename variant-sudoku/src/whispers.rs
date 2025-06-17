@@ -12,7 +12,7 @@ static WHISPER_POSSIBLE_VALS: LazyLock<Mutex<HashMap<(u8, u8, u8, bool), UVSet<u
 pub fn whisper_neighbors<const MIN: u8, const MAX: u8>(dist: u8, val: SVal<MIN, MAX>) -> UVSet<u8> {
     let mut map = WHISPER_NEIGHBORS.lock().unwrap();
     let inner_map = map.entry((MIN, MAX, dist)).or_insert_with(|| {
-        let mut neighbors = filled_map::<u8, SVal<MIN, MAX>, UVSet<u8>>(empty_set::<u8, SVal<MIN, MAX>>());
+        let mut neighbors = filled_map::<SVal<MIN, MAX>, UVSet<u8>>(empty_set::<SVal<MIN, MAX>>());
         for v1 in SVal::<MIN, MAX>::possibilities() {
             for v2 in SVal::<MIN, MAX>::possibilities() {
                 if v1 == v2 {
@@ -32,7 +32,7 @@ pub fn whisper_neighbors<const MIN: u8, const MAX: u8>(dist: u8, val: SVal<MIN, 
 pub fn whisper_possible_values<const MIN: u8, const MAX: u8>(dist: u8, has_two_mutually_visible_neighbors: bool) -> UVSet<u8> {
     let mut map = WHISPER_POSSIBLE_VALS.lock().unwrap();
     map.entry((MIN, MAX, dist, has_two_mutually_visible_neighbors)).or_insert_with(|| {
-        let mut possible_vals = empty_set::<u8, SVal<MIN, MAX>>();
+        let mut possible_vals = empty_set::<SVal<MIN, MAX>>();
         for v in SVal::<MIN, MAX>::possibilities() {
             let neighbors = whisper_neighbors::<MIN, MAX>(dist, v);
             if neighbors.len() >= 2 || (!neighbors.is_empty() && !has_two_mutually_visible_neighbors) {
@@ -44,7 +44,7 @@ pub fn whisper_possible_values<const MIN: u8, const MAX: u8>(dist: u8, has_two_m
 }
 
 pub fn whisper_between<const MIN: u8, const MAX: u8>(dist: u8, left: &UVSet<u8>, right: &UVSet<u8>) -> UVSet<u8> {
-    let mut result = empty_set::<u8, SVal<MIN, MAX>>();
+    let mut result = empty_set::<SVal<MIN, MAX>>();
     for v in SVal::<MIN, MAX>::possibilities() {
         let mut ln = whisper_neighbors(dist, v);
         let mut rn = ln.clone();
@@ -148,11 +148,11 @@ mod test {
     fn assert_between<const MIN: u8, const MAX: u8, const DIST: u8>(
         left: Vec<u8>, right: Vec<u8>, expected: Vec<u8>,
     ) {
-        let mut left_set = empty_set::<u8, SVal<MIN, MAX>>();
+        let mut left_set = empty_set::<SVal<MIN, MAX>>();
         for v in &left {
             left_set.insert(SVal::<MIN, MAX>::new(*v).to_uval());
         }
-        let mut right_set = empty_set::<u8, SVal<MIN, MAX>>();
+        let mut right_set = empty_set::<SVal<MIN, MAX>>();
         for v in &right {
             right_set.insert(SVal::<MIN, MAX>::new(*v).to_uval());
         }

@@ -11,18 +11,17 @@ use variant_sudoku::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE,
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 pub struct DoubleDown;
 impl PuzzleSetter for DoubleDown {
-    type U = u8;
     type Value = SVal<1, 9>;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
-    type Constraint = MultiConstraint<u8, NineStd>;
+    type Constraint = MultiConstraint<Self::Value, NineStd>;
 
-    fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
+    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // Real puzzle has no givens
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
 
-    fn setup_with_givens(given: NineStd) -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
+    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let cb = CageBuilder::new(false, puzzle.get_overlay());
         let cages = vec![
@@ -63,7 +62,7 @@ impl PuzzleSetter for DoubleDown {
 }
 
 pub fn main() {
-    solve_main::<DoubleDown, NineStdTui<DoubleDown>>("figures/double-down.png");
+    solve_main::<DoubleDown, NineStdTui<_>>("figures/double-down.png");
 }
 
 #[cfg(test)]

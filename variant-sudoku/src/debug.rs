@@ -1,16 +1,16 @@
 use std::{collections::HashMap, time::{Duration, SystemTime}};
 use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
-use crate::core::{ConstraintResult, State, UInt};
+use crate::core::{ConstraintResult, State, Value};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
 
 pub struct NullObserver;
 
-impl <U: UInt, S: State<U>> StepObserver<U, S> for NullObserver {
-    fn after_step(&mut self, _solver: &dyn DfsSolverView<U, S>) {}
+impl <V: Value, S: State<V>> StepObserver<V, S> for NullObserver {
+    fn after_step(&mut self, _solver: &dyn DfsSolverView<V, S>) {}
 }
 
-fn short_result<U: UInt, S: State<U>>(result: &ConstraintResult<U, S::Value>) -> String {
+fn short_result<V: Value, S: State<V>>(result: &ConstraintResult<V>) -> String {
     match result {
         ConstraintResult::Contradiction(a) => {
             format!("Contradiction({})", a.get_name())
@@ -182,7 +182,7 @@ impl Sample {
         Self { state: SampleState::Time(every, SystemTime::now()) }
     }
 
-    pub fn sample<U: UInt, S: State<U>>(&mut self, solver: &dyn DfsSolverView<U, S>) -> bool {
+    pub fn sample<V: Value, S: State<V>>(&mut self, solver: &dyn DfsSolverView<V, S>) -> bool {
         match &mut self.state {
             SampleState::Never => false,
             SampleState::AtEnd => {
@@ -214,7 +214,7 @@ impl Sample {
     }
 }
 
-pub struct DbgObserver<U: UInt, S: State<U>> {
+pub struct DbgObserver<V: Value, S: State<V>> {
     timer: TimerState,
     print_sample: Sample,
     stat: Option<(String, Sample)>,
@@ -228,10 +228,10 @@ pub struct DbgObserver<U: UInt, S: State<U>> {
     prev_state: Option<DfsSolverState>,
     streak: usize,
     steps: usize,
-    _marker: std::marker::PhantomData<(U, S)>,
+    _marker: std::marker::PhantomData<(V, S)>,
 }
 
-impl <U: UInt, S: State<U>> DbgObserver<U, S> {
+impl <V: Value, S: State<V>> DbgObserver<V, S> {
     pub fn new() -> Self {
         DbgObserver {
             timer: TimerState::new(),
@@ -261,7 +261,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         self
     }
 
-    fn update_stats(&mut self, solver: &dyn DfsSolverView<U, S>) {
+    fn update_stats(&mut self, solver: &dyn DfsSolverView<V, S>) {
         match solver.solver_state() {
             DfsSolverState::Advancing(state) => {
                 if let Some(DfsSolverState::Advancing(_)) = self.prev_state {
@@ -357,14 +357,14 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
         })
     }
 
-    pub fn print(&self, solver: &dyn DfsSolverView<U, S>) {
+    pub fn print(&self, solver: &dyn DfsSolverView<V, S>) {
         let state = solver.get_state();
         if solver.is_initializing() {
             print!(
                 "INITIALIZING: {:?}; {} elapsed\n{:?}{:?}{}\n",
                 solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
                 state, solver.get_constraint(),
-                short_result::<U, S>(&solver.constraint_result()),
+                short_result::<V, S>(&solver.constraint_result()),
             );
         } else if solver.is_done() {
             if solver.is_valid() {
@@ -372,7 +372,7 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
                     "SOLVED: {:?}; {} elapsed\n{:?}{:?}{}\n",
                     solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
                     state, solver.get_constraint(),
-                    short_result::<U, S>(&solver.constraint_result()),
+                    short_result::<V, S>(&solver.constraint_result()),
                 );
             } else {
                 print!("UNSOLVABLE");
@@ -382,14 +382,14 @@ impl <U: UInt, S: State<U>> DbgObserver<U, S> {
                 "STEP: {:?}; {} elapsed\n{:?}{:?}{}\n",
                 solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
                 state, solver.get_constraint(),
-                short_result::<U, S>(&solver.constraint_result()),
+                short_result::<V, S>(&solver.constraint_result()),
             );
         }
     }
 }
 
-impl <U: UInt, S: State<U>> StepObserver<U, S> for DbgObserver<U, S> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<U, S>) {
+impl <V: Value, S: State<V>> StepObserver<V, S> for DbgObserver<V, S> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<V, S>) {
         if let TimerState::Init = self.timer {
             self.timer.start();
         }

@@ -122,21 +122,21 @@ fn recompute(remaining: &mut HashMap<Index, UVSet<u8>>, remaining_init: &HashMap
     if i > 0 {
         let prev = w.cells[i - 1].0;
         let prev_rem = remaining.get(&prev).unwrap().clone();
-        if let Some(v) = unpack_singleton::<u8, SVal<1, 9>>(&prev_rem) {
+        if let Some(v) = unpack_singleton::<SVal<1, 9>>(&prev_rem) {
             rem.intersect_with(&whisper_neighbors::<1, 9>(4, v));
         }
     }
     if i < w.cells.len() - 1 {
         let next = w.cells[i + 1].0;
         let next_rem = remaining.get(&next).unwrap().clone();
-        if let Some(v) = unpack_singleton::<u8, SVal<1, 9>>(&next_rem) {
+        if let Some(v) = unpack_singleton::<SVal<1, 9>>(&next_rem) {
             rem.intersect_with(&whisper_neighbors::<1, 9>(4, v));
         }
     }
     *remaining.get_mut(&w.cells[i].0).unwrap() = rem;
 }
 
-impl Stateful<u8, SVal<1, 9>> for DutchWhisperChecker {
+impl Stateful<SVal<1, 9>> for DutchWhisperChecker {
     fn reset(&mut self) {
         self.remaining = self.remaining_init.clone();
     }
@@ -151,7 +151,7 @@ impl Stateful<u8, SVal<1, 9>> for DutchWhisperChecker {
                     continue;
                 }
                 let neighbors = whisper_neighbors::<1, 9>(4, value);
-                *self.remaining.get_mut(&index).unwrap() = singleton_set::<u8, SVal<1, 9>>(value);
+                *self.remaining.get_mut(&index).unwrap() = singleton_set::<SVal<1, 9>>(value);
                 if i > 0 {
                     let prev = w.cells[i - 1].0;
                     self.remaining.get_mut(&prev).unwrap().intersect_with(&neighbors);
@@ -182,8 +182,8 @@ impl Stateful<u8, SVal<1, 9>> for DutchWhisperChecker {
 }
 
 impl <const N: usize, const M: usize, O: Overlay>
-Constraint<u8, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
-    fn check(&self, puzzle: &SState<N, M, 1, 9, O>, grid: &mut DecisionGrid<u8, SVal<1, 9>>) -> ConstraintResult<u8, SVal<1, 9>> {
+Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
+    fn check(&self, puzzle: &SState<N, M, 1, 9, O>, grid: &mut DecisionGrid<SVal<1, 9>>) -> ConstraintResult<SVal<1, 9>> {
         for w in &self.whispers {
             for (cell, _) in w.cells.iter() {
                 if puzzle.get(*cell).is_some() {
@@ -207,7 +207,7 @@ Constraint<u8, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
                     }
                     prev_set
                 } else {
-                    full_set::<u8, SVal<1, 9>>()
+                    full_set::<SVal<1, 9>>()
                 };
                 let right = if i < w.cells.len() - 1 {
                     let next = w.cells[i + 1].0;
@@ -217,7 +217,7 @@ Constraint<u8, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
                     }
                     next_set
                 } else {
-                    full_set::<u8, SVal<1, 9>>()
+                    full_set::<SVal<1, 9>>()
                 };
                 grid.get_mut(*cell).0.intersect_with(
                     &whisper_between::<1, 9>(4, &left, &right),

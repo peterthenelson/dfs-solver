@@ -12,18 +12,17 @@ use variant_sudoku::tui_std::NineStdTui;
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRF
 pub struct DutchMagic;
 impl PuzzleSetter for DutchMagic {
-    type U = u8;
     type Value = SVal<1, 9>;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
-    type Constraint = MultiConstraint<u8, NineStd>;
+    type Constraint = MultiConstraint<Self::Value, NineStd>;
 
-    fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
+    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
 
-    fn setup_with_givens(given: NineStd) -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
+    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let cb = CageBuilder::new(false, puzzle.get_overlay());
         let cages = vec![

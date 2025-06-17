@@ -10,13 +10,12 @@ use variant_sudoku::tui_std::NineStdTui;
 // https://sudokupad.app/clover/dec-1-2023-dutch-whispers
 pub struct DutchClover;
 impl PuzzleSetter for DutchClover {
-    type U = u8;
     type Value = SVal<1, 9>;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
-    type Constraint = MultiConstraint<u8, NineStd>;
+    type Constraint = MultiConstraint<Self::Value, NineStd>;
 
-    fn setup() -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
+    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(nine_standard_parse(
             "..5.6.7..\n\
@@ -31,7 +30,7 @@ impl PuzzleSetter for DutchClover {
         ).unwrap())
     }
 
-    fn setup_with_givens(given: NineStd) -> (NineStd, OverlaySensitiveLinearRanker, MultiConstraint<u8, NineStd>) {
+    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let dw = DutchWhisperBuilder::new(puzzle.get_overlay());
         let whispers = vec![

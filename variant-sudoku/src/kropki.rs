@@ -87,7 +87,7 @@ static KB_POSSIBLE_MV: LazyLock<Mutex<HashMap<(u8, u8, usize), Vec<UVSet<u8>>>>>
 fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> UVSet<u8> {
     let mut map = KB_POSSIBLE.lock().unwrap();
     map.entry((MIN, MAX)).or_insert_with(|| {
-        let mut set = empty_set::<u8, SVal<MIN, MAX>>();
+        let mut set = empty_set::<SVal<MIN, MAX>>();
         for v in SVal::<MIN, MAX>::possibilities() {
             if v.val() % 2 == 0 {
                 let half = v.val() / 2;
@@ -122,7 +122,7 @@ fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>(n_mutually_visible:
     }
     let mut map = KB_POSSIBLE_MV.lock().unwrap();
     let e = map.entry((MIN, MAX, n_mutually_visible)).or_insert_with(|| {
-        let mut possible = vec![empty_set::<u8, SVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
+        let mut possible = vec![empty_set::<SVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
         for v in SVal::<MIN, MAX>::possibilities() {
             let mut chain: Vec<SVal<MIN, MAX>> = vec![];
             let mut cur = v.val() as u16;
@@ -172,7 +172,7 @@ fn get_upper<const MIN: u8, const MAX: u8>(v: SVal<MIN, MAX>) -> Option<SVal<MIN
 }
 
 fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &UVSet<u8>, mutually_visible: bool) -> UVSet<u8> {
-    let mut possible = empty_set::<u8, SVal<MIN, MAX>>();
+    let mut possible = empty_set::<SVal<MIN, MAX>>();
     for v in SVal::<MIN, MAX>::possibilities() {
         let (lower, upper) = (get_lower::<MIN, MAX>(v), get_upper::<MIN, MAX>(v));
         if mutually_visible {
@@ -259,7 +259,7 @@ impl <const MIN: u8, const MAX: u8> Debug for KropkiChecker<MIN, MAX> {
     }
 }
 
-impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for KropkiChecker<MIN, MAX> {
+impl <const MIN: u8, const MAX: u8> Stateful<SVal<MIN, MAX>> for KropkiChecker<MIN, MAX> {
     fn reset(&mut self) {
         for b in self.blacks.iter() {
             if b.mutually_visible {
@@ -283,7 +283,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for KropkiCheck
     // TODO: Check for direct conflicts
     fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), crate::core::Error> {
         if let Some(r) = self.black_remaining.get_mut(&index) {
-            *r = singleton_set::<u8, SVal<MIN, MAX>>(value);
+            *r = singleton_set::<SVal<MIN, MAX>>(value);
         }
         Ok(())
     }
@@ -310,8 +310,8 @@ impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for KropkiCheck
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-Constraint<u8, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<SVal<MIN, MAX>>) -> ConstraintResult<SVal<MIN, MAX>> {
         for b in &self.blacks {
             for cell in &b.cells {
                 if puzzle.get(*cell).is_some() {
@@ -494,10 +494,10 @@ mod test {
     fn assert_black_adj_ok<const MIN: u8, const MAX: u8>(
         a: Vec<u8>, b: Vec<u8>, expected: bool,
     ) {
-        let a_set = pack_values::<u8, SVal<MIN, MAX>>(
+        let a_set = pack_values::<SVal<MIN, MAX>>(
             &a.iter().map(|v| SVal::new(*v)).collect()
         );
-        let b_set = pack_values::<u8, SVal<MIN, MAX>>(
+        let b_set = pack_values::<SVal<MIN, MAX>>(
             &b.iter().map(|v| SVal::new(*v)).collect()
         );
         if expected {
@@ -542,10 +542,10 @@ mod test {
     fn assert_black_between<const MIN: u8, const MAX: u8>(
         left: Vec<u8>, right: Vec<u8>, mutually_visible: bool, expected: Vec<u8>,
     ) {
-        let left_set = pack_values::<u8, SVal<MIN, MAX>>(
+        let left_set = pack_values::<SVal<MIN, MAX>>(
             &left.iter().map(|v| SVal::new(*v)).collect()
         );
-        let right_set = pack_values::<u8, SVal<MIN, MAX>>(
+        let right_set = pack_values::<SVal<MIN, MAX>>(
             &right.iter().map(|v| SVal::new(*v)).collect()
         );
         assert_eq!(

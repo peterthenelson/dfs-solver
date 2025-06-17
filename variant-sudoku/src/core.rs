@@ -108,15 +108,17 @@ impl <U: UInt> UVal<U, UVUnwrapped> {
 /// Values in puzzles are drawn from a finite set of possible values. They are
 /// represented as unsigned integers, but it's entirely up to the Value, State,
 /// and Constraint implementations to interpret them.
-pub trait Value<U: UInt>: Copy + Clone + Display + Debug + PartialEq + Eq {
+pub trait Value: Copy + Clone + Display + Debug + PartialEq + Eq {
+    type U: UInt;
+
     fn cardinality() -> usize;
     fn possibilities() -> Vec<Self>;
     fn nth(ord: usize) -> Self;
     fn parse(s: &str) -> Result<Self, Error>;
 
     fn ordinal(&self) -> usize;
-    fn from_uval(u: UVal<U, UVUnwrapped>) -> Self;
-    fn to_uval(self) -> UVal<U, UVWrapped>;
+    fn from_uval(u: UVal<Self::U, UVUnwrapped>) -> Self;
+    fn to_uval(self) -> UVal<Self::U, UVWrapped>;
 }
 
 /// This is the underlying grid structure for a puzzle.
@@ -161,11 +163,11 @@ pub struct UVMap<U: UInt, V: Clone> {
     _p_u: PhantomData<U>,
 }
 
-pub fn empty_map<U: UInt, K: Value<U>, V: Clone + Default>() -> UVMap<U, V> {
+pub fn empty_map<K: Value, V: Clone + Default>() -> UVMap<K::U, V> {
     UVMap { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
 }
 
-pub fn filled_map<U: UInt, K: Value<U>, V: Clone>(default: V) -> UVMap<U, V> {
+pub fn filled_map<K: Value, V: Clone>(default: V) -> UVMap<K::U, V> {
     UVMap { vals: vec![default; K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
 }
 
@@ -178,9 +180,9 @@ impl <U: UInt, V: Clone> UVMap<U, V> {
         &mut self.vals[key.unwrap().value().as_usize()]
     }
 
-    pub fn iter<K: Value<U>>(&self) -> std::vec::IntoIter<(K, V)> {
+    pub fn iter<K: Value<U = U>>(&self) -> std::vec::IntoIter<(K, V)> {
         self.vals.iter().enumerate().map(|(u, v)| {
-            let k: K = to_value::<U, K>(UVal::<U, UVWrapped>::new(U::from_usize(u)));
+            let k: K = to_value::<K>(UVal::<U, UVWrapped>::new(U::from_usize(u)));
             let v: V = v.clone();
             (k, v)
         }).collect::<Vec<(K, V)>>().into_iter()
@@ -195,7 +197,7 @@ pub struct UVSet<U: UInt> {
     _p_u: PhantomData<U>,
 }
 
-pub fn empty_set<U: UInt, V: Value<U>>() -> UVSet<U> {
+pub fn empty_set<V: Value>() -> UVSet<V::U> {
     UVSet {
         s: BitSet::with_capacity(V::cardinality()),
         _p_u: PhantomData,
@@ -212,7 +214,7 @@ fn leading_ones(n: usize) -> Vec<u8> {
     result
 }
 
-pub fn full_set<U: UInt, V: Value<U>>() -> UVSet<U> {
+pub fn full_set<V: Value>() -> UVSet<V::U> {
     let n = V::cardinality();
     let mut s = UVSet {
         s: BitSet::with_capacity(n),
@@ -223,27 +225,27 @@ pub fn full_set<U: UInt, V: Value<U>>() -> UVSet<U> {
     s
 }
 
-pub fn pack_values<U: UInt, V: Value<U>>(vals: &Vec<V>) -> UVSet<U> {
-    let mut res = empty_set::<U, V>();
+pub fn pack_values<V: Value>(vals: &Vec<V>) -> UVSet<V::U> {
+    let mut res = empty_set::<V>();
     for v in vals {
         res.insert(v.to_uval());
     }
     res
 }
 
-pub fn singleton_set<U: UInt, V: Value<U>>(v: V) -> UVSet<U> {
-    let mut s = empty_set::<U, V>();
+pub fn singleton_set<V: Value>(v: V) -> UVSet<V::U> {
+    let mut s = empty_set::<V>();
     s.insert(v.to_uval());
     s
 }
 
-pub fn unpack_values<U: UInt, V: Value<U>>(s: &UVSet<U>) -> Vec<V> {
-    s.iter().map(|u| { to_value::<U, V>(u) }).collect::<Vec<_>>()
+pub fn unpack_values<V: Value>(s: &UVSet<V::U>) -> Vec<V> {
+    s.iter().map(|u| { to_value::<V>(u) }).collect::<Vec<_>>()
 }
 
-pub fn unpack_singleton<U: UInt, V: Value<U>>(s: &UVSet<U>) -> Option<V> {
+pub fn unpack_singleton<V: Value>(s: &UVSet<V::U>) -> Option<V> {
     if s.len() == 1 {
-        Some(to_value::<U, V>(s.iter().next().unwrap()))
+        Some(to_value::<V>(s.iter().next().unwrap()))
     } else {
         None
     }
@@ -553,15 +555,14 @@ impl FeatureVec<FVNormed> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CertainDecision<U: UInt, V: Value<U>> {
+pub struct CertainDecision<V: Value> {
     pub index: Index,
     pub value: V,
-    _p_u: PhantomData<U>,
 }
 
-impl <U: UInt, V: Value<U>> CertainDecision<U, V> {
+impl <V: Value> CertainDecision<V> {
     pub fn new(index: Index, value: V) -> Self {
-        Self { index, value, _p_u: PhantomData }
+        Self { index, value }
     }
 }
 
@@ -569,13 +570,13 @@ impl <U: UInt, V: Value<U>> CertainDecision<U, V> {
 /// contradiction or a certainty. This is a simple enum to represent this
 /// short-circuiting.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ConstraintResult<U: UInt, V: Value<U>> {
+pub enum ConstraintResult<V: Value> {
     Contradiction(Attribution<WithId>),
-    Certainty(CertainDecision<U, V>, Attribution<WithId>),
+    Certainty(CertainDecision<V>, Attribution<WithId>),
     Ok,
 }
 
-impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
+impl <V: Value> ConstraintResult<V> {
     pub fn is_ok(&self) -> bool {
         match self {
             ConstraintResult::Ok => true,
@@ -587,24 +588,24 @@ impl <U: UInt, V: Value<U>> ConstraintResult<U, V> {
 /// When choosing to branch, we can either try all the possible values for a
 /// particular cell, or we can try all possible cells for a particular value.
 #[derive(Debug, Clone)]
-pub enum BranchOver<U: UInt, S: State<U>> {
+pub enum BranchOver<V: Value> {
     Empty,
-    Cell(Index, Vec<S::Value>, usize),
-    Value(S::Value, Vec<Index>, usize),
+    Cell(Index, Vec<V>, usize),
+    Value(V, Vec<Index>, usize),
 }
 
 /// A decision point in the puzzle. This includes the specific value that was
 /// chosen, as well as the index of the cell that was modified, as well as the
 /// alternative values/indices that have not been tried yet.
 #[derive(Debug, Clone)]
-pub struct BranchPoint<U: UInt, S: State<U>> {
+pub struct BranchPoint<V: Value> {
     pub branch_step: usize,
     pub branch_attribution: Attribution<WithId>,
-    pub choices: BranchOver<U, S>,
+    pub choices: BranchOver<V>,
 }
 
-impl <U: UInt, S: State<U>> BranchPoint<U, S> {
-    pub fn unique(step: usize, attribution: Attribution<WithId>, index: Index, value: S::Value) -> Self {
+impl <V: Value> BranchPoint<V> {
+    pub fn unique(step: usize, attribution: Attribution<WithId>, index: Index, value: V) -> Self {
         Self::for_cell(step, attribution, index, vec![value])
     }
 
@@ -612,7 +613,7 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
         BranchPoint { branch_step: step, branch_attribution: attribution, choices: BranchOver::Empty }
     }
 
-    pub fn for_cell(step: usize, attribution: Attribution<WithId>, index: Index, values: Vec<S::Value>) -> Self {
+    pub fn for_cell(step: usize, attribution: Attribution<WithId>, index: Index, values: Vec<V>) -> Self {
         if values.len() > 0 {
             BranchPoint {
                 branch_step: step,
@@ -624,7 +625,7 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
         }
     }
 
-    pub fn for_value(step: usize, attribution: Attribution<WithId>, val: S::Value, cells: Vec<Index>) -> Self {
+    pub fn for_value(step: usize, attribution: Attribution<WithId>, val: V, cells: Vec<Index>) -> Self {
         if cells.len() > 0 {
             BranchPoint {
                 branch_step: step,
@@ -636,7 +637,7 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
         }
     }
 
-    pub fn chosen(&self) -> Option<(Index, S::Value)> {
+    pub fn chosen(&self) -> Option<(Index, V)> {
         match &self.choices {
             BranchOver::Empty => None,
             BranchOver::Cell(c, vs, i) => Some((*c, vs[*i].clone())),
@@ -652,7 +653,7 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
         }
     }
 
-    pub fn advance(&mut self) -> Option<(Index, S::Value)> {
+    pub fn advance(&mut self) -> Option<(Index, V)> {
         match &mut self.choices {
             BranchOver::Empty => None,
             BranchOver::Cell(cell, values, i) => {
@@ -703,19 +704,19 @@ impl <U: UInt, S: State<U>> BranchPoint<U, S> {
 /// not-yet-ruled-out values for each cell in the grid, along with features
 /// attached to each cell.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DecisionGrid<U: UInt, V: Value<U>> {
+pub struct DecisionGrid<V: Value> {
     rows: usize,
     cols: usize,
-    grid: Box<[(UVSet<U>, FeatureVec<FVMaybeNormed>)]>,
+    grid: Box<[(UVSet<V::U>, FeatureVec<FVMaybeNormed>)]>,
     _p_v: PhantomData<V>,
 }
 
-impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
+impl<V: Value> DecisionGrid<V> {
     pub fn new(rows: usize, cols: usize) -> Self {
         Self {
             rows,
             cols,
-            grid: vec![(empty_set::<U, V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            grid: vec![(empty_set::<V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
             _p_v: PhantomData,
         }
     }
@@ -724,16 +725,16 @@ impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
         Self {
             rows,
             cols,
-            grid: vec![(full_set::<U, V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            grid: vec![(full_set::<V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
             _p_v: PhantomData,
         }
     }
 
-    pub fn get(&self, index: Index) -> &(UVSet<U>, FeatureVec<FVMaybeNormed>) {
+    pub fn get(&self, index: Index) -> &(UVSet<V::U>, FeatureVec<FVMaybeNormed>) {
         &self.grid[index[0] * self.cols + index[1]]
     }
 
-    pub fn get_mut(&mut self, index: Index) -> &mut (UVSet<U>, FeatureVec<FVMaybeNormed>) {
+    pub fn get_mut(&mut self, index: Index) -> &mut (UVSet<V::U>, FeatureVec<FVMaybeNormed>) {
         self.grid.get_mut(index[0] * self.cols + index[1]).unwrap()
     }
 
@@ -747,7 +748,7 @@ impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
 
     /// Intersects the possible values of this grid with the possible values of
     /// another grid. Also merges the features of the two grids.
-    pub fn combine_with(&mut self, other: &DecisionGrid<U, V>) {
+    pub fn combine_with(&mut self, other: &DecisionGrid<V>) {
         assert!(self.rows == other.rows && self.cols == other.cols,
                 "Cannot combine grids of different sizes");
         for i in 0..self.rows {
@@ -763,7 +764,7 @@ impl<U: UInt, V: Value<U>> DecisionGrid<U, V> {
 
 /// This converts an extracted item from a container a Value, making use of the
 /// private API to do so.
-pub fn to_value<U: UInt, V: Value<U>>(u: UVal<U, UVWrapped>) -> V {
+pub fn to_value<V: Value>(u: UVal<V::U, UVWrapped>) -> V {
     V::from_uval(u.unwrap())
 }
 
@@ -771,7 +772,7 @@ pub fn to_value<U: UInt, V: Value<U>>(u: UVal<U, UVWrapped>) -> V {
 /// respond to changes in the grid). The trait provides a default do-nothing
 /// implementation so that non-stateful components that are required to be
 /// stateful for some reason can be trivially stateful.
-pub trait Stateful<U: UInt, V: Value<U>>: {
+pub trait Stateful<V: Value>: {
     fn reset(&mut self) {}
     fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
         let _ = index;
@@ -788,11 +789,10 @@ pub trait Stateful<U: UInt, V: Value<U>>: {
 /// Trait for representing whatever puzzle is being solved in its current state
 /// of being (partially) filled in. Ultimately this is just wrapping a Grid, but
 /// it may impose additional meanings on the values of the grid.
-pub trait State<U: UInt> where Self: Clone + Debug + Stateful<U, Self::Value> {
-    type Value: Value<U>;
+pub trait State<V: Value> where Self: Clone + Debug + Stateful<V> {
     const ROWS: usize;
     const COLS: usize;
-    fn get(&self, index: Index) -> Option<Self::Value>;
+    fn get(&self, index: Index) -> Option<V>;
 }
 
 #[cfg(any(test, feature = "test-util"))]
@@ -800,8 +800,8 @@ pub mod test_util {
     use super::*;
     /// Unwrapping UVals is private to the core module, but it's valuable to
     /// check that the to_uval/from_uval methods successfully round-trip values.
-    pub fn round_trip_value<U: UInt, V: Value<U>>(v: V) -> V {
-        let u: UVal<U, UVWrapped> = v.to_uval();
+    pub fn round_trip_value<V: Value>(v: V) -> V {
+        let u: UVal<V::U, UVWrapped> = v.to_uval();
         V::from_uval(u.unwrap())
     }
 }

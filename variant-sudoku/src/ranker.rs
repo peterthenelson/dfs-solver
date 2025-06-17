@@ -1,19 +1,19 @@
-use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UInt, Value, WithId};
+use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, Value, WithId};
 use crate::sudoku::{Overlay, SState, SVal};
 
 /// A ranker finds the "best" place in the grid to make a guess. In theory, we
 /// could extend this to return multiple guesses, but since a given index
 /// provides a mutually exclusive and exhaustive set of guesses, there isn't
 /// really a need.
-pub trait Ranker<U: UInt, S: State<U>> {
+pub trait Ranker<V: Value, S: State<V>> {
     // Note: the ranker must not suggest already filled cells.
-    fn top(&self, grid: &DecisionGrid<U, S::Value>, puzzle: &S) -> BranchPoint<U, S>;
+    fn top(&self, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V>;
 
     // Collapse a DecisionGrid into a ConstraintResult, returning any Certainty
     // or Contradiction that is present. This must be compatible with top() --
     // i.e., top() must always return something possible if no Contradiction is
     // found here.
-    fn to_constraint_result(&self, grid: &DecisionGrid<U, S::Value>, puzzle: &S) -> ConstraintResult<U, S::Value>;
+    fn to_constraint_result(&self, grid: &DecisionGrid<V>, puzzle: &S) -> ConstraintResult<V>;
 }
 
 pub const NUM_POSSIBLE_FEATURE: &str = "NUM_POSSIBLE";
@@ -61,8 +61,8 @@ impl LinearRanker {
     }
 }
 
-impl <U: UInt, S: State<U>> Ranker<U, S> for LinearRanker {
-    fn top(&self, grid: &DecisionGrid<U, S::Value>, puzzle: &S) -> BranchPoint<U, S> {
+impl <V: Value, S: State<V>> Ranker<V, S> for LinearRanker {
+    fn top(&self, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V> {
         let mut top_index = None;
         let mut top_score: f64 = 0.0;
         for r in 0..grid.rows() {
@@ -87,7 +87,7 @@ impl <U: UInt, S: State<U>> Ranker<U, S> for LinearRanker {
         }
     }
 
-    fn to_constraint_result(&self, grid: &DecisionGrid<U, S::Value>, puzzle: &S) -> ConstraintResult<U, S::Value> {
+    fn to_constraint_result(&self, grid: &DecisionGrid<V>, puzzle: &S) -> ConstraintResult<V> {
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_none() {
@@ -95,7 +95,7 @@ impl <U: UInt, S: State<U>> Ranker<U, S> for LinearRanker {
                     if cell.len() == 0 {
                         return ConstraintResult::Contradiction(self.no_vals_attribution.clone());
                     } else if cell.len() == 1 {
-                        let v = unpack_values::<U, S::Value>(cell)[0];
+                        let v = unpack_values::<V>(cell)[0];
                         return ConstraintResult::Certainty(
                             CertainDecision::new([r, c], v),
                             self.one_val_attribution.clone(),
@@ -161,8 +161,8 @@ enum OSLRChoice<const MIN: u8, const MAX: u8> {
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
-    fn top(&self, grid: &DecisionGrid<u8, SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>) -> BranchPoint<u8, SState<N, M, MIN, MAX, O>> {
+Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
+    fn top(&self, grid: &DecisionGrid<SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>) -> BranchPoint<SVal<MIN, MAX>> {
         let mut top_choice = None;
         let mut top_score: f64 = 0.0;
         for r in 0..grid.rows() {
@@ -183,9 +183,9 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
         let overlay = puzzle.get_overlay();
         for dim in 0..overlay.partition_dimension() {
             for p in 0..overlay.n_partitions(dim) {
-                let mut filled = empty_set::<u8, SVal<MIN, MAX>>();
-                let mut alternatives = empty_map::<u8, SVal::<MIN, MAX>, Vec<_>>();
-                let mut fvs = empty_map::<u8, SVal::<MIN, MAX>, FeatureVec<FVMaybeNormed>>();
+                let mut filled = empty_set::<SVal<MIN, MAX>>();
+                let mut alternatives = empty_map::<SVal::<MIN, MAX>, Vec<_>>();
+                let mut fvs = empty_map::<SVal::<MIN, MAX>, FeatureVec<FVMaybeNormed>>();
                 for index in overlay.partition_iter(dim, p) {
                     if let Some(val) = puzzle.get(index) {
                         filled.insert(val.to_uval());
@@ -222,7 +222,7 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
         }
     }
 
-    fn to_constraint_result(&self, grid: &DecisionGrid<u8, SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+    fn to_constraint_result(&self, grid: &DecisionGrid<SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>) -> ConstraintResult<SVal<MIN, MAX>> {
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_none() {
@@ -230,7 +230,7 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
                     if cell.len() == 0 {
                         return ConstraintResult::Contradiction(self.no_vals_attribution.clone())
                     } else if cell.len() == 1 {
-                        let v = unpack_values::<u8, SVal<MIN, MAX>>(cell)[0];
+                        let v = unpack_values::<SVal<MIN, MAX>>(cell)[0];
                         return ConstraintResult::Certainty(
                             CertainDecision::new([r, c], v),
                             self.one_val_attribution.clone(),
@@ -242,8 +242,8 @@ Ranker<u8, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
         let overlay = puzzle.get_overlay();
         for dim in 0..overlay.partition_dimension() {
             for p in 0..overlay.n_partitions(dim) {
-                let mut count = empty_map::<u8, SVal<MIN, MAX>, usize>();
-                let mut first_index = empty_map::<u8, SVal<MIN, MAX>, Option<Index>>();
+                let mut count = empty_map::<SVal<MIN, MAX>, usize>();
+                let mut first_index = empty_map::<SVal<MIN, MAX>, Option<Index>>();
                 for index in overlay.partition_iter(dim, p) {
                     if let Some(val) = puzzle.get(index) {
                         *count.get_mut(val.to_uval()) += 1;

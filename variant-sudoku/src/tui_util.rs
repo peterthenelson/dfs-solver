@@ -8,24 +8,23 @@ use ratatui::{
     layout::Rect, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    core::{empty_map, empty_set, unpack_values, BranchOver, Index, State, UInt, Value},
+    core::{empty_map, empty_set, unpack_values, BranchOver, Index, State, Value},
     solver::{DfsSolverView, PuzzleSetter},
     sudoku::{Overlay, StandardSudokuOverlay},
     tui::{Mode, Pane, TuiState},
 };
 
-pub struct GridConfig<const N: usize, const M: usize, U: UInt, V: Value<U>> {
+pub struct GridConfig<P: PuzzleSetter, const N: usize, const M: usize> {
     pub overlay: StandardSudokuOverlay<N, M>,
-    _p_u: PhantomData<U>,
-    _p_v: PhantomData<V>,
+    _p_p: PhantomData<P>,
 }
 
-impl <const N: usize, const M: usize, U: UInt, V: Value<U>> GridConfig<N, M, U, V> {
+impl <P: PuzzleSetter, const N: usize, const M: usize> GridConfig<P, N, M> {
     pub fn new(overlay: StandardSudokuOverlay<N, M>) -> Self {
-        Self { overlay, _p_u: PhantomData, _p_v: PhantomData }
+        Self { overlay, _p_p: PhantomData }
     }
-    pub fn to_ord(&self, v: &V) -> usize { v.ordinal() }
-    pub fn nth(&self, ord: usize) -> V { V::nth(ord) }
+    pub fn to_ord(&self, v: &P::Value) -> usize { v.ordinal() }
+    pub fn nth(&self, ord: usize) -> P::Value { P::Value::nth(ord) }
 }
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -143,8 +142,8 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
     to_lines(&*format!("{:?}", state.solver.get_constraint()))
 }
 
-pub fn possible_value_lines<'a, P: PuzzleSetter<U = u8>, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, _: &GridConfig<N, M, P::U, P::Value>,
+pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>, _: &GridConfig<P, N, M>,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>>;
     match state.mode {
@@ -154,7 +153,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter<U = u8>, const N: usize, const M
         _ => {},
     };
     if let Some(g) = state.solver.decision_grid() {
-        let vals = unpack_values::<u8, <<P as PuzzleSetter>::State as State<u8>>::Value>(&g.get(state.grid_pos).0)
+        let vals = unpack_values::<P::Value>(&g.get(state.grid_pos).0)
             .into_iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
         lines = vec![
             Line::from(vec!["Possible values in cell ".italic(), format!("{:?}:", state.grid_pos).blue()]),
@@ -169,8 +168,8 @@ pub fn possible_value_lines<'a, P: PuzzleSetter<U = u8>, const N: usize, const M
     lines
 }
 
-pub fn scroll_lines<'a, P: PuzzleSetter<U = u8>, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, cfg: &GridConfig<N, M, P::U, P::Value>,
+pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>, cfg: &GridConfig<P, N, M>,
 ) -> Vec<Line<'static>> {
     match state.mode {
         Mode::Readme => readme_lines(),
@@ -192,7 +191,7 @@ struct GridHighlight<P: PuzzleSetter, const N: usize, const M: usize> {
     bg: [[Option<Color>; M]; N],
 }
 
-pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<N, M, P::U, P::Value>) -> Line<'static> {
+pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<P, N, M>) -> Line<'static> {
     let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
     let seg = "─".repeat(bw*3);
     let mut pieces: Vec<Span<'_>> = vec![]; 
@@ -207,7 +206,7 @@ pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfi
     Line::from(pieces)
 }
 
-pub fn grid_bottom<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<N, M, P::U, P::Value>) -> Line<'static> {
+pub fn grid_bottom<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<P, N, M>) -> Line<'static> {
     let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
     let seg = "─".repeat(bw*3);
     let mut pieces: Vec<Span<'_>> = vec![]; 
@@ -222,7 +221,7 @@ pub fn grid_bottom<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridCo
     Line::from(pieces)
 }
 
-pub fn grid_crossbar<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<N, M, P::U, P::Value>) -> Line<'static> {
+pub fn grid_crossbar<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<P, N, M>) -> Line<'static> {
     let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
     let seg = "─".repeat(bw*3);
     let mut pieces: Vec<Span<'_>> = vec![]; 
@@ -269,7 +268,7 @@ fn grid_cell<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 }
 
 fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
     highlight: &GridHighlight<P, N, M>,
     row: usize,
 ) -> Line<'static> {
@@ -290,7 +289,7 @@ fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
     index: Index,
 ) -> Option<P::Value> {
     let [r, c] = index;
@@ -310,7 +309,7 @@ fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
 ) -> [[Option<P::Value>; M]; N] {
     let mut vm = [[None; M]; N];
     for r in 0..N {
@@ -331,7 +330,7 @@ fn gen_heatmap_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
 
 fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
     // TODO: Add blue text (and the text) for showing possible locations of
@@ -361,7 +360,7 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
     if let Mode::GridCells = state.mode {
@@ -383,14 +382,11 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         Mode::GridBoxes => 2,
         _ => return hm,
     };
-    // TODO: Check that this is actually working
-    // - One, it seems too green
-    // - Two, I'm definitely marking the filled cells wrong
     if let Some(grid) = state.solver.decision_grid() {
         // Assumes that all rows have the same size (and same for cols, boxes).
         let partition_size = cfg.overlay.partition_size(dim, 0);
-        let mut filled = vec![empty_set::<P::U, P::Value>(); partition_size];
-        let mut alternatives = vec![empty_map::<P::U, P::Value, Vec<_>>(); partition_size];
+        let mut filled = vec![empty_set::<P::Value>(); partition_size];
+        let mut alternatives = vec![empty_map::<P::Value, Vec<_>>(); partition_size];
         for p in 0..cfg.overlay.n_partitions(dim) {
             for index in cfg.overlay.partition_iter(dim, p) {
                 if let Some(val) = state.solver.get_state().get(index) {
@@ -420,7 +416,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 pub fn grid_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
     // TODO: Allow configuring the right side for the row/col/box ones
 ) -> Vec<Line<'static>> {
     let highlight = GridHighlight::<P, N, M> {
@@ -446,7 +442,7 @@ pub fn grid_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<N, M, P::U, P::Value>,
+    cfg: &GridConfig<P, N, M>,
     frame: &mut Frame,
     area: Rect,
 ) {

@@ -120,7 +120,7 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         }
         let remaining = cages.iter().map(|c| c.target).collect();
         let empty = cages.iter().map(|c| c.cells.len()).collect();
-        let cage_sets = vec![full_set::<u8, SVal<MIN, MAX>>(); cages.len()];
+        let cage_sets = vec![full_set::<SVal<MIN, MAX>>(); cages.len()];
         CageChecker {
             cages, remaining, empty, cage_sets, illegal: None,
             cage_feature: FeatureKey::new(CAGE_FEATURE).unwrap(),
@@ -148,11 +148,11 @@ impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
     }
 }
 
-impl <const MIN: u8, const MAX: u8> Stateful<u8, SVal<MIN, MAX>> for CageChecker<MIN, MAX> {
+impl <const MIN: u8, const MAX: u8> Stateful<SVal<MIN, MAX>> for CageChecker<MIN, MAX> {
     fn reset(&mut self) {
         self.remaining = self.cages.iter().map(|c| c.target).collect();
         self.empty = self.cages.iter().map(|c| c.cells.len()).collect();
-        self.cage_sets = vec![full_set::<u8, SVal<MIN, MAX>>(); self.cages.len()];
+        self.cage_sets = vec![full_set::<SVal<MIN, MAX>>(); self.cages.len()];
         self.illegal = None;
     }
 
@@ -249,8 +249,8 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &UVSet<u8>, remaining: u8, e
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize, O: Overlay>
-Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<SVal<MIN, MAX>>) -> ConstraintResult<SVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(a.clone());
         }
@@ -258,7 +258,7 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for CageChecker<MIN, MAX> {
             let mut set = if c.exclusive {
                 self.cage_sets[i].clone()
             } else {
-                full_set::<u8, SVal<MIN, MAX>>()
+                full_set::<SVal<MIN, MAX>>()
             };
             if let Some(r) = self.remaining[i] {
                 if !cage_feasible::<MIN, MAX>(&set, r, self.empty[i]) {

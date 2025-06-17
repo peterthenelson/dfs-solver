@@ -90,11 +90,11 @@ pub struct MagicSquareChecker {
 
 impl MagicSquareChecker {
     pub fn new(squares: Vec<MagicSquare>) -> Self {
-        let mut evens = empty_set::<u8, SVal<1, 9>>();
+        let mut evens = empty_set::<SVal<1, 9>>();
         for v in [2, 4, 6, 8] {
             evens.insert(SVal::<1, 9>::new(v).to_uval());
         }
-        let mut odds = empty_set::<u8, SVal<1, 9>>();
+        let mut odds = empty_set::<SVal<1, 9>>();
         for v in [1, 3, 7, 9] {
             odds.insert(SVal::<1, 9>::new(v).to_uval());
         }
@@ -117,8 +117,8 @@ impl MagicSquareChecker {
         &self,
         triple: &[Index; 3], 
         puzzle: &SState<N, M, 1, 9, O>,
-        grid: &mut DecisionGrid<u8, SVal<1, 9>>,
-    ) -> Option<ConstraintResult<u8, SVal<1, 9>>> {
+        grid: &mut DecisionGrid<SVal<1, 9>>,
+    ) -> Option<ConstraintResult<SVal<1, 9>>> {
         let (sum, n_empty, first_empty) = sum_trip(triple, puzzle);
         if n_empty == 0 {
             if sum != 15 {
@@ -154,15 +154,15 @@ impl Debug for MagicSquareChecker {
     }
 }
 
-impl Stateful<u8, SVal<1, 9>> for MagicSquareChecker {}
+impl Stateful<SVal<1, 9>> for MagicSquareChecker {}
 
 fn check_vals<const N: usize, const M: usize, O: Overlay>(
     indices: &[Index; 4],
     values: &UVSet<u8>,
     puzzle: &SState<N, M, 1, 9, O>,
-    grid: &mut DecisionGrid<u8, SVal<1, 9>>,
+    grid: &mut DecisionGrid<SVal<1, 9>>,
     attribution: Attribution<WithId>,
-) -> Option<ConstraintResult<u8, SVal<1, 9>>> {
+) -> Option<ConstraintResult<SVal<1, 9>>> {
     for i in indices {
         if let Some(v) = puzzle.get(*i) {
             if !values.contains(v.to_uval()) {
@@ -194,8 +194,8 @@ fn sum_trip<const N: usize, const M: usize, O: Overlay>(
 }
 
 impl <const N: usize, const M: usize, O: Overlay>
-Constraint<u8, SState<N, M, 1, 9, O>> for MagicSquareChecker {
-    fn check(&self, puzzle: &SState<N, M, 1, 9, O>, grid: &mut DecisionGrid<u8, SVal<1, 9>>) -> ConstraintResult<u8, SVal<1, 9>> {
+Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for MagicSquareChecker {
+    fn check(&self, puzzle: &SState<N, M, 1, 9, O>, grid: &mut DecisionGrid<SVal<1, 9>>) -> ConstraintResult<SVal<1, 9>> {
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
                 if v.val() != 5 {

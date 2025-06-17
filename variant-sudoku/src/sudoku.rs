@@ -26,7 +26,9 @@ impl <const MIN: u8, const MAX: u8> SVal<MIN, MAX> {
     }
 }
 
-impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
+impl <const MIN: u8, const MAX: u8> Value for SVal<MIN, MAX> {
+    type U = u8;
+
     fn parse(s: &str) -> Result<Self, Error> {
         let value = s.parse::<u8>().map_err(|v| Error::new(format!("Invalid value: {}", v).to_string()))?;
         if value < MIN || value > MAX {
@@ -61,7 +63,7 @@ impl <const MIN: u8, const MAX: u8> Value<u8> for SVal<MIN, MAX> {
 }
 
 pub fn unpack_sval_vals<const MIN: u8, const MAX: u8>(s: &UVSet<u8>) -> Vec<u8> {
-    unpack_values::<u8, SVal<MIN, MAX>>(&s).iter().map(|v| v.val()).collect::<Vec<u8>>()
+    unpack_values::<SVal<MIN, MAX>>(&s).iter().map(|v| v.val()).collect::<Vec<u8>>()
 }
 
 /// Tables of useful sums in Sudoku.
@@ -218,7 +220,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay> 
         for r in 0..N {
             for c in 0..M {
                 if let Some(v) = self.grid.get([r, c]) {
-                    result.push_str(to_value::<u8, SVal<MIN, MAX>>(v).val().to_string().as_str());
+                    result.push_str(to_value::<SVal<MIN, MAX>>(v).val().to_string().as_str());
                 } else {
                     result.push('.');
                 }
@@ -253,7 +255,7 @@ Display for SState<N, M, MIN, MAX, O> {
         for r in 0..N {
             for c in 0..M {
                 if let Some(v) = self.grid.get([r, c]) {
-                    write!(f, "{}", to_value::<u8, SVal::<MIN, MAX>>(v).val())?;
+                    write!(f, "{}", to_value::<SVal::<MIN, MAX>>(v).val())?;
                 } else {
                     write!(f, ".")?;
                 }
@@ -272,11 +274,10 @@ pub const ILLEGAL_ACTION_RC: Error = Error::new_const("A row/col violation alrea
 pub const ILLEGAL_ACTION_BOX: Error = Error::new_const("A box violation already exists; can't apply further actions.");
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-State<u8> for SState<N, M, MIN, MAX, O> {
-    type Value = SVal<MIN, MAX>;
+State<SVal<MIN, MAX>> for SState<N, M, MIN, MAX, O> {
     const ROWS: usize = N;
     const COLS: usize = M;
-    fn get(&self, index: Index) -> Option<Self::Value> {
+    fn get(&self, index: Index) -> Option<SVal<MIN, MAX>> {
         if index[0] >= N || index[1] >= M {
             return None;
         }
@@ -285,7 +286,7 @@ State<u8> for SState<N, M, MIN, MAX, O> {
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-Stateful<u8, SVal<MIN, MAX>> for SState<N, M, MIN, MAX, O> {
+Stateful<SVal<MIN, MAX>> for SState<N, M, MIN, MAX, O> {
     // Resets back to the given values.
     fn reset(&mut self) {
         self.grid = self.given.clone();
@@ -574,9 +575,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StandardSudo
     pub fn new(state: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>) -> Self {
         return Self {
             overlay: state.get_overlay().clone(),
-            row: std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>()),
-            col: std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>()),
-            boxes: vec![full_set::<u8, SVal<MIN, MAX>>(); state.get_overlay().boxes()].into_boxed_slice(),
+            row: std::array::from_fn(|_| full_set::<SVal<MIN, MAX>>()),
+            col: std::array::from_fn(|_| full_set::<SVal<MIN, MAX>>()),
+            boxes: vec![full_set::<SVal<MIN, MAX>>(); state.get_overlay().boxes()].into_boxed_slice(),
             row_attribution: Attribution::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
             col_attribution: Attribution::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
             box_attribution: Attribution::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
@@ -611,11 +612,11 @@ Debug for StandardSudokuChecker<N, M, MIN, MAX> {
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
+Stateful<SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
     fn reset(&mut self) {
-        self.row = std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>());
-        self.col = std::array::from_fn(|_| full_set::<u8, SVal<MIN, MAX>>());
-        self.boxes = vec![full_set::<u8, SVal<MIN, MAX>>(); self.overlay.boxes()].into_boxed_slice();
+        self.row = std::array::from_fn(|_| full_set::<SVal<MIN, MAX>>());
+        self.col = std::array::from_fn(|_| full_set::<SVal<MIN, MAX>>());
+        self.boxes = vec![full_set::<SVal<MIN, MAX>>(); self.overlay.boxes()].into_boxed_slice();
         self.illegal = None;
     }
 
@@ -662,8 +663,8 @@ Stateful<u8, SVal<MIN, MAX>> for StandardSudokuChecker<N, M, MIN, MAX> {
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, MAX> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<u8, SVal<MIN, MAX>>) -> ConstraintResult<u8, SVal<MIN, MAX>> {
+Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, MAX> {
+    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<SVal<MIN, MAX>>) -> ConstraintResult<SVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(a.clone());
         }
@@ -704,7 +705,7 @@ Constraint<u8, SState<N, M, MIN, MAX, O>> for StandardSudokuChecker<N, M, MIN, M
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::{empty_set, UInt}, ranker::LinearRanker, solver::FindFirstSolution};
+    use crate::{core::{empty_set}, ranker::LinearRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
     use crate::constraint::test_util::assert_contradiction;
 
@@ -747,11 +748,11 @@ mod test {
 
     #[test]
     fn test_sval_set() {
-        let mut mostly_empty = empty_set::<u8, SVal<3, 9>>();
+        let mut mostly_empty = empty_set::<SVal<3, 9>>();
         assert_eq!(unpack_sval_vals::<3, 9>(&mostly_empty), vec![]);
         mostly_empty.insert(SVal::<3, 9>::new(4).to_uval());
         assert_eq!(unpack_sval_vals::<3, 9>(&mostly_empty), vec![4]);
-        let mut mostly_full = full_set::<u8, SVal<3, 9>>();
+        let mut mostly_full = full_set::<SVal<3, 9>>();
         assert_eq!(
             unpack_sval_vals::<3, 9>(&mostly_full),
             vec![3, 4, 5, 6, 7, 8, 9],
@@ -847,7 +848,7 @@ mod test {
         assert!(overlay.mutually_visible([7, 4], [6, 3]));
     }
 
-    fn apply2<U: UInt, V: Value<U>>(s1: &mut dyn Stateful<U, V>, s2: &mut dyn Stateful<U, V>, index: Index, value: V) {
+    fn apply2<V: Value>(s1: &mut dyn Stateful<V>, s2: &mut dyn Stateful<V>, index: Index, value: V) {
         s1.apply(index, value).unwrap();
         s2.apply(index, value).unwrap();
     }

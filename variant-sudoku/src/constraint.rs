@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::core::{ConstraintResult, DecisionGrid, Error, Index, State, Stateful, UInt};
+use crate::core::{ConstraintResult, DecisionGrid, Error, Index, State, Stateful, Value};
 
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
@@ -21,71 +21,71 @@ use crate::core::{ConstraintResult, DecisionGrid, Error, Index, State, Stateful,
 ///    cells that doesn't seem like a Constraint at all. It's find to also
 ///    implement these as Constraints that only ever return a Certainty (if it
 ///    can be deduced) or Ok (otherwise).
-pub trait Constraint<U: UInt, S: State<U>> where Self: Stateful<U, S::Value> + Debug {
+pub trait Constraint<V: Value, S: State<V>> where Self: Stateful<V> + Debug {
     /// Check that the Constraint is satisfied by the puzzle (and any internal
     /// state from past actions). If a Constraint is able to infer useful
     /// information about what values a cell could take on, they should update
     /// the provided grid (in a way that further constrains it).
-    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value>;
+    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<V>) -> ConstraintResult<V>;
     /// Provide debug information at a particular grid in the puzzle (if any
     /// is available).
     fn debug_at(&self, puzzle: &S, index: Index) -> Option<String>;
 }
 
-pub struct ConstraintConjunction<U, S, X, Y>
+pub struct ConstraintConjunction<V, S, X, Y>
 where
-    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
+    V: Value, S: State<V>, X: Constraint<V, S>, Y: Constraint<V, S>
 {
     pub x: X,
     pub y: Y,
-    pub _p_u: std::marker::PhantomData<U>,
+    pub _p_u: std::marker::PhantomData<V>,
     pub _p_s: std::marker::PhantomData<S>,
 }
 
-impl <U, S, X, Y> ConstraintConjunction<U, S, X, Y>
+impl <V, S, X, Y> ConstraintConjunction<V, S, X, Y>
 where
-    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
+    V: Value, S: State<V>, X: Constraint<V, S>, Y: Constraint<V, S>
 {
     pub fn new(x: X, y: Y) -> Self {
         ConstraintConjunction { x, y, _p_u: std::marker::PhantomData, _p_s: std::marker::PhantomData }
     }
 }
 
-impl <U, S, X, Y> Debug for ConstraintConjunction<U, S, X, Y>
+impl <V, S, X, Y> Debug for ConstraintConjunction<V, S, X, Y>
 where
-    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
+    V: Value, S: State<V>, X: Constraint<V, S>, Y: Constraint<V, S>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}{:?}", self.x, self.y)
     }
 }
 
-impl <U, S, X, Y> Stateful<U, S::Value> for ConstraintConjunction<U, S, X, Y>
+impl <V, S, X, Y> Stateful<V> for ConstraintConjunction<V, S, X, Y>
 where
-    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S> {
+    V: Value, S: State<V>, X: Constraint<V, S>, Y: Constraint<V, S> {
     fn reset(&mut self) {
         self.x.reset();
         self.y.reset();
     }
 
-    fn apply(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+    fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
         let xres = self.x.apply(index, value);
         let yres = self.y.apply(index, value);
         if xres.is_err() { xres } else { yres }
     }
 
-    fn undo(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: V) -> Result<(), Error> {
         let xres = self.x.undo(index, value);
         let yres = self.y.undo(index, value);
         if xres.is_err() { xres } else { yres }
     }
 }
 
-impl <U, S, X, Y> Constraint<U, S> for ConstraintConjunction<U, S, X, Y>
+impl <V, S, X, Y> Constraint<V, S> for ConstraintConjunction<V, S, X, Y>
 where
-    U: UInt, S: State<U>, X: Constraint<U, S>, Y: Constraint<U, S>
+    V: Value, S: State<V>, X: Constraint<V, S>, Y: Constraint<V, S>
 {
-    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value> {
+    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<V>) -> ConstraintResult<V> {
         match self.x.check(puzzle, grid) {
             ConstraintResult::Contradiction(a) => ConstraintResult::Contradiction(a),
             ConstraintResult::Certainty(d, a) => ConstraintResult::Certainty(d, a),
@@ -108,17 +108,17 @@ where
     }
 }
 
-pub struct MultiConstraint<U: UInt, S: State<U>> {
-    constraints: Vec<Box<dyn Constraint<U, S>>>,
+pub struct MultiConstraint<V: Value, S: State<V>> {
+    constraints: Vec<Box<dyn Constraint<V, S>>>,
 }
 
-impl <U: UInt, S: State<U>> MultiConstraint<U, S> {
-    pub fn new(constraints: Vec<Box<dyn Constraint<U, S>>>) -> Self {
+impl <V: Value, S: State<V>> MultiConstraint<V, S> {
+    pub fn new(constraints: Vec<Box<dyn Constraint<V, S>>>) -> Self {
         MultiConstraint { constraints }
     }
 }
 
-impl <U: UInt, S: State<U>> Debug for MultiConstraint<U, S> {
+impl <V: Value, S: State<V>> Debug for MultiConstraint<V, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for c in &self.constraints {
             write!(f, "{:?}", c)?
@@ -127,14 +127,14 @@ impl <U: UInt, S: State<U>> Debug for MultiConstraint<U, S> {
     }
 }
 
-impl <U: UInt, S: State<U>> Stateful<U, S::Value> for MultiConstraint<U, S> {
+impl <V: Value, S: State<V>> Stateful<V> for MultiConstraint<V, S> {
     fn reset(&mut self) {
         for c in &mut self.constraints {
             c.reset();
         }
     }
 
-    fn apply(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+    fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
         let mut res = Ok(());
         for c in &mut self.constraints {
             let maybe_err = c.apply(index, value);
@@ -145,7 +145,7 @@ impl <U: UInt, S: State<U>> Stateful<U, S::Value> for MultiConstraint<U, S> {
         res
     }
 
-    fn undo(&mut self, index: Index, value: S::Value) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: V) -> Result<(), Error> {
         let mut res = Ok(());
         for c in &mut self.constraints {
             let maybe_err = c.undo(index, value);
@@ -157,8 +157,8 @@ impl <U: UInt, S: State<U>> Stateful<U, S::Value> for MultiConstraint<U, S> {
     }
 }
 
-impl <U: UInt, S: State<U>> Constraint<U, S> for MultiConstraint<U, S> {
-    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<U, S::Value>) -> ConstraintResult<U, S::Value> {
+impl <V: Value, S: State<V>> Constraint<V, S> for MultiConstraint<V, S> {
+    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<V>) -> ConstraintResult<V> {
         for c in &self.constraints {
             match c.check(puzzle, grid) {
                 ConstraintResult::Contradiction(a) => return ConstraintResult::Contradiction(a),
@@ -186,8 +186,8 @@ pub mod test_util {
     use super::*;
     use crate::core::{Value};
 
-    pub fn assert_contradiction<U: UInt, V: Value<U>>(
-        cr: ConstraintResult<U, V>,
+    pub fn assert_contradiction<V: Value>(
+        cr: ConstraintResult<V>,
         expected_attribution: &'static str,
     ) {
         if let ConstraintResult::Contradiction(a) = cr {
@@ -202,8 +202,8 @@ pub mod test_util {
         }
     }
 
-    pub fn assert_no_contradiction<U: UInt, V: Value<U>>(
-        cr: ConstraintResult<U, V>,
+    pub fn assert_no_contradiction<V: Value>(
+        cr: ConstraintResult<V>,
     ) {
         if let ConstraintResult::Contradiction(a) = cr {
             panic!("Expected no contradiction; got: {:}", a.get_name());
@@ -226,7 +226,8 @@ mod test {
             write!(f, "{}", self.0)
         }
     }
-    impl Value<u8> for Val {
+    impl Value for Val {
+        type U = u8;
         fn parse(s: &str) -> Result<Self, Error> {
             match s.parse::<u8>() {
                 Ok(u) => Ok(Self(u)),
@@ -245,13 +246,12 @@ mod test {
     pub struct ThreeVals {
         pub grid: UVGrid<u8>,
     }
-    impl State<u8> for ThreeVals {
-        type Value = Val;
+    impl State<Val> for ThreeVals {
         const ROWS: usize = 1;
         const COLS: usize = 3;
-        fn get(&self, index: Index) -> Option<Self::Value> { self.grid.get(index).map(to_value) }
+        fn get(&self, index: Index) -> Option<Val> { self.grid.get(index).map(to_value) }
     }
-    impl Stateful<u8, Val> for ThreeVals {
+    impl Stateful<Val> for ThreeVals {
         fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
         fn apply(&mut self, index: Index, value: Val) -> Result<(), Error> {
             self.grid.set(index, Some(value.to_uval()));
@@ -265,9 +265,9 @@ mod test {
 
     #[derive(Debug, Clone)]
     pub struct BlacklistedVal(pub u8);
-    impl Stateful<u8, Val> for BlacklistedVal {}
-    impl Constraint<u8, ThreeVals> for BlacklistedVal {
-        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<u8, Val>) -> ConstraintResult<u8, Val> {
+    impl Stateful<Val> for BlacklistedVal {}
+    impl Constraint<Val, ThreeVals> for BlacklistedVal {
+        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<Val>) -> ConstraintResult<Val> {
             for j in 0..3 {
                 if puzzle.grid.get([0, j]).map(to_value) == Some(Val(self.0)) {
                     return ConstraintResult::Contradiction(Attribution::new("BLACKLISTED").unwrap());
@@ -282,11 +282,11 @@ mod test {
 
     #[derive(Debug, Clone)]
     pub struct Mod(pub u8, pub u8);
-    impl Stateful<u8, Val> for Mod {}
-    impl Constraint<u8, ThreeVals> for Mod {
-        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<u8, Val>) -> ConstraintResult<u8, Val> {
+    impl Stateful<Val> for Mod {}
+    impl Constraint<Val, ThreeVals> for Mod {
+        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<Val>) -> ConstraintResult<Val> {
             for j in 0..3 {
-                if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<u8, Val>) {
+                if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<Val>) {
                     if v.0 % self.0 != self.1 {
                         return ConstraintResult::Contradiction(Attribution::new("WRONG_MOD").unwrap());
                     }
@@ -337,8 +337,8 @@ mod test {
         assert_contradiction(constraint.check(&puzzle, &mut grid), "BLACKLISTED");
     }
 
-    fn unpack_set(g: &DecisionGrid<u8, Val>, index: Index) -> Vec<u8> {
-        unpack_values::<u8, Val>(&g.get(index).0).iter().map(|v| v.0).collect::<Vec<u8>>()
+    fn unpack_set(g: &DecisionGrid<Val>, index: Index) -> Vec<u8> {
+        unpack_values::<Val>(&g.get(index).0).iter().map(|v| v.0).collect::<Vec<u8>>()
     }
 
     #[test]
