@@ -6,16 +6,14 @@ use std::marker::PhantomData;
 use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, text::Line, Frame};
 use crate::{
-    solver::PuzzleSetter,
-    sudoku::{eight_standard_overlay, four_standard_overlay, nine_standard_overlay, six_standard_overlay, EightStd, FourStd, NineStd, SVal, SixStd},
-    tui::{Tui, TuiState},
-    tui_util::{
+    core::Index, solver::PuzzleSetter, sudoku::{eight_standard_overlay, four_standard_overlay, nine_standard_overlay, six_standard_overlay, EightStd, FourStd, NineStd, SVal, SixStd}, tui::{Tui, TuiState}, tui_util::{
         draw_grid,
         draw_text_area, 
         grid_wasd,
+        grid_dims,
         scroll_lines,
         text_area_ws, GridConfig,
-    },
+    }
 };
 
 fn adjust_len(i: usize, v: &Vec<Line>) -> usize {
@@ -26,6 +24,11 @@ fn adjust_len(i: usize, v: &Vec<Line>) -> usize {
     } else {
         i
     }
+}
+
+fn adjust_pos(i: Index, dims: [usize; 2]) -> Index {
+    let [r, c] = i;
+    [std::cmp::min(r, dims[0]), std::cmp::min(c, dims[1])]
 }
 
 pub struct NineStdTui<P: PuzzleSetter<Value = SVal<1, 9>, State = NineStd>>(PhantomData<P>);
@@ -41,6 +44,8 @@ impl <P: PuzzleSetter<Value = SVal<1, 9>, State = NineStd>> Tui<P> for NineStdTu
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
+        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
@@ -73,6 +78,8 @@ impl <P: PuzzleSetter<Value = SVal<1, 8>, State = EightStd>> Tui<P> for EightStd
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
+        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
@@ -105,6 +112,8 @@ impl <P: PuzzleSetter<Value = SVal<1, 6>, State = SixStd>> Tui<P> for SixStdTui<
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
+        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;
@@ -137,6 +146,8 @@ impl <P: PuzzleSetter<Value = SVal<1, 4>, State = FourStd>> Tui<P> for FourStdTu
     fn update<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
+        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
         state.scroll_pos = 0;

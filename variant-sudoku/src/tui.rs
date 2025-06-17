@@ -12,7 +12,7 @@ use ratatui::{
 };
 use strum::EnumCount;
 use crate::{
-    core::{ConstraintResult, Index},
+    core::{ConstraintResult, Index, State},
     debug::{DbgObserver, Sample},
     solver::{DfsSolver, DfsSolverState, DfsSolverView, FindFirstSolution, PuzzleSetter, StepObserver},
 };
@@ -167,11 +167,7 @@ pub enum Pane {
 #[repr(u8)]
 pub enum Mode {
     Readme = 1,
-    // TODO: Collapse the Grid* ones into PossibilityHeatmap
-    GridCells,
-    GridRows,
-    GridCols,
-    GridBoxes,
+    PossibilityHeatmap,
     Stack,
     Constraints,
     ConstraintsRaw,
@@ -192,6 +188,7 @@ enum TuiStateEvent {
 pub struct TuiState<'a, P: PuzzleSetter> {
     pub solver: DfsSolver<'a, P::Value, P::State, P::Ranker, P::Constraint>,
     pub grid_pos: Index,
+    pub grid_dims: [usize; 2],
     pub scroll_pos: usize,
     pub scroll_lines: Vec<Line<'a>>,
     pub mode: Mode,
@@ -217,6 +214,7 @@ impl <'a, P: PuzzleSetter> TuiState<'a, P> {
         Self {
             solver: DfsSolver::new(puzzle, ranker, constraint),
             grid_pos: [0, 0],
+            grid_dims: [P::State::ROWS, P::State::COLS],
             scroll_pos: 0,
             scroll_lines: Vec::new(),
             mode: Mode::Readme,

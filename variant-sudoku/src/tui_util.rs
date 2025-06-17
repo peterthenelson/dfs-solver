@@ -5,10 +5,10 @@ use std::marker::PhantomData;
 /// to implement the standard Tui impls.
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
-    layout::Rect, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
+    layout::{Constraint, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    core::{empty_map, empty_set, unpack_values, BranchOver, Index, State, Value},
+    core::{empty_map, empty_set, BranchOver, Index, State, Value},
     solver::{DfsSolverView, PuzzleSetter},
     sudoku::{Overlay, StandardSudokuOverlay},
     tui::{Mode, Pane, TuiState},
@@ -33,13 +33,13 @@ pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: Ke
         KeyCode::Char('w') => if r > 0 {
             state.grid_pos = [r-1, c];
         },
-        KeyCode::Char('s') => if r+1 < P::State::ROWS {
+        KeyCode::Char('s') => if r+1 < state.grid_dims[0] {
             state.grid_pos = [r+1, c];
         },
         KeyCode::Char('a') => if c > 0 {
             state.grid_pos = [r, c-1];
         },
-        KeyCode::Char('d') => if c+1 < P::State::COLS {
+        KeyCode::Char('d') => if c+1 < state.grid_dims[1] {
             state.grid_pos = [r, c+1];
         },
         _ => return false,
@@ -143,15 +143,12 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, _: &GridConfig<P, N, M>,
+    _: &TuiState<'a, P>, _: &GridConfig<P, N, M>,
 ) -> Vec<Line<'static>> {
-    let mut lines: Vec<Line<'static>>;
-    match state.mode {
-        Mode::GridRows | Mode::GridCols | Mode::GridBoxes => {
-            return vec!["TODO -- not yet implemented".bold().italic().into()];
-        }
-        _ => {},
-    };
+    vec!["TODO -- not yet implemented".bold().italic().into()]
+    // TODO: take a grid_type and do something with it; this is something
+    // that works for the GridType::PossibilityHeatmap(ViewBy::Cells) case.
+    /*
     if let Some(g) = state.solver.decision_grid() {
         let vals = unpack_values::<P::Value>(&g.get(state.grid_pos).0)
             .into_iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
@@ -166,6 +163,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
         lines = vec!["No Decision Grid Available".italic().into()];
     }
     lines
+    */
 }
 
 pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -174,9 +172,7 @@ pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     match state.mode {
         Mode::Readme => readme_lines(),
         Mode::Stack => stack_lines(state),
-        Mode::GridCells | Mode::GridRows | Mode::GridCols | Mode::GridBoxes => {
-            possible_value_lines(state, cfg)
-        },
+        Mode::PossibilityHeatmap => possible_value_lines(state, cfg),
         Mode::Constraints => constraint_lines::<P>(state),
         Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
     }
@@ -193,11 +189,11 @@ pub struct GridStyledValues<P: PuzzleSetter, const N: usize, const M: usize> {
 }
 
 /// The relevant grid partition types
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewBy { Cell, Row, Col, Box }
 
 /// The different types of grid display you can render.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum GridType<P: PuzzleSetter> {
     // Just show the puzzle itself, like normal.
     Puzzle,
@@ -212,6 +208,31 @@ pub enum GridType<P: PuzzleSetter> {
 // Why the hell did derive not succeed in doing this for me?
 impl <P: PuzzleSetter> Clone for GridType<P> { fn clone(&self) -> Self { *self } }
 impl <P: PuzzleSetter> Copy for GridType<P> {}
+
+fn heatmap_cursor<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    cfg: &GridConfig<P, N, M>,
+    grid_pos: Index
+) -> (Index, ViewBy) {
+    let (mut left, mut upper) = (true, true);
+    let [mut r, mut c] = grid_pos;
+    if r >= cfg.overlay.rows() {
+        upper = false;
+        r -= cfg.overlay.rows();
+    }
+    if c >= cfg.overlay.cols() {
+        left = false;
+        c -= cfg.overlay.cols();
+    }
+    (
+        [r, c], 
+        match (left, upper) {
+            (true, true) => ViewBy::Cell,
+            (false, true) => ViewBy::Row,
+            (true, false) => ViewBy::Col,
+            (false, false) => ViewBy::Box,
+        },
+    )
+}
 
 fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
@@ -265,10 +286,10 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     }
     if let Some((i, v)) = state.solver.most_recent_action() {
         let ord = v.ordinal();
-        let [r, c] = match state.mode {
-            Mode::GridRows => [i[0], ord],
-            Mode::GridCols => [ord, i[1]],
-            Mode::GridBoxes => {
+        let [r, c] = match grid_type {
+            GridType::PossibilityHeatmap(ViewBy::Row) => [i[0], ord],
+            GridType::PossibilityHeatmap(ViewBy::Col) => [ord, i[1]],
+            GridType::PossibilityHeatmap(ViewBy::Box) => {
                 let (b, _) = cfg.overlay.to_box_coords(i);
                 let bw = cfg.overlay.box_width();
                 cfg.overlay.from_box_coords(b, [ord/bw, ord%bw])
@@ -347,7 +368,18 @@ pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 ) -> GridStyledValues<P, N, M> {
     GridStyledValues::<P, N, M> {
         // TODO: Make the cursor work with 4-way grid display
-        cursor: Some(state.grid_pos),
+        cursor: match grid_type {
+            GridType::PossibilityHeatmap(vb) => {
+                let (cursor_pos, cursor_vb) = heatmap_cursor(cfg, state.grid_pos);
+                if vb == cursor_vb {
+                    Some(cursor_pos)
+                } else {
+                    None
+                }
+            },
+            GridType::HighlightPossible(_, _) => panic!("TODO: HightlightPossible not implemented"),
+            GridType::Puzzle => Some(state.grid_pos),
+        },
         vals: gen_val(state, cfg, grid_type),
         fg: gen_fg(state, cfg, grid_type),
         bg: gen_bg(state, cfg, grid_type),
@@ -471,6 +503,16 @@ pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     Text::from(lines)
 }
 
+pub fn grid_dims<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+    cfg: &GridConfig<P, N, M>,
+) -> [usize; 2] {
+    match state.mode {
+        Mode::PossibilityHeatmap => [cfg.overlay.rows()*2, cfg.overlay.cols()*2],
+        _ => [P::State::ROWS, P::State::COLS],
+    }
+}
+
 pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
     cfg: &GridConfig<P, N, M>,
@@ -480,18 +522,8 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let is_active = state.active == Pane::Grid;
     let title_text = match state.mode {
         Mode::Constraints => "Focus Cell to See Constraints",
-        Mode::GridCells => "Cell Possibility Heatmap",
-        Mode::GridRows => "Row Value Possibility Heatmap",
-        Mode::GridCols => "Col Value Possibility Heatmap",
-        Mode::GridBoxes => "Box Value Possibility Heatmap",
+        Mode::PossibilityHeatmap => "Heatmap of Possible Values",
         _ => "Puzzle State",
-    };
-    let grid_type = match state.mode {
-        Mode::GridCells => GridType::PossibilityHeatmap(ViewBy::Cell),
-        Mode::GridRows => GridType::PossibilityHeatmap(ViewBy::Row),
-        Mode::GridCols => GridType::PossibilityHeatmap(ViewBy::Col),
-        Mode::GridBoxes => GridType::PossibilityHeatmap(ViewBy::Box),
-        _ => GridType::Puzzle,
     };
     let title = Line::from(if is_active {
         title_text.bold()
@@ -501,10 +533,41 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let block = Block::bordered()
         .title(title.centered())
         .border_set(if is_active { border::DOUBLE } else { border::PLAIN });
-    frame.render_widget(
-        Paragraph::new(grid_text(state, cfg, grid_type)).centered().block(block),
-        area,
+    match state.mode {
+        Mode::PossibilityHeatmap => {},
+        _ => {
+            frame.render_widget(
+                Paragraph::new(grid_text(state, cfg, GridType::Puzzle)).centered().block(block),
+                area,
+            );
+            return;
+        },
+    };
+    // Otherwise do a 2x2 block of grids
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let (ul, ur, ll, lr) = (
+        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Cell)),
+        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Row)),
+        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Col)),
+        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Box)),
     );
+    let grid_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(ul.height() as u16), Constraint::Min(0)])
+        .split(inner);
+    let grid_upper = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(grid_rows[0]);
+    let grid_lower = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(grid_rows[1]);
+    frame.render_widget(Paragraph::new(ul).right_aligned(), grid_upper[0]);
+    frame.render_widget(Paragraph::new(ur).left_aligned(), grid_upper[1]);
+    frame.render_widget(Paragraph::new(ll).right_aligned(), grid_lower[0]);
+    frame.render_widget(Paragraph::new(lr).left_aligned(), grid_lower[1]);
 }
 
 pub fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
@@ -514,10 +577,7 @@ pub fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut 
         Mode::Stack => "Decision Stack",
         Mode::Constraints => "Constraints for Cell",
         Mode::ConstraintsRaw => "Full Constraint Dump",
-        Mode::GridCells => "Possible Vals for Cell",
-        Mode::GridRows => "Possible Cells for Row/Val",
-        Mode::GridCols => "Possible Cells for Col/Val",
-        Mode::GridBoxes => "Possible Cells for Box/Val",
+        Mode::PossibilityHeatmap => "Possible Vals/Cells",
     };
     let title = Line::from(if is_active {
         title_text.bold()
