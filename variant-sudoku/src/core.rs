@@ -160,15 +160,15 @@ impl<U: UInt> UVGrid<U> {
 #[derive(Debug, Clone)]
 pub struct UVMap<U: UInt, V: Clone> {
     vals: Box<[V]>,
-    _p_u: PhantomData<U>,
+    _marker: PhantomData<U>,
 }
 
 pub fn empty_map<K: Value, V: Clone + Default>() -> UVMap<K::U, V> {
-    UVMap { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
+    UVMap { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _marker: PhantomData }
 }
 
 pub fn filled_map<K: Value, V: Clone>(default: V) -> UVMap<K::U, V> {
-    UVMap { vals: vec![default; K::cardinality()].into_boxed_slice(), _p_u: PhantomData }
+    UVMap { vals: vec![default; K::cardinality()].into_boxed_slice(), _marker: PhantomData }
 }
 
 impl <U: UInt, V: Clone> UVMap<U, V> {
@@ -194,13 +194,13 @@ impl <U: UInt, V: Clone> UVMap<U, V> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UVSet<U: UInt> {
     s: BitSet,
-    _p_u: PhantomData<U>,
+    _marker: PhantomData<U>,
 }
 
 pub fn empty_set<V: Value>() -> UVSet<V::U> {
     UVSet {
         s: BitSet::with_capacity(V::cardinality()),
-        _p_u: PhantomData,
+        _marker: PhantomData,
     }
 }
 
@@ -218,7 +218,7 @@ pub fn full_set<V: Value>() -> UVSet<V::U> {
     let n = V::cardinality();
     let mut s = UVSet {
         s: BitSet::with_capacity(n),
-        _p_u: PhantomData,
+        _marker: PhantomData,
     };
     let ones = leading_ones(n);
     s.s.union_with(&BitSet::from_bytes(ones.as_slice()));
@@ -436,12 +436,12 @@ pub struct FeatureVec<S> {
     // Some methods only make sense when the features are sorted by id and
     // duplicate ids are dropped or merged.
     normalized: bool,
-    _p_s: PhantomData<S>,
+    _marker: PhantomData<S>,
 }
 
 impl FeatureVec<FVMaybeNormed> {
     pub fn new() -> Self {
-        FeatureVec { features: Vec::new(), normalized: true, _p_s: PhantomData }
+        FeatureVec { features: Vec::new(), normalized: true, _marker: PhantomData }
     }
 
     pub fn from_pairs(weights: Vec<(&'static str, f64)>) -> Self {
@@ -708,7 +708,7 @@ pub struct DecisionGrid<V: Value> {
     rows: usize,
     cols: usize,
     grid: Box<[(UVSet<V::U>, FeatureVec<FVMaybeNormed>)]>,
-    _p_v: PhantomData<V>,
+    _marker: PhantomData<V>,
 }
 
 impl<V: Value> DecisionGrid<V> {
@@ -717,7 +717,7 @@ impl<V: Value> DecisionGrid<V> {
             rows,
             cols,
             grid: vec![(empty_set::<V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
-            _p_v: PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -726,7 +726,7 @@ impl<V: Value> DecisionGrid<V> {
             rows,
             cols,
             grid: vec![(full_set::<V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
-            _p_v: PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -786,18 +786,128 @@ pub trait Stateful<V: Value>: {
     }
 }
 
+/// Used to give meaningful layout information to a State.
+pub trait Overlay: Clone + Debug {
+    type Iter<'a>: Iterator<Item = Index> where Self: 'a;
+    fn partition_dimension(&self) -> usize;
+    fn n_partitions(&self, dim: usize) -> usize;
+    fn partition_size(&self, dim: usize, index: usize) -> usize;
+    fn enclosing_partition(&self, index: Index, dim: usize) -> Option<usize>;
+    fn enclosing_partitions(&self, index: Index) -> Vec<Option<usize>> {
+        (0..self.partition_dimension())
+            .map(|dim| self.enclosing_partition(index, dim))
+            .collect()
+    }
+    fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_>;
+    fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        for dim in 0..self.partition_dimension() {
+            if self.enclosing_partition(i1, dim) == self.enclosing_partition(i2, dim) {
+                return true;
+            }
+        }
+        false
+    }
+    fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
+        indices.iter().all(|i| self.mutually_visible(indices[0], *i))
+    }
+}
+
 /// Trait for representing whatever puzzle is being solved in its current state
 /// of being (partially) filled in. Ultimately this is just wrapping a Grid, but
 /// it may impose additional meanings on the values of the grid.
-pub trait State<V: Value> where Self: Clone + Debug + Stateful<V> {
+pub trait State<V: Value, O: Overlay> where Self: Clone + Debug + Stateful<V> {
     const ROWS: usize;
     const COLS: usize;
     fn get(&self, index: Index) -> Option<V>;
+    fn overlay(&self) -> &O;
 }
 
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util {
     use super::*;
+
+    /// Values for use in testing. More or less an NineStdVal
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct TestVal(pub u8);
+    impl Display for TestVal {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+    impl Value for TestVal {
+        type U = u8;
+        fn parse(s: &str) -> Result<Self, Error> {
+            match s.parse::<u8>() {
+                Ok(u) => Ok(Self(u)),
+                Err(_) => Err(Error::new_const("not a valid u8")),
+            }
+        }
+        fn cardinality() -> usize { 9 }
+        fn possibilities() -> Vec<Self> { (1..=9).map(TestVal).collect() }
+        fn nth(ord: usize) -> TestVal { TestVal((ord as u8)+1) }
+        fn ordinal(&self) -> usize { self.0 as usize - 1 }
+        fn from_uval(u: UVal<u8, UVUnwrapped>) -> Self { TestVal(u.value()+1) }
+        fn to_uval(self) -> UVal<u8, UVWrapped> { UVal::new(self.0-1) }
+    }
+
+    /// Trivial one-dimensional overlay where there's one row (and no columns
+    /// or boxes) and everything is in it.
+    #[derive(Debug, Clone)]
+    pub struct OneDimOverlay<const N: usize>;
+    impl <const N: usize> Overlay for OneDimOverlay<N> {
+        type Iter<'a> = std::vec::IntoIter<Index>;
+        fn partition_dimension(&self) -> usize { 1 }
+        fn n_partitions(&self, _: usize) -> usize { 1 }
+        fn partition_size(&self, _: usize, _: usize) -> usize { 1 }
+        fn mutually_visible(&self, _: Index, _: Index) -> bool { true }
+        fn enclosing_partition(&self, _: Index, dim: usize) -> Option<usize> {
+            assert_eq!(dim, 0);
+            Some(0)
+        }
+        fn enclosing_partitions(&self, _: Index) -> Vec<Option<usize>> { vec![Some(0)] }
+        fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_> {
+            assert_eq!(dim, 0);
+            assert_eq!(index, 0);
+            (0..N).map(|x| [0, x]).collect::<Vec<Index>>().into_iter()
+        }
+    }
+
+    /// Trivial 1-D grid.
+    #[derive(Debug, Clone)]
+    pub struct OneDim<const N: usize> {
+        pub grid: UVGrid<u8>,
+    }
+    impl <const N: usize> OneDim<N> {
+        pub fn new() -> Self { Self { grid: UVGrid::new(1, N) } }
+        pub fn full_dg() -> DecisionGrid<TestVal> { DecisionGrid::full(1, N) }
+        pub fn to_string(&self) -> String {
+            (0..N).map(|i| {
+                if let Some(v) = self.get([0, i]) {
+                    format!("{}", v.0)
+                } else {
+                    ".".to_string()
+                }
+            }).collect::<Vec<_>>().join("")
+        }
+    }
+    impl <const N: usize> Stateful<TestVal> for OneDim<N> {
+        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
+        fn apply(&mut self, index: Index, value: TestVal) -> Result<(), Error> {
+            self.grid.set(index, Some(value.to_uval()));
+            Ok(())
+        }
+        fn undo(&mut self, index: Index, _: TestVal) -> Result<(), Error> {
+            self.grid.set(index, None);
+            Ok(())
+        }
+    }
+    impl <const N: usize> State<TestVal, OneDimOverlay<N>> for OneDim<N> {
+        const ROWS: usize = 1;
+        const COLS: usize = N;
+        fn get(&self, index: Index) -> Option<TestVal> { self.grid.get(index).map(to_value) }
+        fn overlay(&self) -> &OneDimOverlay<N> { &OneDimOverlay{} }
+    }
+
     /// Unwrapping UVals is private to the core module, but it's valuable to
     /// check that the to_uval/from_uval methods successfully round-trip values.
     pub fn round_trip_value<V: Value>(v: V) -> V {

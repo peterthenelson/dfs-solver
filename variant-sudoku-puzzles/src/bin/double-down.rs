@@ -2,7 +2,7 @@ use variant_sudoku::core::FeatureVec;
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, SVal, StandardSudokuChecker};
+use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, NineStdOverlay, NineStdVal, StdChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
@@ -11,10 +11,11 @@ use variant_sudoku::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE,
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 pub struct DoubleDown;
 impl PuzzleSetter for DoubleDown {
-    type Value = SVal<1, 9>;
+    type Value = NineStdVal;
+    type Overlay = NineStdOverlay;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
-    type Constraint = MultiConstraint<Self::Value, NineStd>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
 
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // Real puzzle has no givens
@@ -47,7 +48,7 @@ impl PuzzleSetter for DoubleDown {
             XSum { direction: XSumDirection::CU, index: 7, target: 15 },
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StandardSudokuChecker::new(&puzzle),
+            StdChecker::new(&puzzle),
             CageChecker::new(cages),
             XSumChecker::new(xsums),
         ]);

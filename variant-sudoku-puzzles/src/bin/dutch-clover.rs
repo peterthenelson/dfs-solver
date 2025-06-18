@@ -3,17 +3,19 @@ use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker, D
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::sudoku::{nine_standard_parse, NineStd, SVal, StandardSudokuChecker};
+use variant_sudoku::sudoku::{nine_standard_parse, NineStd, NineStdOverlay, NineStdVal, StdChecker};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
 
 // https://sudokupad.app/clover/dec-1-2023-dutch-whispers
 pub struct DutchClover;
 impl PuzzleSetter for DutchClover {
-    type Value = SVal<1, 9>;
+    type Value = NineStdVal;
+    type Overlay = NineStdOverlay;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
-    type Constraint = MultiConstraint<Self::Value, NineStd>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+    
 
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
@@ -51,7 +53,7 @@ impl PuzzleSetter for DutchClover {
             ]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StandardSudokuChecker::new(&puzzle),
+            StdChecker::new(&puzzle),
             DutchWhisperChecker::new(whispers),
         ]);
         let ranker = OverlaySensitiveLinearRanker::new(FeatureVec::from_pairs(vec![

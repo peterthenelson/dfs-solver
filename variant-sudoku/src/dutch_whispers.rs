@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{full_set, singleton_set, unpack_singleton, ConstraintResult, DecisionGrid, Error, WithId, FeatureKey, Index, State, Stateful, UVSet};
-use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
+use crate::core::{full_set, singleton_set, unpack_singleton, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, WithId};
+use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay, StdState};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
 
 /// DutchWhispers are a line-based constraint where adjacent cells on the line
@@ -109,7 +109,7 @@ impl Debug for DutchWhisperChecker {
             for (cell, _) in &w.cells {
                 let rem = self.remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                write!(f, "{:?}=>{:?} ", cell, unpack_sval_vals::<1, 9>(rem))?;
+                write!(f, "{:?}=>{:?} ", cell, unpack_stdval_vals::<1, 9>(rem))?;
             }
             write!(f, "\n")?;
         }
@@ -122,26 +122,26 @@ fn recompute(remaining: &mut HashMap<Index, UVSet<u8>>, remaining_init: &HashMap
     if i > 0 {
         let prev = w.cells[i - 1].0;
         let prev_rem = remaining.get(&prev).unwrap().clone();
-        if let Some(v) = unpack_singleton::<SVal<1, 9>>(&prev_rem) {
+        if let Some(v) = unpack_singleton::<NineStdVal>(&prev_rem) {
             rem.intersect_with(&whisper_neighbors::<1, 9>(4, v));
         }
     }
     if i < w.cells.len() - 1 {
         let next = w.cells[i + 1].0;
         let next_rem = remaining.get(&next).unwrap().clone();
-        if let Some(v) = unpack_singleton::<SVal<1, 9>>(&next_rem) {
+        if let Some(v) = unpack_singleton::<NineStdVal>(&next_rem) {
             rem.intersect_with(&whisper_neighbors::<1, 9>(4, v));
         }
     }
     *remaining.get_mut(&w.cells[i].0).unwrap() = rem;
 }
 
-impl Stateful<SVal<1, 9>> for DutchWhisperChecker {
+impl Stateful<NineStdVal> for DutchWhisperChecker {
     fn reset(&mut self) {
         self.remaining = self.remaining_init.clone();
     }
 
-    fn apply(&mut self, index: Index, value: SVal<1, 9>) -> Result<(), Error> {
+    fn apply(&mut self, index: Index, value: NineStdVal) -> Result<(), Error> {
         if !self.remaining.contains_key(&index) {
             return Ok(());
         }
@@ -151,7 +151,7 @@ impl Stateful<SVal<1, 9>> for DutchWhisperChecker {
                     continue;
                 }
                 let neighbors = whisper_neighbors::<1, 9>(4, value);
-                *self.remaining.get_mut(&index).unwrap() = singleton_set::<SVal<1, 9>>(value);
+                *self.remaining.get_mut(&index).unwrap() = singleton_set::<NineStdVal>(value);
                 if i > 0 {
                     let prev = w.cells[i - 1].0;
                     self.remaining.get_mut(&prev).unwrap().intersect_with(&neighbors);
@@ -165,7 +165,7 @@ impl Stateful<SVal<1, 9>> for DutchWhisperChecker {
         Ok(())
     }
 
-    fn undo(&mut self, index: Index, _: SVal<1, 9>) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, _: NineStdVal) -> Result<(), Error> {
         if !self.remaining.contains_key(&index) {
             return Ok(());
         }
@@ -181,9 +181,9 @@ impl Stateful<SVal<1, 9>> for DutchWhisperChecker {
     }
 }
 
-impl <const N: usize, const M: usize, O: Overlay>
-Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
-    fn check(&self, puzzle: &SState<N, M, 1, 9, O>, grid: &mut DecisionGrid<SVal<1, 9>>) -> ConstraintResult<SVal<1, 9>> {
+impl <const N: usize, const M: usize>
+Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperChecker {
+    fn check(&self, puzzle: &StdState<N, M, 1, 9>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
         for w in &self.whispers {
             for (cell, _) in w.cells.iter() {
                 if puzzle.get(*cell).is_some() {
@@ -207,7 +207,7 @@ Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
                     }
                     prev_set
                 } else {
-                    full_set::<SVal<1, 9>>()
+                    full_set::<NineStdVal>()
                 };
                 let right = if i < w.cells.len() - 1 {
                     let next = w.cells[i + 1].0;
@@ -217,7 +217,7 @@ Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
                     }
                     next_set
                 } else {
-                    full_set::<SVal<1, 9>>()
+                    full_set::<NineStdVal>()
                 };
                 grid.get_mut(*cell).0.intersect_with(
                     &whisper_between::<1, 9>(4, &left, &right),
@@ -227,7 +227,7 @@ Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &SState<N, M, 1, 9, O>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &StdState<N, M, 1, 9>, index: Index) -> Option<String> {
         let header = "DutchWhisperChecker:\n";
         let mut lines = vec![];
         for (i, w) in self.whispers.iter().enumerate() {
@@ -241,7 +241,7 @@ Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for DutchWhisperChecker {
                 }
                 let rem = self.remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                lines.push(format!("  - remaining vals: {:?}", unpack_sval_vals::<1, 9>(rem)));
+                lines.push(format!("  - remaining vals: {:?}", unpack_stdval_vals::<1, 9>(rem)));
             }
         }
         if lines.is_empty() {

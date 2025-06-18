@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, FeatureKey, Index, State, Stateful, UVSet, Value, WithId};
-use crate::sudoku::{unpack_sval_vals, Overlay, SState, SVal};
+use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum KropkiColor { Black, White }
@@ -87,8 +87,8 @@ static KB_POSSIBLE_MV: LazyLock<Mutex<HashMap<(u8, u8, usize), Vec<UVSet<u8>>>>>
 fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> UVSet<u8> {
     let mut map = KB_POSSIBLE.lock().unwrap();
     map.entry((MIN, MAX)).or_insert_with(|| {
-        let mut set = empty_set::<SVal<MIN, MAX>>();
-        for v in SVal::<MIN, MAX>::possibilities() {
+        let mut set = empty_set::<StdVal<MIN, MAX>>();
+        for v in StdVal::<MIN, MAX>::possibilities() {
             if v.val() % 2 == 0 {
                 let half = v.val() / 2;
                 if MIN <= half {
@@ -122,12 +122,12 @@ fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>(n_mutually_visible:
     }
     let mut map = KB_POSSIBLE_MV.lock().unwrap();
     let e = map.entry((MIN, MAX, n_mutually_visible)).or_insert_with(|| {
-        let mut possible = vec![empty_set::<SVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
-        for v in SVal::<MIN, MAX>::possibilities() {
-            let mut chain: Vec<SVal<MIN, MAX>> = vec![];
+        let mut possible = vec![empty_set::<StdVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
+        for v in StdVal::<MIN, MAX>::possibilities() {
+            let mut chain: Vec<StdVal<MIN, MAX>> = vec![];
             let mut cur = v.val() as u16;
             while cur <= (MAX as u16) && chain.len() < n_mutually_visible {
-                chain.push(SVal::new(cur as u8));
+                chain.push(StdVal::new(cur as u8));
                 cur *= 2;
             }
             if chain.len() != n_mutually_visible {
@@ -144,8 +144,8 @@ fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>(n_mutually_visible:
 }
 
 fn kropki_black_adj_ok<const MIN: u8, const MAX: u8>(a: &UVSet<u8>, b: &UVSet<u8>) -> bool {
-    for v1 in unpack_sval_vals::<MIN, MAX>(a) {
-        for v2 in unpack_sval_vals::<MIN, MAX>(b) {
+    for v1 in unpack_stdval_vals::<MIN, MAX>(a) {
+        for v2 in unpack_stdval_vals::<MIN, MAX>(b) {
             if (v1 < v2 && v1 < 128 && v1*2 == v2) ||
                (v2 < v1 && v2 < 128 && v2*2 == v1) {
                 return true;
@@ -155,25 +155,25 @@ fn kropki_black_adj_ok<const MIN: u8, const MAX: u8>(a: &UVSet<u8>, b: &UVSet<u8
     false
 }
 
-fn get_lower<const MIN: u8, const MAX: u8>(v: SVal<MIN, MAX>) -> Option<SVal<MIN, MAX>> {
+fn get_lower<const MIN: u8, const MAX: u8>(v: StdVal<MIN, MAX>) -> Option<StdVal<MIN, MAX>> {
     if v.val() % 2 == 0 && v.val()/2 >= MIN {
-        Some(SVal::new(v.val()/2))
+        Some(StdVal::new(v.val()/2))
     } else {
         None
     }
 }
 
-fn get_upper<const MIN: u8, const MAX: u8>(v: SVal<MIN, MAX>) -> Option<SVal<MIN, MAX>> {
+fn get_upper<const MIN: u8, const MAX: u8>(v: StdVal<MIN, MAX>) -> Option<StdVal<MIN, MAX>> {
     if v.val() < 128 && v.val()*2 <= MAX {
-        Some(SVal::new(v.val()*2))
+        Some(StdVal::new(v.val()*2))
     } else {
         None
     }
 }
 
 fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &UVSet<u8>, mutually_visible: bool) -> UVSet<u8> {
-    let mut possible = empty_set::<SVal<MIN, MAX>>();
-    for v in SVal::<MIN, MAX>::possibilities() {
+    let mut possible = empty_set::<StdVal<MIN, MAX>>();
+    for v in StdVal::<MIN, MAX>::possibilities() {
         let (lower, upper) = (get_lower::<MIN, MAX>(v), get_upper::<MIN, MAX>(v));
         if mutually_visible {
             if lower.is_none() || upper.is_none() {
@@ -251,7 +251,7 @@ impl <const MIN: u8, const MAX: u8> Debug for KropkiChecker<MIN, MAX> {
             for cell in &b.cells {
                 let rem = self.black_remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                write!(f, "{:?}=>{:?} ", cell, unpack_sval_vals::<MIN, MAX>(rem))?;
+                write!(f, "{:?}=>{:?} ", cell, unpack_stdval_vals::<MIN, MAX>(rem))?;
             }
             write!(f, "\n")?;
         }
@@ -259,7 +259,7 @@ impl <const MIN: u8, const MAX: u8> Debug for KropkiChecker<MIN, MAX> {
     }
 }
 
-impl <const MIN: u8, const MAX: u8> Stateful<SVal<MIN, MAX>> for KropkiChecker<MIN, MAX> {
+impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker<MIN, MAX> {
     fn reset(&mut self) {
         for b in self.blacks.iter() {
             if b.mutually_visible {
@@ -281,14 +281,14 @@ impl <const MIN: u8, const MAX: u8> Stateful<SVal<MIN, MAX>> for KropkiChecker<M
     }
 
     // TODO: Check for direct conflicts
-    fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), crate::core::Error> {
+    fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
         if let Some(r) = self.black_remaining.get_mut(&index) {
-            *r = singleton_set::<SVal<MIN, MAX>>(value);
+            *r = singleton_set::<StdVal<MIN, MAX>>(value);
         }
         Ok(())
     }
 
-    fn undo(&mut self, index: Index, _: SVal<MIN, MAX>) -> Result<(), crate::core::Error> {
+    fn undo(&mut self, index: Index, _: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
         if !self.black_remaining.contains_key(&index) {
             return Ok(());
         }
@@ -309,9 +309,9 @@ impl <const MIN: u8, const MAX: u8> Stateful<SVal<MIN, MAX>> for KropkiChecker<M
     }
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX, O>, grid: &mut DecisionGrid<SVal<MIN, MAX>>) -> ConstraintResult<SVal<MIN, MAX>> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
+Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for KropkiChecker<MIN, MAX> {
+    fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         for b in &self.blacks {
             for cell in &b.cells {
                 if puzzle.get(*cell).is_some() {
@@ -346,7 +346,7 @@ Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX
         ConstraintResult::Ok
     }
     
-    fn debug_at(&self, _: &SState<N, M, MIN, MAX, O>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &StdState<N, M, MIN, MAX>, index: Index) -> Option<String> {
         let header = "KropkiChecker:\n";
         let mut lines = vec![];
         for (i, b) in self.blacks.iter().enumerate() {
@@ -360,7 +360,7 @@ Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX
                 }
                 let rem = self.black_remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                lines.push(format!("  - remaining vals: {:?}", unpack_sval_vals::<MIN, MAX>(rem)));
+                lines.push(format!("  - remaining vals: {:?}", unpack_stdval_vals::<MIN, MAX>(rem)));
             }
         }
         if lines.is_empty() {
@@ -371,17 +371,16 @@ Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for KropkiChecker<MIN, MAX
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use crate::{core::pack_values, sudoku::unpack_sval_vals};
+    use crate::{core::pack_values, sudoku::unpack_stdval_vals};
     use super::*;
 
     fn assert_black_possible<const MIN: u8, const MAX: u8>(
         expected: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_sval_vals::<MIN, MAX>(&kropki_black_possible::<MIN, MAX>()),
+            unpack_stdval_vals::<MIN, MAX>(&kropki_black_possible::<MIN, MAX>()),
             expected,
             "Possible vals for black kropkis w/{}..={} should be {:?}",
             MIN, MAX, expected,
@@ -407,7 +406,7 @@ mod test {
         expected: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_sval_vals::<MIN, MAX>(&kropki_black_possible_chain::<MIN, MAX>(
+            unpack_stdval_vals::<MIN, MAX>(&kropki_black_possible_chain::<MIN, MAX>(
                 chain_len,
                 len_from_chain_end,
             )),
@@ -494,11 +493,11 @@ mod test {
     fn assert_black_adj_ok<const MIN: u8, const MAX: u8>(
         a: Vec<u8>, b: Vec<u8>, expected: bool,
     ) {
-        let a_set = pack_values::<SVal<MIN, MAX>>(
-            &a.iter().map(|v| SVal::new(*v)).collect()
+        let a_set = pack_values::<StdVal<MIN, MAX>>(
+            &a.iter().map(|v| StdVal::new(*v)).collect()
         );
-        let b_set = pack_values::<SVal<MIN, MAX>>(
-            &b.iter().map(|v| SVal::new(*v)).collect()
+        let b_set = pack_values::<StdVal<MIN, MAX>>(
+            &b.iter().map(|v| StdVal::new(*v)).collect()
         );
         if expected {
             assert!(
@@ -542,14 +541,14 @@ mod test {
     fn assert_black_between<const MIN: u8, const MAX: u8>(
         left: Vec<u8>, right: Vec<u8>, mutually_visible: bool, expected: Vec<u8>,
     ) {
-        let left_set = pack_values::<SVal<MIN, MAX>>(
-            &left.iter().map(|v| SVal::new(*v)).collect()
+        let left_set = pack_values::<StdVal<MIN, MAX>>(
+            &left.iter().map(|v| StdVal::new(*v)).collect()
         );
-        let right_set = pack_values::<SVal<MIN, MAX>>(
-            &right.iter().map(|v| SVal::new(*v)).collect()
+        let right_set = pack_values::<StdVal<MIN, MAX>>(
+            &right.iter().map(|v| StdVal::new(*v)).collect()
         );
         assert_eq!(
-            unpack_sval_vals::<MIN, MAX>(&kropki_black_between::<MIN, MAX>(
+            unpack_stdval_vals::<MIN, MAX>(&kropki_black_between::<MIN, MAX>(
                 &left_set, &right_set, mutually_visible,
             )),
             expected,

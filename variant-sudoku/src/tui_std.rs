@@ -6,13 +6,35 @@ use std::marker::PhantomData;
 use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, text::Line, Frame};
 use crate::{
-    core::Index, solver::PuzzleSetter, sudoku::{eight_standard_overlay, four_standard_overlay, nine_standard_overlay, six_standard_overlay, EightStd, FourStd, NineStd, SVal, SixStd}, tui::{Tui, TuiState}, tui_util::{
+    core::Index,
+    solver::PuzzleSetter,
+    sudoku::{
+        eight_standard_overlay,
+        four_standard_overlay,
+        nine_standard_overlay,
+        six_standard_overlay,
+        EightStd,
+        EightStdOverlay,
+        EightStdVal,
+        FourStd,
+        FourStdOverlay,
+        FourStdVal,
+        NineStd,
+        NineStdOverlay,
+        NineStdVal,
+        SixStd,
+        SixStdOverlay,
+        SixStdVal,
+    },
+    tui::{Tui, TuiState},
+    tui_util::{
         draw_grid,
         draw_text_area, 
         grid_wasd,
         grid_dims,
         scroll_lines,
-        text_area_ws, GridConfig,
+        text_area_ws,
+        GridConfig,
     }
 };
 
@@ -31,13 +53,13 @@ fn adjust_pos(i: Index, dims: [usize; 2]) -> Index {
     [std::cmp::min(r, dims[0]), std::cmp::min(c, dims[1])]
 }
 
-pub struct NineStdTui<P: PuzzleSetter<Value = SVal<1, 9>, State = NineStd>>(PhantomData<P>);
-impl <P: PuzzleSetter<Value = SVal<1, 9>, State = NineStd>> NineStdTui<P> {
+pub struct NineStdTui<P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>>(PhantomData<P>);
+impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>> NineStdTui<P> {
     fn grid_cfg() -> GridConfig<P, 9, 9> {
         GridConfig::new(nine_standard_overlay())
     }
 }
-impl <P: PuzzleSetter<Value = SVal<1, 9>, State = NineStd>> Tui<P> for NineStdTui<P> {
+impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>> Tui<P> for NineStdTui<P> {
     fn init<'a>(state: &mut TuiState<'a, P>) {
         Self::on_mode_change(state)
     }
@@ -65,13 +87,13 @@ impl <P: PuzzleSetter<Value = SVal<1, 9>, State = NineStd>> Tui<P> for NineStdTu
     }
 }
 
-pub struct EightStdTui<P: PuzzleSetter<Value = SVal<1, 8>, State = EightStd>>(PhantomData<P>);
-impl <P: PuzzleSetter<Value = SVal<1, 8>, State = EightStd>> EightStdTui<P> {
+pub struct EightStdTui<P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>>(PhantomData<P>);
+impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>> EightStdTui<P> {
     fn grid_cfg() -> GridConfig<P, 8, 8> {
         GridConfig::new(eight_standard_overlay())
     }
 }
-impl <P: PuzzleSetter<Value = SVal<1, 8>, State = EightStd>> Tui<P> for EightStdTui<P> {
+impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>> Tui<P> for EightStdTui<P> {
     fn init<'a>(state: &mut TuiState<'a, P>) {
         Self::on_mode_change(state)
     }
@@ -99,13 +121,13 @@ impl <P: PuzzleSetter<Value = SVal<1, 8>, State = EightStd>> Tui<P> for EightStd
     }
 }
 
-pub struct SixStdTui<P: PuzzleSetter<Value = SVal<1, 6>, State = SixStd>>(PhantomData<P>);
-impl <P: PuzzleSetter<Value = SVal<1, 6>, State = SixStd>> SixStdTui<P> {
+pub struct SixStdTui<P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>>(PhantomData<P>);
+impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>> SixStdTui<P> {
     fn grid_cfg() -> GridConfig<P, 6, 6> {
         GridConfig::new(six_standard_overlay())
     }
 }
-impl <P: PuzzleSetter<Value = SVal<1, 6>, State = SixStd>> Tui<P> for SixStdTui<P> {
+impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>> Tui<P> for SixStdTui<P> {
     fn init<'a>(state: &mut TuiState<'a, P>) {
         Self::on_mode_change(state)
     }
@@ -133,13 +155,13 @@ impl <P: PuzzleSetter<Value = SVal<1, 6>, State = SixStd>> Tui<P> for SixStdTui<
     }
 }
 
-pub struct FourStdTui<P: PuzzleSetter<Value = SVal<1, 4>, State = FourStd>>(PhantomData<P>);
-impl <P: PuzzleSetter<Value = SVal<1, 4>, State = FourStd>> FourStdTui<P> {
+pub struct FourStdTui<P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>>(PhantomData<P>);
+impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>> FourStdTui<P> {
     fn grid_cfg() -> GridConfig<P, 4, 4> {
         GridConfig::new(four_standard_overlay())
     }
 }
-impl <P: PuzzleSetter<Value = SVal<1, 4>, State = FourStd>> Tui<P> for FourStdTui<P> {
+impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>> Tui<P> for FourStdTui<P> {
     fn init<'a>(state: &mut TuiState<'a, P>) {
         Self::on_mode_change(state)
     }

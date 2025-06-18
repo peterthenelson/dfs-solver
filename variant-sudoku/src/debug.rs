@@ -1,17 +1,17 @@
 use std::{collections::HashMap, time::{Duration, SystemTime}};
 use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
-use crate::{constraint::Constraint, core::{ConstraintResult, State, Value}, ranker::Ranker};
+use crate::{constraint::Constraint, core::{ConstraintResult, Overlay, State, Value}, ranker::Ranker};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
 
 pub struct NullObserver;
 
-impl <V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S>>
-StepObserver<V, S, R, C> for NullObserver {
-    fn after_step(&mut self, _solver: &dyn DfsSolverView<V, S, R, C>) {}
+impl <V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>
+StepObserver<V, O, S, R, C> for NullObserver {
+    fn after_step(&mut self, _solver: &dyn DfsSolverView<V, O, S, R, C>) {}
 }
 
-fn short_result<V: Value, S: State<V>>(result: &ConstraintResult<V>) -> String {
+fn short_result<V: Value, O: Overlay, S: State<V, O>>(result: &ConstraintResult<V>) -> String {
     match result {
         ConstraintResult::Contradiction(a) => {
             format!("Contradiction({})", a.get_name())
@@ -183,8 +183,8 @@ impl Sample {
         Self { state: SampleState::Time(every, SystemTime::now()) }
     }
 
-    pub fn sample<V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S>>(
-        &mut self, solver: &dyn DfsSolverView<V, S, R, C>,
+    pub fn sample<V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>(
+        &mut self, solver: &dyn DfsSolverView<V, O, S, R, C>,
     ) -> bool {
         match &mut self.state {
             SampleState::Never => false,
@@ -217,7 +217,7 @@ impl Sample {
     }
 }
 
-pub struct DbgObserver<V: Value, S: State<V>> {
+pub struct DbgObserver<V: Value, O: Overlay, S: State<V, O>> {
     timer: TimerState,
     print_sample: Sample,
     stat: Option<(String, Sample)>,
@@ -231,10 +231,10 @@ pub struct DbgObserver<V: Value, S: State<V>> {
     prev_state: Option<DfsSolverState>,
     streak: usize,
     steps: usize,
-    _marker: std::marker::PhantomData<(V, S)>,
+    _marker: std::marker::PhantomData<(V, O, S)>,
 }
 
-impl <V: Value, S: State<V>> DbgObserver<V, S> {
+impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
     pub fn new() -> Self {
         DbgObserver {
             timer: TimerState::new(),
@@ -264,7 +264,7 @@ impl <V: Value, S: State<V>> DbgObserver<V, S> {
         self
     }
 
-    fn update_stats<R: Ranker<V, S>, C: Constraint<V, S>>(&mut self, solver: &dyn DfsSolverView<V, S, R, C>) {
+    fn update_stats<R: Ranker<V, O, S>, C: Constraint<V, O, S>>(&mut self, solver: &dyn DfsSolverView<V, O, S, R, C>) {
         match solver.solver_state() {
             DfsSolverState::Advancing(state) => {
                 if let Some(DfsSolverState::Advancing(_)) = self.prev_state {
@@ -360,14 +360,14 @@ impl <V: Value, S: State<V>> DbgObserver<V, S> {
         })
     }
 
-    pub fn print<R: Ranker<V, S>, C: Constraint<V, S>>(&self, solver: &dyn DfsSolverView<V, S, R, C>) {
+    pub fn print<R: Ranker<V, O, S>, C: Constraint<V, O, S>>(&self, solver: &dyn DfsSolverView<V, O, S, R, C>) {
         let state = solver.get_state();
         if solver.is_initializing() {
             print!(
                 "INITIALIZING: {:?}; {} elapsed\n{:?}{:?}{}\n",
                 solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
                 state, solver.get_constraint(),
-                short_result::<V, S>(&solver.constraint_result()),
+                short_result::<V, O, S>(&solver.constraint_result()),
             );
         } else if solver.is_done() {
             if solver.is_valid() {
@@ -375,7 +375,7 @@ impl <V: Value, S: State<V>> DbgObserver<V, S> {
                     "SOLVED: {:?}; {} elapsed\n{:?}{:?}{}\n",
                     solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
                     state, solver.get_constraint(),
-                    short_result::<V, S>(&solver.constraint_result()),
+                    short_result::<V, O, S>(&solver.constraint_result()),
                 );
             } else {
                 print!("UNSOLVABLE");
@@ -385,15 +385,15 @@ impl <V: Value, S: State<V>> DbgObserver<V, S> {
                 "STEP: {:?}; {} elapsed\n{:?}{:?}{}\n",
                 solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
                 state, solver.get_constraint(),
-                short_result::<V, S>(&solver.constraint_result()),
+                short_result::<V, O, S>(&solver.constraint_result()),
             );
         }
     }
 }
 
-impl <V: Value, S: State<V>, R: Ranker<V, S>, C: Constraint<V, S>>
-StepObserver<V, S, R, C> for DbgObserver<V, S> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<V, S, R, C>) {
+impl <V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>
+StepObserver<V, O, S, R, C> for DbgObserver<V, O, S> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<V, O, S, R, C>) {
         if let TimerState::Init = self.timer {
             self.timer.start();
         }

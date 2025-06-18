@@ -3,7 +3,7 @@ use variant_sudoku::kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE}
 use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
-use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, SVal, StandardSudokuChecker};
+use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, NineStdOverlay, NineStdVal, StdChecker};
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
@@ -11,10 +11,11 @@ use variant_sudoku::tui_std::NineStdTui;
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000NRV
 pub struct ThreeColorTheorem;
 impl PuzzleSetter for ThreeColorTheorem {
-    type Value = SVal<1, 9>;
+    type Value = NineStdVal;
+    type Overlay = NineStdOverlay;
     type State = NineStd;
     type Ranker = OverlaySensitiveLinearRanker;
-    type Constraint = MultiConstraint<Self::Value, NineStd>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
 
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // No given digits in real puzzle but can be passed in in test.
@@ -81,7 +82,7 @@ impl PuzzleSetter for ThreeColorTheorem {
             kb.b_across([8, 6]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StandardSudokuChecker::new(&puzzle),
+            StdChecker::new(&puzzle),
             CageChecker::new(cages),
             KropkiChecker::new(kropkis),
         ]);

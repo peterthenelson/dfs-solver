@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
-use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, State, UVMap, UVSet, Value, WithId};
-use crate::sudoku::{Overlay, SState, SVal};
+use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, Overlay, State, UVMap, UVSet, Value, WithId};
+use crate::sudoku::{StdOverlay, StdState, StdVal};
 
 /// A ranker finds the "best" place in the grid to make a guess. In theory, we
 /// could extend this to return multiple guesses, but since a given index
 /// provides a mutually exclusive and exhaustive set of guesses, there isn't
 /// really a need.
-pub trait Ranker<V: Value, S: State<V>> {
+pub trait Ranker<V: Value, O: Overlay, S: State<V, O>> {
     // Note: the ranker must not suggest already filled cells.
     fn top(&self, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V>;
 
@@ -60,7 +60,7 @@ impl LinearRanker {
     }
 }
 
-impl <V: Value, S: State<V>> Ranker<V, S> for LinearRanker {
+impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for LinearRanker {
     fn top(&self, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V> {
         let mut top_index = None;
         let mut top_score: f64 = 0.0;
@@ -145,6 +145,8 @@ impl <V: Value> OSLRRegionInfo<V> {
     }
 }
 
+// TODO: Delete the other one, rename this one, and remove the N/M/MIN/MAX and
+// just make it generic over Value/Overlay/States.
 impl OverlaySensitiveLinearRanker {
     pub fn new(feature_weights: FeatureVec<FVMaybeNormed>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
         let mut weights = feature_weights.clone();
@@ -175,9 +177,9 @@ impl OverlaySensitiveLinearRanker {
     /// Exposes how the ranker looks at the grid when calculating
     /// ::ValueInRegion candidates. Useful for debugging without needing to
     /// duplicate the implementation of the ranker.
-    pub fn region_info<const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>(
-        &self, grid: &DecisionGrid<SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>, dim: usize, p: usize,
-    ) -> OSLRRegionInfo<SVal<MIN, MAX>> {
+    pub fn region_info<const N: usize, const M: usize, const MIN: u8, const MAX: u8>(
+        &self, grid: &DecisionGrid<StdVal<MIN, MAX>>, puzzle: &StdState<N, M, MIN, MAX>, dim: usize, p: usize,
+    ) -> OSLRRegionInfo<StdVal<MIN, MAX>> {
         let mut info = OSLRRegionInfo::new();
         for index in puzzle.get_overlay().partition_iter(dim, p) {
             if let Some(val) = puzzle.get(index) {
@@ -190,7 +192,7 @@ impl OverlaySensitiveLinearRanker {
                 info.feature_vecs.get_mut(uv).extend(&g.1);
             }
         }
-        for v in SVal::<MIN, MAX>::possibilities() {
+        for v in StdVal::<MIN, MAX>::possibilities() {
             let uv = v.to_uval();
             if info.filled.contains(uv) {
                 continue;
@@ -209,12 +211,12 @@ impl OverlaySensitiveLinearRanker {
 
 enum OSLRChoice<const MIN: u8, const MAX: u8> {
     Cell(Index),
-    ValueInRegion(SVal<MIN, MAX>, Vec<Index>),
+    ValueInRegion(StdVal<MIN, MAX>, Vec<Index>),
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8, O: Overlay>
-Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRanker {
-    fn top(&self, grid: &DecisionGrid<SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>) -> BranchPoint<SVal<MIN, MAX>> {
+impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
+Ranker<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for OverlaySensitiveLinearRanker {
+    fn top(&self, grid: &DecisionGrid<StdVal<MIN, MAX>>, puzzle: &StdState<N, M, MIN, MAX>) -> BranchPoint<StdVal<MIN, MAX>> {
         let mut top_choice = None;
         let mut top_score: f64 = 0.0;
         for r in 0..grid.rows() {
@@ -236,7 +238,7 @@ Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRank
         for dim in 0..overlay.partition_dimension() {
             for p in 0..overlay.n_partitions(dim) {
                 let mut info = self.region_info(grid, puzzle, dim, p);
-                for v in SVal::<MIN, MAX>::possibilities() {
+                for v in StdVal::<MIN, MAX>::possibilities() {
                     let uv = v.to_uval();
                     if info.filled.contains(uv) {
                         continue;
@@ -260,7 +262,7 @@ Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRank
         }
     }
 
-    fn to_constraint_result(&self, grid: &DecisionGrid<SVal<MIN, MAX>>, puzzle: &SState<N, M, MIN, MAX, O>) -> ConstraintResult<SVal<MIN, MAX>> {
+    fn to_constraint_result(&self, grid: &DecisionGrid<StdVal<MIN, MAX>>, puzzle: &StdState<N, M, MIN, MAX>) -> ConstraintResult<StdVal<MIN, MAX>> {
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_none() {
@@ -268,7 +270,7 @@ Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRank
                     if cell.len() == 0 {
                         return ConstraintResult::Contradiction(self.no_vals_attribution.clone())
                     } else if cell.len() == 1 {
-                        let v = unpack_values::<SVal<MIN, MAX>>(cell)[0];
+                        let v = unpack_values::<StdVal<MIN, MAX>>(cell)[0];
                         return ConstraintResult::Certainty(
                             CertainDecision::new([r, c], v),
                             self.one_val_attribution.clone(),
@@ -280,8 +282,8 @@ Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRank
         let overlay = puzzle.get_overlay();
         for dim in 0..overlay.partition_dimension() {
             for p in 0..overlay.n_partitions(dim) {
-                let mut count = empty_map::<SVal<MIN, MAX>, usize>();
-                let mut first_index = empty_map::<SVal<MIN, MAX>, Option<Index>>();
+                let mut count = empty_map::<StdVal<MIN, MAX>, usize>();
+                let mut first_index = empty_map::<StdVal<MIN, MAX>, Option<Index>>();
                 for index in overlay.partition_iter(dim, p) {
                     if let Some(val) = puzzle.get(index) {
                         *count.get_mut(val.to_uval()) += 1;
@@ -299,7 +301,7 @@ Ranker<SVal<MIN, MAX>, SState<N, M, MIN, MAX, O>> for OverlaySensitiveLinearRank
                         }
                     }
                 }
-                for v in SVal::<MIN, MAX>::possibilities() {
+                for v in StdVal::<MIN, MAX>::possibilities() {
                     let uv = v.to_uval();
                     let c = count.get(uv);
                     if *c == 0 {

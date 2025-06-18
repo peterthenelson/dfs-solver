@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, FeatureKey, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{Overlay, SState, SVal}};
+use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, FeatureKey, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{NineStdVal, StdOverlay, StdState}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -90,13 +90,13 @@ pub struct MagicSquareChecker {
 
 impl MagicSquareChecker {
     pub fn new(squares: Vec<MagicSquare>) -> Self {
-        let mut evens = empty_set::<SVal<1, 9>>();
+        let mut evens = empty_set::<NineStdVal>();
         for v in [2, 4, 6, 8] {
-            evens.insert(SVal::<1, 9>::new(v).to_uval());
+            evens.insert(NineStdVal::new(v).to_uval());
         }
-        let mut odds = empty_set::<SVal<1, 9>>();
+        let mut odds = empty_set::<NineStdVal>();
         for v in [1, 3, 7, 9] {
-            odds.insert(SVal::<1, 9>::new(v).to_uval());
+            odds.insert(NineStdVal::new(v).to_uval());
         }
         Self {
             squares,
@@ -113,12 +113,12 @@ impl MagicSquareChecker {
         }
     }
 
-    fn sum15<const N: usize, const M: usize, O: Overlay>(
+    fn sum15<const N: usize, const M: usize>(
         &self,
         triple: &[Index; 3], 
-        puzzle: &SState<N, M, 1, 9, O>,
-        grid: &mut DecisionGrid<SVal<1, 9>>,
-    ) -> Option<ConstraintResult<SVal<1, 9>>> {
+        puzzle: &StdState<N, M, 1, 9>,
+        grid: &mut DecisionGrid<NineStdVal>,
+    ) -> Option<ConstraintResult<NineStdVal>> {
         let (sum, n_empty, first_empty) = sum_trip(triple, puzzle);
         if n_empty == 0 {
             if sum != 15 {
@@ -129,7 +129,7 @@ impl MagicSquareChecker {
         } else if n_empty == 1 {
             if sum < 15 {
                 let i = first_empty.unwrap();
-                let rem = SVal::new(15 - sum);
+                let rem = NineStdVal::new(15 - sum);
                 if grid.get(i).0.contains(rem.to_uval()) {
                     Some(ConstraintResult::Certainty(
                         CertainDecision::new(i, rem),
@@ -154,15 +154,15 @@ impl Debug for MagicSquareChecker {
     }
 }
 
-impl Stateful<SVal<1, 9>> for MagicSquareChecker {}
+impl Stateful<NineStdVal> for MagicSquareChecker {}
 
-fn check_vals<const N: usize, const M: usize, O: Overlay>(
+fn check_vals<const N: usize, const M: usize>(
     indices: &[Index; 4],
     values: &UVSet<u8>,
-    puzzle: &SState<N, M, 1, 9, O>,
-    grid: &mut DecisionGrid<SVal<1, 9>>,
+    puzzle: &StdState<N, M, 1, 9>,
+    grid: &mut DecisionGrid<NineStdVal>,
     attribution: Attribution<WithId>,
-) -> Option<ConstraintResult<SVal<1, 9>>> {
+) -> Option<ConstraintResult<NineStdVal>> {
     for i in indices {
         if let Some(v) = puzzle.get(*i) {
             if !values.contains(v.to_uval()) {
@@ -175,9 +175,9 @@ fn check_vals<const N: usize, const M: usize, O: Overlay>(
     None
 }
 
-fn sum_trip<const N: usize, const M: usize, O: Overlay>(
+fn sum_trip<const N: usize, const M: usize>(
     triple: &[Index; 3], 
-    puzzle: &SState<N, M, 1, 9, O>,
+    puzzle: &StdState<N, M, 1, 9>,
 ) -> (u8, u8, Option<Index>) {
     let mut sum = 0;
     let mut n_empty = 3;
@@ -193,16 +193,16 @@ fn sum_trip<const N: usize, const M: usize, O: Overlay>(
     (sum, n_empty, first_empty)
 }
 
-impl <const N: usize, const M: usize, O: Overlay>
-Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for MagicSquareChecker {
-    fn check(&self, puzzle: &SState<N, M, 1, 9, O>, grid: &mut DecisionGrid<SVal<1, 9>>) -> ConstraintResult<SVal<1, 9>> {
+impl <const N: usize, const M: usize>
+Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for MagicSquareChecker {
+    fn check(&self, puzzle: &StdState<N, M, 1, 9>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
                 if v.val() != 5 {
                     return ConstraintResult::Contradiction(self.ms_mid_attribution.clone());
                 }
             } else {
-                return ConstraintResult::Certainty(CertainDecision::new(square.center, SVal::new(5)), self.ms_mid_5_attribution.clone());
+                return ConstraintResult::Certainty(CertainDecision::new(square.center, NineStdVal::new(5)), self.ms_mid_5_attribution.clone());
             }
             let [ul, _, lr] = square.diag_0();
             let [ll, _, ur] = square.diag_1();
@@ -238,7 +238,7 @@ Constraint<SVal<1, 9>, SState<N, M, 1, 9, O>> for MagicSquareChecker {
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &SState<N, M, 1, 9, O>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &StdState<N, M, 1, 9>, index: Index) -> Option<String> {
         for square in &self.squares {
             let [ul, mm, lr] = square.diag_0();
             let [ll, _, ur] = square.diag_1();

@@ -8,17 +8,18 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{empty_map, empty_set, BranchOver, Index, State, Value}, solver::{DfsSolverView, PuzzleSetter}, sudoku::{Overlay, StandardSudokuOverlay}, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{empty_map, empty_set, BranchOver, Index, Overlay, State, Value}, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
+// TODO: Can this be removed now that we moved Overlay into State in general?
 pub struct GridConfig<P: PuzzleSetter, const N: usize, const M: usize> {
-    pub overlay: StandardSudokuOverlay<N, M>,
-    _p_p: PhantomData<P>,
+    pub overlay: StdOverlay<N, M>,
+    _marker: PhantomData<P>,
 }
 
 impl <P: PuzzleSetter, const N: usize, const M: usize> GridConfig<P, N, M> {
-    pub fn new(overlay: StandardSudokuOverlay<N, M>) -> Self {
-        Self { overlay, _p_p: PhantomData }
+    pub fn new(overlay: StdOverlay<N, M>) -> Self {
+        Self { overlay, _marker: PhantomData }
     }
     pub fn to_ord(&self, v: &P::Value) -> usize { v.ordinal() }
     pub fn nth(&self, ord: usize) -> P::Value { P::Value::nth(ord) }

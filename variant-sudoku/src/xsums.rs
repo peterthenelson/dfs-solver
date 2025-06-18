@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::core::{empty_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
-use crate::sudoku::{sval_sum_bound, SState, SVal, StandardSudokuOverlay};
+use crate::sudoku::{stdval_sum_bound, StdState, StdVal, StdOverlay};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum XSumDirection {
@@ -119,7 +119,7 @@ XSum<MIN, MAX, N, M> {
         }
     }
 
-    pub fn contains(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, index: Index) -> bool {
+    pub fn contains(&self, puzzle: &StdState<N, M, MIN, MAX>, index: Index) -> bool {
         let length_index = self.length_index();
         if index == length_index {
             true
@@ -130,7 +130,7 @@ XSum<MIN, MAX, N, M> {
         }
     }
 
-    pub fn length(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>) -> Option<(Index, SVal<MIN, MAX>)> {
+    pub fn length(&self, puzzle: &StdState<N, M, MIN, MAX>) -> Option<(Index, StdVal<MIN, MAX>)> {
         match self.direction {
             XSumDirection::RR => if let Some(v) = puzzle.get([self.index, 0]) {
                 Some(([self.index, 0], v))
@@ -192,7 +192,7 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     // Remaining empty NON-LENGTH cells, supposing length is already known
     xsums_empty: Vec<Option<i16>>,
     // To calculate remaining and empty when a length cell becomes known.
-    grid: Vec<Option<SVal<MIN, MAX>>>,
+    grid: Vec<Option<StdVal<MIN, MAX>>>,
     xsum_head_feature: FeatureKey<WithId>,
     xsum_tail_feature: FeatureKey<WithId>,
     xsum_sum_over_attribution: Attribution<WithId>,
@@ -235,14 +235,14 @@ Debug for XSumChecker<MIN, MAX, N, M> {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Stateful<SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
+Stateful<StdVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
     fn reset(&mut self) {
         self.xsums_remaining = self.xsums.iter().map(|x| x.target as i16).collect();
         self.xsums_empty = vec![None; self.xsums.len()];
         self.grid.fill(None);
     }
 
-    fn apply(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+    fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
         self.grid[index[0] * M + index[1]] = Some(value);
         for (i, xsum) in self.xsums.iter().enumerate() {
             let len_index = xsum.length_index();
@@ -267,7 +267,7 @@ Stateful<SVal<MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
         Ok(())
     }
 
-    fn undo(&mut self, index: Index, value: SVal<MIN, MAX>) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
         self.grid[index[0] * M + index[1]] = None;
         for (i, xsum) in self.xsums.iter().enumerate() {
             let len_index = xsum.length_index();
@@ -308,14 +308,14 @@ fn elem_in_sum_bound<const MIN: u8, const MAX: u8>(sum: u8, len: u8) -> Option<(
             None
         }
     } else {
-        if let Some((min, max)) = sval_sum_bound::<MIN, MAX>(len) {
+        if let Some((min, max)) = stdval_sum_bound::<MIN, MAX>(len) {
             if !(min <= sum && sum <= max) {
                 return None;
             }
         } else {
             return None;
         }
-        if let Some((rmin, rmax)) = sval_sum_bound::<MIN, MAX>(len - 1) {
+        if let Some((rmin, rmax)) = stdval_sum_bound::<MIN, MAX>(len - 1) {
             let min = if rmax + MIN >= sum {
                 MIN
             } else if MIN <= (sum - rmax) && (sum - rmax) <= MAX {
@@ -410,15 +410,14 @@ fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, grid: &mut DecisionGrid<SVal<MIN, MAX>>) -> ConstraintResult<SVal<MIN, MAX>> {
+Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
+    fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
                 if r < 0 {
                     return ConstraintResult::Contradiction(self.xsum_sum_over_attribution.clone());
                 } else if e == 0 && r != 0 {
-                    print!("asdf\n");
                     return ConstraintResult::Contradiction(self.xsum_sum_bad_attribution.clone());
                 } else if r == 0 {
                     // Satisfied!
@@ -426,8 +425,8 @@ Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> 
                 }
                 // We can constrain the empty digits based on the remaining target
                 if let Some((min, max)) = elem_in_sum_bound::<MIN, MAX>(r as u8, e as u8) {
-                    let mut set = empty_set::<SVal<MIN, MAX>>();
-                    (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
+                    let mut set = empty_set::<StdVal<MIN, MAX>>();
+                    (min..=max).for_each(|v| set.insert(StdVal::<MIN, MAX>::new(v).to_uval()));
                     let len = xsum.length(puzzle).unwrap().1;
                     for i2 in xsum.xrange(len.val()) {
                         let g = &mut grid.get_mut(i2);
@@ -445,8 +444,8 @@ Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> 
                 if let Some((min, max)) = xsum_len_bound::<MIN, MAX>(xsum.target) {
                     let g = &mut grid.get_mut(len_cell);
                     if puzzle.get(len_cell).is_none() {
-                        let mut set = empty_set::<SVal<MIN, MAX>>();
-                        (min..=max).for_each(|v| set.insert(SVal::<MIN, MAX>::new(v).to_uval()));
+                        let mut set = empty_set::<StdVal<MIN, MAX>>();
+                        (min..=max).for_each(|v| set.insert(StdVal::<MIN, MAX>::new(v).to_uval()));
                         g.0.intersect_with(&set);
                     }
                     g.1.add(&self.xsum_head_feature, 1.0);
@@ -459,7 +458,7 @@ Constraint<SVal<MIN, MAX>, SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>> 
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, puzzle: &SState<N, M, MIN, MAX, StandardSudokuOverlay<N, M>>, index: Index) -> Option<String> {
+    fn debug_at(&self, puzzle: &StdState<N, M, MIN, MAX>, index: Index) -> Option<String> {
         let header = "XSumChecker:\n";
         let mut lines = vec![];
         for (i, x) in self.xsums.iter().enumerate() {
@@ -560,10 +559,10 @@ mod test {
              ....\n\
              4...\n"
         ).unwrap();
-        assert_eq!(x1.length(&puzzle1).unwrap(), ([0, 0], SVal::new(2)));
-        assert_eq!(x2.length(&puzzle1).unwrap(), ([0, 3], SVal::new(3)));
-        assert_eq!(x3.length(&puzzle1).unwrap(), ([0, 0], SVal::new(2)));
-        assert_eq!(x4.length(&puzzle1).unwrap(), ([3, 0], SVal::new(4)));
+        assert_eq!(x1.length(&puzzle1).unwrap(), ([0, 0], StdVal::new(2)));
+        assert_eq!(x2.length(&puzzle1).unwrap(), ([0, 3], StdVal::new(3)));
+        assert_eq!(x3.length(&puzzle1).unwrap(), ([0, 0], StdVal::new(2)));
+        assert_eq!(x4.length(&puzzle1).unwrap(), ([3, 0], StdVal::new(4)));
         let puzzle2 = four_standard_parse(
             "....\n\
              .21.\n\
