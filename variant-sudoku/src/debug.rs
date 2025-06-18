@@ -14,10 +14,10 @@ StepObserver<V, O, S, R, C> for NullObserver {
 fn short_result<V: Value, O: Overlay, S: State<V, O>>(result: &ConstraintResult<V>) -> String {
     match result {
         ConstraintResult::Contradiction(a) => {
-            format!("Contradiction({})", a.get_name())
+            format!("Contradiction({})", a.name())
         },
         ConstraintResult::Certainty(d, a) => {
-            format!("Certainty({:?}, {:?}, {})", d.index, d.value, a.get_name())
+            format!("Certainty({:?}, {:?}, {})", d.index, d.value, a.name())
         },
         ConstraintResult::Ok => "Ok".to_string(),
     }
@@ -305,7 +305,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         let mut filled = 0;
         for r in 0..S::ROWS {
             for c in 0..S::COLS {
-                if solver.get_state().get([r, c]).is_some() {
+                if solver.state().get([r, c]).is_some() {
                     filled += 1;
                 }
             }
@@ -361,12 +361,12 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
     }
 
     pub fn print<R: Ranker<V, O, S>, C: Constraint<V, O, S>>(&self, solver: &dyn DfsSolverView<V, O, S, R, C>) {
-        let state = solver.get_state();
+        let state = solver.state();
         if solver.is_initializing() {
             print!(
                 "INITIALIZING: {:?}; {} elapsed\n{:?}{:?}{}\n",
                 solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
-                state, solver.get_constraint(),
+                state, solver.constraint(),
                 short_result::<V, O, S>(&solver.constraint_result()),
             );
         } else if solver.is_done() {
@@ -374,7 +374,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
                 print!(
                     "SOLVED: {:?}; {} elapsed\n{:?}{:?}{}\n",
                     solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
-                    state, solver.get_constraint(),
+                    state, solver.constraint(),
                     short_result::<V, O, S>(&solver.constraint_result()),
                 );
             } else {
@@ -384,7 +384,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
             print!(
                 "STEP: {:?}; {} elapsed\n{:?}{:?}{}\n",
                 solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
-                state, solver.get_constraint(),
+                state, solver.constraint(),
                 short_result::<V, O, S>(&solver.constraint_result()),
             );
         }

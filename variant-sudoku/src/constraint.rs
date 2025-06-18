@@ -191,7 +191,7 @@ pub mod test_util {
         expected_attribution: &'static str,
     ) {
         if let ConstraintResult::Contradiction(a) = cr {
-            let actual_attribution = a.get_name();
+            let actual_attribution = a.name();
             assert_eq!(
                 actual_attribution, expected_attribution,
                 "Expected Contradiction to be attributed to {}; got {}",
@@ -206,7 +206,7 @@ pub mod test_util {
         cr: ConstraintResult<V>,
     ) {
         if let ConstraintResult::Contradiction(a) = cr {
-            panic!("Expected no contradiction; got: {:}", a.get_name());
+            panic!("Expected no contradiction; got: {:}", a.name());
         }
     }
 }

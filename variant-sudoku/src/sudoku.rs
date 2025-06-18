@@ -575,7 +575,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Debug for StdChecker<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.get_name())?;
+            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
         }
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
@@ -672,7 +672,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Std
         let header = "StdChecker:\n";
         if let Some((i, v, a)) = &self.illegal {
             if *i == index {
-                return Some(format!("{}  Illegal move: {} ({})", header, v, a.get_name()));
+                return Some(format!("{}  Illegal move: {} ({})", header, v, a.name()));
             }
         }
         let [r, c] = index;
@@ -933,9 +933,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_state().get([2, 2]), Some(StdVal::new(2)));
-                assert_eq!(solved.get_state().get([2, 3]), Some(StdVal::new(9)));
-                assert_eq!(solved.get_state().get([2, 4]), Some(StdVal::new(1)));
+                assert_eq!(solved.state().get([2, 2]), Some(StdVal::new(2)));
+                assert_eq!(solved.state().get([2, 3]), Some(StdVal::new(9)));
+                assert_eq!(solved.state().get([2, 4]), Some(StdVal::new(1)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
@@ -961,9 +961,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_state().get([6, 4]), Some(StdVal::new(2)));
-                assert_eq!(solved.get_state().get([6, 5]), Some(StdVal::new(5)));
-                assert_eq!(solved.get_state().get([6, 6]), Some(StdVal::new(4)));
+                assert_eq!(solved.state().get([6, 4]), Some(StdVal::new(2)));
+                assert_eq!(solved.state().get([6, 5]), Some(StdVal::new(5)));
+                assert_eq!(solved.state().get([6, 6]), Some(StdVal::new(4)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
@@ -987,9 +987,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_state().get([2, 0]), Some(StdVal::new(6)));
-                assert_eq!(solved.get_state().get([2, 1]), Some(StdVal::new(5)));
-                assert_eq!(solved.get_state().get([2, 2]), Some(StdVal::new(3)));
+                assert_eq!(solved.state().get([2, 0]), Some(StdVal::new(6)));
+                assert_eq!(solved.state().get([2, 1]), Some(StdVal::new(5)));
+                assert_eq!(solved.state().get([2, 2]), Some(StdVal::new(3)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }
@@ -1011,9 +1011,9 @@ mod test {
             Ok(solution) => {
                 assert!(solution.is_some());
                 let solved = solution.unwrap();
-                assert_eq!(solved.get_state().get([0, 0]), Some(StdVal::new(1)));
-                assert_eq!(solved.get_state().get([0, 1]), Some(StdVal::new(2)));
-                assert_eq!(solved.get_state().get([0, 2]), Some(StdVal::new(3)));
+                assert_eq!(solved.state().get([0, 0]), Some(StdVal::new(1)));
+                assert_eq!(solved.state().get([0, 1]), Some(StdVal::new(2)));
+                assert_eq!(solved.state().get([0, 2]), Some(StdVal::new(3)));
             }
             Err(e) => panic!("Failed to solve sudoku: {:?}", e),
         }

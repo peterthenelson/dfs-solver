@@ -109,7 +109,7 @@ pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'st
                 }
             },
         };
-        let attr: Span<'_> = format!("({})", bp.branch_attribution.get_name()).cyan();
+        let attr: Span<'_> = format!("({})", bp.branch_attribution.name()).cyan();
         let mut first_line = vec![step];
         first_line.extend(alt1);
         first_line.push("  ".into());
@@ -123,7 +123,7 @@ pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'st
 }
 
 pub fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'static>> {
-    if let Some(s) = state.solver.get_constraint().debug_at(state.solver.get_state(), state.grid_pos) {
+    if let Some(s) = state.solver.constraint().debug_at(state.solver.state(), state.grid_pos) {
         s.lines()
             .map(|line| Line::from(if line.chars().nth(0) == Some(' ') {
                     line.to_string().into()
@@ -137,7 +137,7 @@ pub fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Lin
 }
 
 pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'static>> {
-    to_lines(&*format!("{:?}", state.solver.get_constraint()))
+    to_lines(&*format!("{:?}", state.solver.constraint()))
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -250,7 +250,7 @@ fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             Some(P::Value::nth(br*cfg.overlay.box_width() + bc))
         },
         GridType::HighlightPossible(_, _) => panic!("TODO: HighlightPossible not implemented!"),
-        GridType::Puzzle | GridType::Heatmap(ViewBy::Cell, _) => state.solver.get_state().get([r, c]),
+        GridType::Puzzle | GridType::Heatmap(ViewBy::Cell, _) => state.solver.state().get([r, c]),
     }
 }
 
@@ -320,7 +320,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             if let Some(grid) = state.solver.decision_grid() {
                 for r in 0..N {
                     for c in 0..M {
-                        if state.solver.get_state().get([r, c]).is_some() {
+                        if state.solver.state().get([r, c]).is_some() {
                             continue;
                         }
                         hm[r][c] = Some(gen_heatmap_color::<P>(grid.get([r, c]).0.len()))
@@ -336,7 +336,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         // Note: We are assuming that all rows have the same size (and same for cols, boxes).
         let mut infos = vec![];
         for p in 0..cfg.overlay.n_partitions(dim) {
-            infos.push(state.solver.get_ranker().region_info(&grid, state.solver.get_state(), dim, p).unwrap());
+            infos.push(state.solver.ranker().region_info(&grid, state.solver.state(), dim, p).unwrap());
         }
         for r in 0..N {
             for c in 0..M {

@@ -314,7 +314,7 @@ impl ConstStringRegistry {
             id
         }
     }
-    pub fn get_name(&self, id: usize) -> Option<&'static str> {
+    pub fn name(&self, id: usize) -> Option<&'static str> {
         for (name, feature_id) in self.mapping.iter() {
             if *feature_id == id {
                 return Some(name);
@@ -341,7 +341,7 @@ lazy_static::lazy_static! {
 // purposes (e.g., debugging, logging, etc.) and not during the solving process.
 pub fn readable_attribution(id: usize) -> Option<Attribution<WithId>> {
     let registry = ATTRIBUTION_REGISTRY.lock().unwrap();
-    registry.get_name(id).map(|name| {
+    registry.name(id).map(|name| {
         Attribution { name, id: Some(id), _state: PhantomData}
     })
 }
@@ -354,7 +354,7 @@ pub struct Attribution<S>{
 }
 
 impl <S> Attribution<S> {
-    pub fn get_name(&self) -> &'static str { self.name }
+    pub fn name(&self) -> &'static str { self.name }
 }
 
 impl Attribution<MaybeId> {
@@ -375,7 +375,7 @@ impl Attribution<MaybeId> {
 }
 
 impl Attribution<WithId> {
-    pub fn get_id(&self) -> usize { self.id.unwrap() }
+    pub fn id(&self) -> usize { self.id.unwrap() }
 }
 
 lazy_static::lazy_static! {
@@ -388,7 +388,7 @@ lazy_static::lazy_static! {
 // purposes (e.g., debugging, logging, etc.) and not during the solving process.
 pub fn readable_feature(id: usize) -> Option<FeatureKey<WithId>> {
     let registry = FEATURE_REGISTRY.lock().unwrap();
-    registry.get_name(id).map(|name| {
+    registry.name(id).map(|name| {
         FeatureKey { name, id: Some(id), _state: PhantomData}
     })
 }
@@ -401,7 +401,7 @@ pub struct FeatureKey<S>{
 }
 
 impl <S> FeatureKey<S> {
-    pub fn get_name(&self) -> &'static str { self.name }
+    pub fn name(&self) -> &'static str { self.name }
 }
 
 impl FeatureKey<MaybeId> {
@@ -422,7 +422,7 @@ impl FeatureKey<MaybeId> {
 }
 
 impl FeatureKey<WithId> {
-    pub fn get_id(&self) -> usize { self.id.unwrap() }
+    pub fn id(&self) -> usize { self.id.unwrap() }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -453,7 +453,7 @@ impl FeatureVec<FVMaybeNormed> {
     }
 
     pub fn add(&mut self, key: &FeatureKey<WithId>, value: f64) {
-        let id = key.get_id();
+        let id = key.id();
         self.features.push((id, value));
         self.normalized = false;
     }
@@ -512,7 +512,7 @@ impl Display for FeatureVec<FVMaybeNormed> {
         write!(f, "{{")?;
         for (i, (k, v)) in self.features.iter().enumerate() {
             if let Some(feature) = readable_feature(*k) {
-                write!(f, "{} => {}", feature.get_name(), *v)?;
+                write!(f, "{} => {}", feature.name(), *v)?;
             } else {
                 write!(f, "??? => {}", *v)?;
             }
@@ -526,7 +526,7 @@ impl Display for FeatureVec<FVMaybeNormed> {
 
 impl FeatureVec<FVNormed> {
     pub fn get(&self, key: &FeatureKey<WithId>) -> Option<f64> {
-        let id = key.get_id();
+        let id = key.id();
         for (k, v) in &self.features {
             if *k == id {
                 return Some(*v);

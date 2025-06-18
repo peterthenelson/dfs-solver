@@ -134,7 +134,7 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
 impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.get_name())?;
+            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
         }
         for (i, c) in self.cages.iter().enumerate() {
             write!(f, " Cage{:?}\n", c.cells)?;
@@ -284,7 +284,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Cag
         let mut lines = vec![];
         if let Some((i, v, a)) = &self.illegal {
             if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.get_name()));
+                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
             }
         }
         for (i, c) in self.cages.iter().enumerate() {

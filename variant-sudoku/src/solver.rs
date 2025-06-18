@@ -44,11 +44,11 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     fn is_valid(&self) -> bool;
     fn most_recent_action(&self) -> Option<(Index, V)>;
     fn backtracked_steps(&self) -> Option<usize>;
-    fn get_ranker(&self) -> &R;
-    fn get_constraint(&self) -> &C;
+    fn ranker(&self) -> &R;
+    fn constraint(&self) -> &C;
     fn constraint_result(&self) -> ConstraintResult<V>;
     fn decision_grid(&self) -> Option<DecisionGrid<V>>;
-    fn get_state(&self) -> &S;
+    fn state(&self) -> &S;
 }
 
 // Mostly for debugging purposes, a StepObserver allows the caller of various
@@ -136,11 +136,11 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
 
     fn backtracked_steps(&self) -> Option<usize> { self.backtracked_steps }
 
-    fn get_constraint(&self) -> &C {
+    fn constraint(&self) -> &C {
         self.constraint
     }
 
-    fn get_ranker(&self) -> &R {
+    fn ranker(&self) -> &R {
         self.ranker
     }
 
@@ -152,7 +152,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.decision_grid.clone()
     }
 
-    fn get_state(&self) -> &S {
+    fn state(&self) -> &S {
         self.puzzle
     }
 }
@@ -409,11 +409,11 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.solver.most_recent_action()
     }
     fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-    fn get_ranker(&self) -> &R {
-        self.solver.get_ranker()
+    fn ranker(&self) -> &R {
+        self.solver.ranker()
     }
-    fn get_constraint(&self) -> &C {
-        self.solver.get_constraint()
+    fn constraint(&self) -> &C {
+        self.solver.constraint()
     }
     fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
@@ -421,7 +421,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.solver.decision_grid()
     }
-    fn get_state(&self) -> &S { self.solver.get_state() }
+    fn state(&self) -> &S { self.solver.state() }
 }
 
 impl <'a, V, O, S, R, C> FindFirstSolution<'a, V, O, S, R, C>
@@ -477,11 +477,11 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.solver.most_recent_action()
     }
     fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-    fn get_ranker(&self) -> &R {
-        self.solver.get_ranker()
+    fn ranker(&self) -> &R {
+        self.solver.ranker()
     }
-    fn get_constraint(&self) -> &C {
-        self.solver.get_constraint()
+    fn constraint(&self) -> &C {
+        self.solver.constraint()
     }
     fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
@@ -489,7 +489,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.solver.decision_grid()
     }
-    fn get_state(&self) -> &S { self.solver.get_state() }
+    fn state(&self) -> &S { self.solver.state() }
 }
 
 impl <'a, V, O, S, R, C> FindAllSolutions<'a, V, O, S, R, C>
@@ -569,11 +569,11 @@ pub mod test_util {
             self.solver.most_recent_action()
         }
         fn backtracked_steps(&self) -> Option<usize> { self.solver.backtracked_steps() }
-        fn get_ranker(&self) -> &R {
-            self.solver.get_ranker()
+        fn ranker(&self) -> &R {
+            self.solver.ranker()
         }
-        fn get_constraint(&self) -> &C {
-            self.solver.get_constraint()
+        fn constraint(&self) -> &C {
+            self.solver.constraint()
         }
         fn constraint_result(&self) -> ConstraintResult<V> {
             self.solver.constraint_result()
@@ -581,7 +581,7 @@ pub mod test_util {
         fn decision_grid(&self) -> Option<DecisionGrid<V>> {
             self.solver.decision_grid()
         }
-        fn get_state(&self) -> &S { self.solver.get_state() }
+        fn state(&self) -> &S { self.solver.state() }
     }
 
     impl <'a, V, O, S, R, C> PuzzleReplay<'a, V, O, S, R, C>
@@ -720,7 +720,7 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
-        assert_eq!(maybe_solution.unwrap().get_state().to_string(), "49382716");
+        assert_eq!(maybe_solution.unwrap().state().to_string(), "49382716");
         Ok(())
     }
 

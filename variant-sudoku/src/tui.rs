@@ -24,7 +24,7 @@ pub fn solve_cli<P: PuzzleSetter, D: StepObserver<P::Value, P::Overlay, P::State
     let (mut s, r, mut c) = P::setup();
     let mut finder = FindFirstSolution::new(&mut s, &r, &mut c, Some(&mut observer));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
-    println!("Solution:\n{:?}", maybe_solution.expect("No solution found!").get_state());
+    println!("Solution:\n{:?}", maybe_solution.expect("No solution found!").state());
 }
 
 /// Solves the puzzle in the interactive debugger.
@@ -317,14 +317,14 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
             match state.solver.constraint_result() {
                 ConstraintResult::Contradiction(a) => Line::from(vec![
                     "Contradiction: ".red(),
-                    format!("({})", a.get_name()).cyan(),
+                    format!("({})", a.name()).cyan(),
                 ]),
                 ConstraintResult::Certainty(cd, a) => Line::from(vec![
                     "Certainty: ".green(),
                     format!("{:?}", cd.index).blue(),
                     " = ".into(),
                     format!("{} ", cd.value).green(),
-                    format!("({})", a.get_name()).cyan(),
+                    format!("({})", a.name()).cyan(),
                 ]),
                 _ => Line::from(""),
             }
