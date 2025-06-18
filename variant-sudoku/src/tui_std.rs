@@ -24,17 +24,11 @@ use crate::{
         NineStdVal,
         SixStd,
         SixStdOverlay,
-        SixStdVal,
+        SixStdVal, StdOverlay,
     },
     tui::{Tui, TuiState},
     tui_util::{
-        draw_grid,
-        draw_text_area, 
-        grid_wasd,
-        grid_dims,
-        scroll_lines,
-        text_area_ws,
-        GridConfig,
+        draw_grid, draw_text_area, grid_dims, grid_wasd, scroll_lines, text_area_ws,
     }
 };
 
@@ -55,8 +49,8 @@ fn adjust_pos(i: Index, dims: [usize; 2]) -> Index {
 
 pub struct NineStdTui<P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>>(PhantomData<P>);
 impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>> NineStdTui<P> {
-    fn grid_cfg() -> GridConfig<P, 9, 9> {
-        GridConfig::new(nine_standard_overlay())
+    fn overlay() -> Option<StdOverlay<9, 9>> {
+        Some(nine_standard_overlay())
     }
 }
 impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>> Tui<P> for NineStdTui<P> {
@@ -64,9 +58,9 @@ impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = Nine
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
+        state.scroll_lines = scroll_lines(state, &Self::overlay());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
-        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_dims = grid_dims(state, &Self::overlay());
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -80,7 +74,7 @@ impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = Nine
         let _ = text_area_ws(state, key_event);
     }
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
-        draw_grid(state, &Self::grid_cfg(), frame, area);
+        draw_grid(state, &Self::overlay(), frame, area);
     }
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         draw_text_area(state, frame, area);
@@ -89,8 +83,8 @@ impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = Nine
 
 pub struct EightStdTui<P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>>(PhantomData<P>);
 impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>> EightStdTui<P> {
-    fn grid_cfg() -> GridConfig<P, 8, 8> {
-        GridConfig::new(eight_standard_overlay())
+    fn overlay() -> Option<StdOverlay<8, 8>> {
+        Some(eight_standard_overlay())
     }
 }
 impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>> Tui<P> for EightStdTui<P> {
@@ -98,9 +92,9 @@ impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = Ei
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
+        state.scroll_lines = scroll_lines(state, &Self::overlay());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
-        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_dims = grid_dims(state, &Self::overlay());
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -114,7 +108,7 @@ impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = Ei
         let _ = text_area_ws(state, key_event);
     }
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
-        draw_grid(state, &Self::grid_cfg(), frame, area);
+        draw_grid(state, &Self::overlay(), frame, area);
     }
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         draw_text_area(state, frame, area);
@@ -123,8 +117,8 @@ impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = Ei
 
 pub struct SixStdTui<P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>>(PhantomData<P>);
 impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>> SixStdTui<P> {
-    fn grid_cfg() -> GridConfig<P, 6, 6> {
-        GridConfig::new(six_standard_overlay())
+    fn overlay() -> Option<StdOverlay<6, 6>> {
+        Some(six_standard_overlay())
     }
 }
 impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>> Tui<P> for SixStdTui<P> {
@@ -132,9 +126,9 @@ impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
+        state.scroll_lines = scroll_lines(state, &Self::overlay());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
-        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_dims = grid_dims(state, &Self::overlay());
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -148,7 +142,7 @@ impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd
         let _ = text_area_ws(state, key_event);
     }
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
-        draw_grid(state, &Self::grid_cfg(), frame, area);
+        draw_grid(state, &Self::overlay(), frame, area);
     }
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         draw_text_area(state, frame, area);
@@ -157,8 +151,8 @@ impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd
 
 pub struct FourStdTui<P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>>(PhantomData<P>);
 impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>> FourStdTui<P> {
-    fn grid_cfg() -> GridConfig<P, 4, 4> {
-        GridConfig::new(four_standard_overlay())
+    fn overlay() -> Option<StdOverlay<4, 4>> {
+        Some(four_standard_overlay())
     }
 }
 impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>> Tui<P> for FourStdTui<P> {
@@ -166,9 +160,9 @@ impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = Four
         Self::on_mode_change(state)
     }
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = scroll_lines(state, &Self::grid_cfg());
+        state.scroll_lines = scroll_lines(state, &Self::overlay());
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
-        state.grid_dims = grid_dims(state, &Self::grid_cfg());
+        state.grid_dims = grid_dims(state, &Self::overlay());
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>) {
@@ -182,7 +176,7 @@ impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = Four
         let _ = text_area_ws(state, key_event);
     }
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
-        draw_grid(state, &Self::grid_cfg(), frame, area);
+        draw_grid(state, &Self::overlay(), frame, area);
     }
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         draw_text_area(state, frame, area);

@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 /// Tui implementations can be implemented however they choose, but these are
 /// some generic implementations of a collection of useful tasks. They are used
 /// to implement the standard Tui impls.
@@ -10,20 +8,6 @@ use ratatui::{
 use crate::{
     constraint::Constraint, core::{BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
-
-// TODO: Can we switch to some sort of TryInto thing? All we really need is the
-// ability to conditionally do stuff based on whether the overlay can be
-// cast to a standard overlay.
-pub struct GridConfig<P: PuzzleSetter, const N: usize, const M: usize> {
-    pub overlay: StdOverlay<N, M>,
-    _marker: PhantomData<P>,
-}
-
-impl <P: PuzzleSetter, const N: usize, const M: usize> GridConfig<P, N, M> {
-    pub fn new(overlay: StdOverlay<N, M>) -> Self {
-        Self { overlay, _marker: PhantomData }
-    }
-}
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
     let [r, c] = state.grid_pos;
@@ -141,7 +125,7 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    _: &TuiState<'a, P>, _: &GridConfig<P, N, M>,
+    _: &TuiState<'a, P>, _: &Option<StdOverlay<N, M>>,
 ) -> Vec<Line<'static>> {
     vec!["TODO -- not yet implemented".bold().italic().into()]
     // TODO: take a grid_type and do something with it; this is something
@@ -165,12 +149,12 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
 }
 
 pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, cfg: &GridConfig<P, N, M>,
+    state: &TuiState<'a, P>, so: &Option<StdOverlay<N, M>>,
 ) -> Vec<Line<'static>> {
     match state.mode {
         Mode::Readme => readme_lines(),
         Mode::Stack => stack_lines(state),
-        Mode::PossibilityHeatmap => possible_value_lines(state, cfg),
+        Mode::PossibilityHeatmap => possible_value_lines(state, so),
         Mode::Constraints => constraint_lines::<P>(state),
         Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
     }
@@ -210,19 +194,18 @@ pub enum GridType<P: PuzzleSetter> {
 impl <P: PuzzleSetter> Clone for GridType<P> { fn clone(&self) -> Self { *self } }
 impl <P: PuzzleSetter> Copy for GridType<P> {}
 
-fn heatmap_cursor<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    cfg: &GridConfig<P, N, M>,
+fn heatmap_cursor<const N: usize, const M: usize>(
     grid_pos: Index
 ) -> (Index, ViewBy) {
     let (mut left, mut upper) = (true, true);
     let [mut r, mut c] = grid_pos;
-    if r >= cfg.overlay.rows() {
+    if r >= N {
         upper = false;
-        r -= cfg.overlay.rows();
+        r -= N;
     }
-    if c >= cfg.overlay.cols() {
+    if c >= M {
         left = false;
-        c -= cfg.overlay.cols();
+        c -= M;
     }
     (
         [r, c], 
@@ -237,7 +220,7 @@ fn heatmap_cursor<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
     index: Index,
 ) -> Option<P::Value> {
@@ -246,8 +229,12 @@ fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         GridType::Heatmap(ViewBy::Row, _) => Some(P::Value::nth(c)),
         GridType::Heatmap(ViewBy::Col, _) => Some(P::Value::nth(r)),
         GridType::Heatmap(ViewBy::Box, _) => {
-            let (_, [br, bc]) = cfg.overlay.to_box_coords([r, c]);
-            Some(P::Value::nth(br*cfg.overlay.box_width() + bc))
+            if let Some(overlay) = so {
+                let (_, [br, bc]) = overlay.to_box_coords([r, c]);
+                Some(P::Value::nth(br*overlay.box_width() + bc))
+            } else {
+                None
+            }
         },
         GridType::HighlightPossible(_, _) => panic!("TODO: HighlightPossible not implemented!"),
         GridType::Puzzle | GridType::Heatmap(ViewBy::Cell, _) => state.solver.state().get([r, c]),
@@ -256,13 +243,13 @@ fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<P::Value>; M]; N] {
     let mut vm = [[None; M]; N];
     for r in 0..N {
         for c in 0..M {
-            vm[r][c] = grid_val_for_index(state, cfg, grid_type, [r, c]);
+            vm[r][c] = grid_val_for_index(state, so, grid_type, [r, c]);
         }
     }
     vm
@@ -278,7 +265,7 @@ fn gen_heatmap_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
 
 fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
@@ -287,24 +274,29 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     }
     if let Some((i, v)) = state.solver.most_recent_action() {
         let ord = v.ordinal();
-        let [r, c] = match grid_type {
-            GridType::Heatmap(ViewBy::Row, _) => [i[0], ord],
-            GridType::Heatmap(ViewBy::Col, _) => [ord, i[1]],
+        if let Some([r, c]) = match grid_type {
+            GridType::Heatmap(ViewBy::Row, _) => Some([i[0], ord]),
+            GridType::Heatmap(ViewBy::Col, _) => Some([ord, i[1]]),
             GridType::Heatmap(ViewBy::Box, _) => {
-                let (b, _) = cfg.overlay.to_box_coords(i);
-                let bw = cfg.overlay.box_width();
-                cfg.overlay.from_box_coords(b, [ord/bw, ord%bw])
+                if let Some(overlay) = so {
+                    let (b, _) = overlay.to_box_coords(i);
+                    let bw = overlay.box_width();
+                    Some(overlay.from_box_coords(b, [ord/bw, ord%bw]))
+                } else {
+                    None
+                }
             },
-            _ => i,
-        };
-        hm[r][c] = Some(if state.solver.is_valid() { Color::Green } else { Color::Red });
+            _ => Some(i),
+        } {
+            hm[r][c] = Some(if state.solver.is_valid() { Color::Green } else { Color::Red });
+        }
     }
     hm
 }
 
 fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
@@ -332,21 +324,23 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             }
         },
     };
-    if let Some(grid) = state.solver.decision_grid() {
-        // Note: We are assuming that all rows have the same size (and same for cols, boxes).
-        let mut infos = vec![];
-        for p in 0..cfg.overlay.n_partitions(dim) {
-            infos.push(state.solver.ranker().region_info(&grid, state.solver.state(), dim, p).unwrap());
-        }
-        for r in 0..N {
-            for c in 0..M {
-                let p = cfg.overlay.enclosing_partition([r, c], dim).unwrap();
-                let v = grid_val_for_index(state, cfg, grid_type, [r, c]).unwrap();
-                let uv = v.to_uval();
-                if infos[p].filled.contains(uv) {
-                    continue;
+    if let Some(overlay) = so {
+        if let Some(grid) = state.solver.decision_grid() {
+            // Note: We are assuming that all rows have the same size (and same for cols, boxes).
+            let mut infos = vec![];
+            for p in 0..overlay.n_partitions(dim) {
+                infos.push(state.solver.ranker().region_info(&grid, state.solver.state(), dim, p).unwrap());
+            }
+            for r in 0..N {
+                for c in 0..M {
+                    let p = overlay.enclosing_partition([r, c], dim).unwrap();
+                    let v = grid_val_for_index(state, so, grid_type, [r, c]).unwrap();
+                    let uv = v.to_uval();
+                    if infos[p].filled.contains(uv) {
+                        continue;
+                    }
+                    hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(uv).len()));
                 }
-                hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(uv).len()));
             }
         }
     }
@@ -355,13 +349,13 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> GridStyledValues<P, N, M> {
     GridStyledValues::<P, N, M> {
         cursor: match grid_type {
             GridType::Heatmap(vb, _) => {
-                let (cursor_pos, cursor_vb) = heatmap_cursor(cfg, state.grid_pos);
+                let (cursor_pos, cursor_vb) = heatmap_cursor::<N, M>(state.grid_pos);
                 if vb == cursor_vb {
                     Some(cursor_pos)
                 } else {
@@ -371,44 +365,52 @@ pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             GridType::HighlightPossible(_, _) => panic!("TODO: HightlightPossible not implemented"),
             GridType::Puzzle => Some(state.grid_pos),
         },
-        vals: gen_val(state, cfg, grid_type),
-        fg: gen_fg(state, cfg, grid_type),
-        bg: gen_bg(state, cfg, grid_type),
+        vals: gen_val(state, so, grid_type),
+        fg: gen_fg(state, so, grid_type),
+        bg: gen_bg(state, so, grid_type),
     }
 }
 
-pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<P, N, M>) -> Line<'static> {
-    let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
-    let seg = "─".repeat(bw*3);
-    let mut pieces: Vec<Span<'_>> = vec![]; 
-    pieces.push("┌".into());
-    for i in 0..bc {
-        pieces.push(seg.clone().into());
-        if i+1 < bc {
-            pieces.push("┬".into());
+pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(so: &Option<StdOverlay<N, M>>) -> Line<'static> {
+    if let Some(overlay) = so {
+        let (bc, bw) = (overlay.box_cols(), overlay.box_width());
+        let seg = "─".repeat(bw*3);
+        let mut pieces: Vec<Span<'_>> = vec![]; 
+        pieces.push("┌".into());
+        for i in 0..bc {
+            pieces.push(seg.clone().into());
+            if i+1 < bc {
+                pieces.push("┬".into());
+            }
         }
+        pieces.push("┐".into());
+        Line::from(pieces)
+    } else {
+        Line::from("─".repeat(M*3))
     }
-    pieces.push("┐".into());
-    Line::from(pieces)
 }
 
-pub fn grid_bottom<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<P, N, M>) -> Line<'static> {
-    let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
-    let seg = "─".repeat(bw*3);
-    let mut pieces: Vec<Span<'_>> = vec![]; 
-    pieces.push("└".into());
-    for i in 0..bc {
-        pieces.push(seg.clone().into());
-        if i+1 < bc {
-            pieces.push("┴".into());
+pub fn grid_bottom<P: PuzzleSetter, const N: usize, const M: usize>(so: &Option<StdOverlay<N, M>>) -> Line<'static> {
+    if let Some(overlay) = so {
+        let (bc, bw) = (overlay.box_cols(), overlay.box_width());
+        let seg = "─".repeat(bw*3);
+        let mut pieces: Vec<Span<'_>> = vec![]; 
+        pieces.push("└".into());
+        for i in 0..bc {
+            pieces.push(seg.clone().into());
+            if i+1 < bc {
+                pieces.push("┴".into());
+            }
         }
+        pieces.push("┘".into());
+        Line::from(pieces)
+    } else {
+        Line::from("─".repeat(M*3))
     }
-    pieces.push("┘".into());
-    Line::from(pieces)
 }
 
-pub fn grid_crossbar<P: PuzzleSetter, const N: usize, const M: usize>(cfg: &GridConfig<P, N, M>) -> Line<'static> {
-    let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
+pub fn grid_crossbar<P: PuzzleSetter, const N: usize, const M: usize>(overlay: &StdOverlay<N, M>) -> Line<'static> {
+    let (bc, bw) = (overlay.box_cols(), overlay.box_width());
     let seg = "─".repeat(bw*3);
     let mut pieces: Vec<Span<'_>> = vec![]; 
     pieces.push("├".into());
@@ -454,59 +456,76 @@ fn grid_cell<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 }
 
 fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     svals: &GridStyledValues<P, N, M>,
     row: usize,
 ) -> Line<'static> {
     let mut spans: Vec<Span<'_>> = vec![];
     spans.push("│".into());
-    let (bc, bw) = (cfg.overlay.box_cols(), cfg.overlay.box_width());
-    for i in 0..bc {
-        for c in 0..bw {
-            spans.push(grid_cell(svals, [row, i*bw + c]))
+    if let Some(overlay) = so {
+        let (bc, bw) = (overlay.box_cols(), overlay.box_width());
+        for i in 0..bc {
+            for c in 0..bw {
+                spans.push(grid_cell(svals, [row, i*bw + c]))
+            }
+            if i+1 < bc {
+                spans.push("│".into());
+            }
+        } 
+    } else {
+        for col in 0..M {
+            spans.push(grid_cell(svals, [row, col]));
         }
-        if i+1 < bc {
-            spans.push("│".into());
-        }
-    } 
+    }
     spans.push("│".into());
     Line::from(spans)
 }
 
 pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> Text<'static> {
-    let svals = grid_styled_values(state, cfg, grid_type);
+    let svals = grid_styled_values(state, so, grid_type);
     let mut lines = vec![];
-    lines.push(grid_top::<P, N, M>(cfg));
-    let (br, bh) = (cfg.overlay.box_rows(), cfg.overlay.box_height());
-    for i in 0..br {
-        for r in 0..bh {
-            lines.push(grid_line(cfg, &svals, r+i*bh));
+    lines.push(grid_top::<P, N, M>(so));
+    if let Some(overlay) = so {
+        let (br, bh) = (overlay.box_rows(), overlay.box_height());
+        for i in 0..br {
+            for r in 0..bh {
+                lines.push(grid_line(so, &svals, r+i*bh));
+            }
+            if i+1 < br {
+                lines.push(grid_crossbar::<P, N, M>(overlay));
+            }
         }
-        if i+1 < br {
-            lines.push(grid_crossbar::<P, N, M>(cfg));
+    } else {
+        for row in 0..N {
+            lines.push(grid_line(so, &svals, row));
         }
     }
-    lines.push(grid_bottom::<P, N, M>(cfg));
+    lines.push(grid_bottom::<P, N, M>(so));
     Text::from(lines)
 }
 
 pub fn grid_dims<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
 ) -> [usize; 2] {
+    let (r, c) = if let Some(overlay) = so {
+        (overlay.rows(), overlay.cols())
+    } else {
+        (P::State::ROWS, P::State::COLS)
+    };
     match state.mode {
-        Mode::PossibilityHeatmap => [cfg.overlay.rows()*2, cfg.overlay.cols()*2],
-        _ => [P::State::ROWS, P::State::COLS],
+        Mode::PossibilityHeatmap => [r*2, c*2],
+        _ => [r, c],
     }
 }
 
 pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    cfg: &GridConfig<P, N, M>,
+    so: &Option<StdOverlay<N, M>>,
     frame: &mut Frame,
     area: Rect,
 ) {
@@ -528,7 +547,7 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         Mode::PossibilityHeatmap => {},
         _ => {
             frame.render_widget(
-                Paragraph::new(grid_text(state, cfg, GridType::Puzzle)).centered().block(block),
+                Paragraph::new(grid_text(state, so, GridType::Puzzle)).centered().block(block),
                 area,
             );
             return;
@@ -538,10 +557,10 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (ul, ur, ll, lr) = (
-        grid_text(state, cfg, GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities)),
-        grid_text(state, cfg, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
-        grid_text(state, cfg, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
-        grid_text(state, cfg, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),
+        grid_text(state, so, GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities)),
+        grid_text(state, so, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
+        grid_text(state, so, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
+        grid_text(state, so, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),
     );
     let grid_rows = Layout::default()
         .direction(Direction::Vertical)
