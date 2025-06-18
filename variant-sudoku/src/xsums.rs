@@ -487,7 +487,7 @@ mod test {
     use std::vec;
     use crate::constraint::test_util::*;
     use crate::solver::test_util::PuzzleReplay;
-    use crate::ranker::LinearRanker;
+    use crate::ranker::StdRanker;
     use crate::sudoku::four_standard_parse;
 
     #[test]
@@ -626,7 +626,7 @@ mod test {
             (x7, Some("XSUM_SUM_OVER")),
         ] {
             let mut puzzle = puzzle.clone();
-            let ranker = LinearRanker::default();
+            let ranker = StdRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
             if let Some(expected_attribution) = expected {
@@ -668,7 +668,7 @@ mod test {
             (x6, Some("XSUM_LEN_INFEASIBLE")),
         ] {
             let mut puzzle = puzzle.clone();
-            let ranker = LinearRanker::default();
+            let ranker = StdRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
             if let Some(expected_attribution) = expected {

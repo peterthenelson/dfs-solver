@@ -690,7 +690,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Std
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::{empty_set}, ranker::LinearRanker, solver::FindFirstSolution};
+    use crate::{core::{empty_set}, ranker::StdRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
     use crate::constraint::test_util::assert_contradiction;
 
@@ -925,7 +925,7 @@ mod test {
                            .3.7.1495\n\
                            567429.13\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
@@ -953,7 +953,7 @@ mod test {
                            .713...6\n\
                            46..8...\n";
         let mut sudoku = eight_standard_parse(input).unwrap();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
@@ -979,7 +979,7 @@ mod test {
                            .64.31\n\
                            ..1.46\n";
         let mut sudoku = six_standard_parse(input).unwrap();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
@@ -1003,7 +1003,7 @@ mod test {
                            2..3\n\
                            4.12\n";
         let mut sudoku = four_standard_parse(input).unwrap();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);

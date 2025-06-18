@@ -627,7 +627,7 @@ mod test {
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::test_util::{OneDim, OneDimOverlay, TestVal};
     use crate::core::{Attribution, Stateful, Value};
-    use crate::ranker::LinearRanker;
+    use crate::ranker::StdRanker;
     use super::*;
 
     type GwOverlay = OneDimOverlay<8>;
@@ -715,7 +715,7 @@ mod test {
     #[test]
     fn test_german_whispers_find() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default_negative();
         let mut constraint = GwLineConstraint {};
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
@@ -727,7 +727,7 @@ mod test {
     #[test]
     fn test_german_whispers_trace_manual() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default_negative();
         let mut constraint = GwLineConstraint {};
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let mut steps: usize = 0;
@@ -756,7 +756,7 @@ mod test {
     #[test]
     fn test_german_whispers_trace_observer() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default_negative();
         let mut constraint = GwLineConstraint {};
         let mut counter = ContraCounter(0);
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut counter));
@@ -769,7 +769,7 @@ mod test {
     #[test]
     fn test_german_whispers_all() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default_negative();
         let mut constraint = GwLineConstraint {};
         let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, None);
         let (steps, solution_count) = finder.solve_all()?;
@@ -781,7 +781,7 @@ mod test {
     #[test]
     fn test_german_whispers_all_fast() -> Result<(), Error> {
         let mut puzzle = GwLine::new();
-        let ranker = LinearRanker::default();
+        let ranker = StdRanker::default_negative();
         let mut constraint = GwSmartLineConstraint {};
         let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, None);
         let (steps, solution_count) = finder.solve_all()?;
@@ -795,7 +795,7 @@ mod test {
         // First runthrough to collect the moves in order.
         let expected_solution = {
             let mut puzzle = GwLine::new();
-            let ranker = LinearRanker::default();
+            let ranker = StdRanker::default_negative();
             let mut constraint = GwSmartLineConstraint {};
             let mut solver = DfsSolver::new(&mut puzzle, &ranker, &mut constraint);
             while !solver.is_done() {
@@ -807,7 +807,7 @@ mod test {
         // Next runthrough does undo every once in a while.
         let actual_solution = {
             let mut puzzle = GwLine::new();
-            let ranker = LinearRanker::default();
+            let ranker = StdRanker::default_negative();
             let mut constraint = GwSmartLineConstraint {};
             let mut i = 1;
             let mut solver = DfsSolver::new(&mut puzzle, &ranker, &mut constraint);

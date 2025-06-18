@@ -1,6 +1,6 @@
 use variant_sudoku::core::FeatureVec;
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker, DW_FEATURE};
-use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
+use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_parse, NineStd, NineStdOverlay, NineStdVal, StdChecker};
@@ -13,7 +13,7 @@ impl PuzzleSetter for DutchClover {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
     type State = NineStd;
-    type Ranker = OverlaySensitiveLinearRanker;
+    type Ranker = StdRanker;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
     
 
@@ -56,7 +56,7 @@ impl PuzzleSetter for DutchClover {
             StdChecker::new(&puzzle),
             DutchWhisperChecker::new(whispers),
         ]);
-        let ranker = OverlaySensitiveLinearRanker::new(FeatureVec::from_pairs(vec![
+        let ranker = StdRanker::new(true, FeatureVec::from_pairs(vec![
             (NUM_POSSIBLE_FEATURE, -100.0),
             (DW_FEATURE, 1.0)
         ]), |_, x, y| x+y);

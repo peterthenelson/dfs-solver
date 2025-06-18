@@ -1,5 +1,5 @@
 use variant_sudoku::core::FeatureVec;
-use variant_sudoku::ranker::{OverlaySensitiveLinearRanker, NUM_POSSIBLE_FEATURE};
+use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, NineStdOverlay, NineStdVal, StdChecker};
@@ -14,7 +14,7 @@ impl PuzzleSetter for DoubleDown {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
     type State = NineStd;
-    type Ranker = OverlaySensitiveLinearRanker;
+    type Ranker = StdRanker;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
 
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
@@ -52,7 +52,7 @@ impl PuzzleSetter for DoubleDown {
             CageChecker::new(cages),
             XSumChecker::new(xsums),
         ]);
-        let ranker = OverlaySensitiveLinearRanker::new(FeatureVec::from_pairs(vec![
+        let ranker = StdRanker::new(true, FeatureVec::from_pairs(vec![
             (NUM_POSSIBLE_FEATURE, -100.0),
             (XSUM_TAIL_FEATURE, 10.0),
             (XSUM_HEAD_FEATURE, 5.0),

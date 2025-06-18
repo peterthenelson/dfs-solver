@@ -258,7 +258,7 @@ Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for MagicSquareCh
 
 #[cfg(test)]
 mod test {
-    use crate::{constraint::test_util::{assert_contradiction, assert_no_contradiction}, magic_squares::{MagicSquare, MagicSquareChecker}, ranker::LinearRanker, solver::test_util::PuzzleReplay, sudoku::nine_standard_parse};
+    use crate::{constraint::test_util::{assert_contradiction, assert_no_contradiction}, magic_squares::{MagicSquare, MagicSquareChecker}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::nine_standard_parse};
 
     #[test]
     fn test_magic_square_checker() {
@@ -297,7 +297,7 @@ mod test {
             (ms6, Some("MAGIC_SQUARE_SUM_INFEASIBLE")),
         ] {
             let mut puzzle = puzzle.clone();
-            let ranker = LinearRanker::default();
+            let ranker = StdRanker::default();
             let mut ms_checker = MagicSquareChecker::new(vec![ms]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut ms_checker, None).replay().unwrap();
             if let Some(attr) = expected {

@@ -313,7 +313,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Cag
 mod test {
     use super::*;
     use std::vec;
-    use crate::{constraint::test_util::*, ranker::LinearRanker, solver::test_util::PuzzleReplay, sudoku::four_standard_parse};
+    use crate::{constraint::test_util::*, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::four_standard_parse};
 
     #[test]
     fn test_subset_sum() {
@@ -351,7 +351,7 @@ mod test {
             (cage6, Some("CAGE_DUPE")),
         ] {
             let mut puzzle = puzzle.clone();
-            let ranker = LinearRanker::default();
+            let ranker = StdRanker::default();
             let mut cage_checker = CageChecker::new(vec![c]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut cage_checker, None).replay().unwrap();
             if let Some(attr) = expected {
