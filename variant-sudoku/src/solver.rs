@@ -712,11 +712,38 @@ mod test {
         assert_eq!(violation, ConstraintResult::Ok);
     }
 
+    struct GwLineSetter;
+    impl PuzzleSetter for GwLineSetter {
+        type Value = TestVal;
+        type Overlay = GwOverlay;
+        type State = GwLine;
+        type Ranker = StdRanker;
+        type Constraint = GwLineConstraint;
+        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+            Self::setup_with_givens(GwLine::new())
+        }
+        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+            (given, StdRanker::default_negative(), GwLineConstraint{})
+        }
+    }
+    struct GwSmartLineSetter;
+    impl PuzzleSetter for GwSmartLineSetter {
+        type Value = TestVal;
+        type Overlay = GwOverlay;
+        type State = GwLine;
+        type Ranker = StdRanker;
+        type Constraint = GwSmartLineConstraint;
+        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+            Self::setup_with_givens(GwLine::new())
+        }
+        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+            (given, StdRanker::default_negative(), GwSmartLineConstraint{})
+        }
+    }
+
     #[test]
     fn test_german_whispers_find() -> Result<(), Error> {
-        let mut puzzle = GwLine::new();
-        let ranker = StdRanker::default_negative();
-        let mut constraint = GwLineConstraint {};
+        let (mut puzzle, ranker, mut constraint) = GwLineSetter::setup();
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
@@ -726,9 +753,7 @@ mod test {
 
     #[test]
     fn test_german_whispers_trace_manual() -> Result<(), Error> {
-        let mut puzzle = GwLine::new();
-        let ranker = StdRanker::default_negative();
-        let mut constraint = GwLineConstraint {};
+        let (mut puzzle, ranker, mut constraint) = GwLineSetter::setup();
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let mut steps: usize = 0;
         let mut contradiction_count: usize = 0;
@@ -755,9 +780,7 @@ mod test {
 
     #[test]
     fn test_german_whispers_trace_observer() -> Result<(), Error> {
-        let mut puzzle = GwLine::new();
-        let ranker = StdRanker::default_negative();
-        let mut constraint = GwLineConstraint {};
+        let (mut puzzle, ranker, mut constraint) = GwLineSetter::setup();
         let mut counter = ContraCounter(0);
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, Some(&mut counter));
         let _ = finder.solve()?;
@@ -768,9 +791,7 @@ mod test {
 
     #[test]
     fn test_german_whispers_all() -> Result<(), Error> {
-        let mut puzzle = GwLine::new();
-        let ranker = StdRanker::default_negative();
-        let mut constraint = GwLineConstraint {};
+        let (mut puzzle, ranker, mut constraint) = GwLineSetter::setup();
         let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, None);
         let (steps, solution_count) = finder.solve_all()?;
         assert!(steps > 2500);
@@ -780,9 +801,7 @@ mod test {
 
     #[test]
     fn test_german_whispers_all_fast() -> Result<(), Error> {
-        let mut puzzle = GwLine::new();
-        let ranker = StdRanker::default_negative();
-        let mut constraint = GwSmartLineConstraint {};
+        let (mut puzzle, ranker, mut constraint) = GwSmartLineSetter::setup();
         let mut finder = FindAllSolutions::new(&mut puzzle, &ranker, &mut constraint, None);
         let (steps, solution_count) = finder.solve_all()?;
         assert!(steps < 500);
@@ -794,9 +813,7 @@ mod test {
     fn test_german_whispers_undo_works() -> Result<(), Error> {
         // First runthrough to collect the moves in order.
         let expected_solution = {
-            let mut puzzle = GwLine::new();
-            let ranker = StdRanker::default_negative();
-            let mut constraint = GwSmartLineConstraint {};
+            let (mut puzzle, ranker, mut constraint) = GwSmartLineSetter::setup();
             let mut solver = DfsSolver::new(&mut puzzle, &ranker, &mut constraint);
             while !solver.is_done() {
                 solver.step()?;
@@ -806,9 +823,7 @@ mod test {
         };
         // Next runthrough does undo every once in a while.
         let actual_solution = {
-            let mut puzzle = GwLine::new();
-            let ranker = StdRanker::default_negative();
-            let mut constraint = GwSmartLineConstraint {};
+            let (mut puzzle, ranker, mut constraint) = GwSmartLineSetter::setup();
             let mut i = 1;
             let mut solver = DfsSolver::new(&mut puzzle, &ranker, &mut constraint);
             while !solver.is_done() {

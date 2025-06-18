@@ -226,16 +226,13 @@ fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 ) -> Option<P::Value> {
     let [r, c] = index;
     match grid_type {
-        GridType::Heatmap(ViewBy::Row, _) => Some(P::Value::nth(c)),
-        GridType::Heatmap(ViewBy::Col, _) => Some(P::Value::nth(r)),
-        GridType::Heatmap(ViewBy::Box, _) => {
-            if let Some(overlay) = so {
-                let (_, [br, bc]) = overlay.to_box_coords([r, c]);
-                Some(P::Value::nth(br*overlay.box_width() + bc))
-            } else {
-                None
-            }
-        },
+        // The three ViewBy::{region} types only make sense with a proper layout.
+        GridType::Heatmap(ViewBy::Row, _) => so.map(|_| P::Value::nth(c)),
+        GridType::Heatmap(ViewBy::Col, _) => so.map(|_| P::Value::nth(r)),
+        GridType::Heatmap(ViewBy::Box, _) => so.map(|overlay| {
+            let (_, [br, bc]) = overlay.to_box_coords([r, c]);
+            P::Value::nth(br*overlay.box_width() + bc)
+        }),
         GridType::HighlightPossible(_, _) => panic!("TODO: HighlightPossible not implemented!"),
         GridType::Puzzle | GridType::Heatmap(ViewBy::Cell, _) => state.solver.state().get([r, c]),
     }
@@ -275,17 +272,14 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     if let Some((i, v)) = state.solver.most_recent_action() {
         let ord = v.ordinal();
         if let Some([r, c]) = match grid_type {
-            GridType::Heatmap(ViewBy::Row, _) => Some([i[0], ord]),
-            GridType::Heatmap(ViewBy::Col, _) => Some([ord, i[1]]),
-            GridType::Heatmap(ViewBy::Box, _) => {
-                if let Some(overlay) = so {
-                    let (b, _) = overlay.to_box_coords(i);
-                    let bw = overlay.box_width();
-                    Some(overlay.from_box_coords(b, [ord/bw, ord%bw]))
-                } else {
-                    None
-                }
-            },
+            // The three ViewBy::{region} types only make sense with a proper layout.
+            GridType::Heatmap(ViewBy::Row, _) => so.map(|_| [i[0], ord]),
+            GridType::Heatmap(ViewBy::Col, _) => so.map(|_| [ord, i[1]]),
+            GridType::Heatmap(ViewBy::Box, _) => so.map(|overlay| {
+                let (b, _) = overlay.to_box_coords(i);
+                let bw = overlay.box_width();
+                overlay.from_box_coords(b, [ord/bw, ord%bw])
+            }),
             _ => Some(i),
         } {
             hm[r][c] = Some(if state.solver.is_valid() { Color::Green } else { Color::Red });
@@ -386,7 +380,7 @@ pub fn grid_top<P: PuzzleSetter, const N: usize, const M: usize>(so: &Option<Std
         pieces.push("┐".into());
         Line::from(pieces)
     } else {
-        Line::from("─".repeat(M*3))
+        Line::from("┌".to_string() + &*"─".repeat(M*3) + "┐")
     }
 }
 
@@ -405,7 +399,7 @@ pub fn grid_bottom<P: PuzzleSetter, const N: usize, const M: usize>(so: &Option<
         pieces.push("┘".into());
         Line::from(pieces)
     } else {
-        Line::from("─".repeat(M*3))
+        Line::from("└".to_string() + &*"─".repeat(M*3) + "┘")
     }
 }
 

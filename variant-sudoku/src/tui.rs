@@ -84,7 +84,7 @@ pub mod test_util {
     }
 
     /// You can use the interactive debugger in your tests to debug problems.
-    pub fn debug<P: PuzzleSetter, T: Tui<P>>(state: &mut P::State, ranker: &P::Ranker, constraint: &mut P::Constraint) {
+    pub fn interactive_debug<P: PuzzleSetter, T: Tui<P>>(state: &mut P::State, ranker: &P::Ranker, constraint: &mut P::Constraint) {
         let mut terminal = ratatui::init();
         let mut ts = TuiState::<P>::new(state, ranker, constraint);
         let app_result = tui_run::<P, T>(&mut ts, &mut terminal);
@@ -197,8 +197,9 @@ pub struct TuiState<'a, P: PuzzleSetter> {
 }
 
 /// Support for integrating a particular State implementation with the generic
-/// Tui code. This library provides a working integration for any PuzzleSetter
-/// whose State is NineStd, EightStd, SixStd, or FourStd.
+/// Tui code. See tui_std for working integration for any PuzzleSetter
+/// whose State is NineStd, EightStd, SixStd, or FourStd, as well as partial
+/// functionality for any non-standard puzzles.
 pub trait Tui<P: PuzzleSetter> {
     fn init<'a>(state: &mut TuiState<'a, P>);
     fn on_mode_change<'a>(state: &mut TuiState<'a, P>);
