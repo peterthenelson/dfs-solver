@@ -313,7 +313,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Cag
 mod test {
     use super::*;
     use std::vec;
-    use crate::{constraint::test_util::*, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::four_standard_parse};
+    use crate::{constraint::{test_util::*, MultiConstraint}, ranker::StdRanker, solver::{test_util::PuzzleReplay, FindFirstSolution, PuzzleSetter}, sudoku::{four_standard_overlay, four_standard_parse, FourStd, FourStdOverlay, FourStdVal, StdChecker}};
 
     #[test]
     fn test_subset_sum() {
@@ -362,5 +362,47 @@ mod test {
         }
     }
 
-    // TODO: Add an e2e cage example.
+    // https://appynation.helpshift.com/hc/en/13-puzzle-page/faq/290-killer-sudoku/
+    struct E2ECage;
+    impl PuzzleSetter for E2ECage {
+        type Value = FourStdVal;
+        type Overlay = FourStdOverlay;
+        type State = FourStd;
+        type Ranker = StdRanker;
+        type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+            Self::setup_with_givens(FourStd::new(four_standard_overlay()))
+        }
+        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+            let cb = CageBuilder::new(true, given.overlay());
+            let cages = vec![
+                cb.across(8, [0, 0], 3),
+                cb.down(5, [0, 3], 2),
+                cb.down(6, [1, 0], 2),
+                cb.across(1, [1, 1], 1),
+                cb.sum(8, vec![[1, 2], [2, 2], [2, 3]]),
+                cb.sum(6, vec![[3, 0], [3, 1], [2, 1]]),
+                cb.across(6, [3, 2], 2),
+            ];
+            let constraint = MultiConstraint::new(vec_box::vec_box![
+                StdChecker::new(&given),
+                CageChecker::new(cages),
+            ]);
+            (given, StdRanker::default(), constraint)
+        }
+    }
+
+    #[test]
+    fn test_e2e_cage_example() -> Result<(), Error> {
+        let (mut puzzle, ranker, mut constraint) = E2ECage::setup();
+        let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
+        let maybe_solution = finder.solve()?;
+        assert!(maybe_solution.is_some());
+        let expected: &str = "3412\n\
+                              2143\n\
+                              4231\n\
+                              1324\n";
+        assert_eq!(maybe_solution.unwrap().state().serialize(), expected);
+        Ok(())
+    }
 }
