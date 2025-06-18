@@ -33,11 +33,11 @@ pub trait Ranker<V: Value, O: Overlay, S: State<V, O>> {
 
 pub struct RankerRegionInfo<V: Value> {
     // Values that have already been filled into the puzzle.
-    filled: UVSet<V::U>,
+    pub filled: UVSet<V::U>,
     // Cells that a given value can go into.
-    cell_choices: UVMap<V::U, Vec<Index>>,
+    pub cell_choices: UVMap<V::U, Vec<Index>>,
     // Feature vectors for a given value.
-    feature_vecs: UVMap<V::U, FeatureVec<FVMaybeNormed>>,
+    pub feature_vecs: UVMap<V::U, FeatureVec<FVMaybeNormed>>,
     p_v_: PhantomData<V>,
 }
 

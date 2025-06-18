@@ -8,10 +8,12 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{empty_map, empty_set, BranchOver, Index, Overlay, State, Value}, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
-// TODO: Can this be removed now that we moved Overlay into State in general?
+// TODO: Can we switch to some sort of TryInto thing? All we really need is the
+// ability to conditionally do stuff based on whether the overlay can be
+// cast to a standard overlay.
 pub struct GridConfig<P: PuzzleSetter, const N: usize, const M: usize> {
     pub overlay: StdOverlay<N, M>,
     _marker: PhantomData<P>,
@@ -21,8 +23,6 @@ impl <P: PuzzleSetter, const N: usize, const M: usize> GridConfig<P, N, M> {
     pub fn new(overlay: StdOverlay<N, M>) -> Self {
         Self { overlay, _marker: PhantomData }
     }
-    pub fn to_ord(&self, v: &P::Value) -> usize { v.ordinal() }
-    pub fn nth(&self, ord: usize) -> P::Value { P::Value::nth(ord) }
 }
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -190,6 +190,11 @@ pub struct GridStyledValues<P: PuzzleSetter, const N: usize, const M: usize> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewBy { Cell, Row, Col, Box }
 
+/// The relevant heatmap types
+/// TODO: Add Score to this
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorBy { Possibilities }
+
 /// The different types of grid display you can render.
 #[derive(Debug, PartialEq, Eq)]
 pub enum GridType<P: PuzzleSetter> {
@@ -199,9 +204,7 @@ pub enum GridType<P: PuzzleSetter> {
     // Note: ViewBy::Cell not allowed
     HighlightPossible(P::Value, ViewBy),
     // Heatmap of possibilities.
-    PossibilityHeatmap(ViewBy),
-    // TODO: Add RankHeatmap which works the same but with a different color
-    // scheme
+    Heatmap(ViewBy, ColorBy),
 }
 // Why the hell did derive not succeed in doing this for me?
 impl <P: PuzzleSetter> Clone for GridType<P> { fn clone(&self) -> Self { *self } }
@@ -240,14 +243,14 @@ fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 ) -> Option<P::Value> {
     let [r, c] = index;
     match grid_type {
-        GridType::PossibilityHeatmap(ViewBy::Row) => Some(cfg.nth(c)),
-        GridType::PossibilityHeatmap(ViewBy::Col) => Some(cfg.nth(r)),
-        GridType::PossibilityHeatmap(ViewBy::Box) => {
+        GridType::Heatmap(ViewBy::Row, _) => Some(P::Value::nth(c)),
+        GridType::Heatmap(ViewBy::Col, _) => Some(P::Value::nth(r)),
+        GridType::Heatmap(ViewBy::Box, _) => {
             let (_, [br, bc]) = cfg.overlay.to_box_coords([r, c]);
-            Some(cfg.nth(br*cfg.overlay.box_width() + bc))
+            Some(P::Value::nth(br*cfg.overlay.box_width() + bc))
         },
         GridType::HighlightPossible(_, _) => panic!("TODO: HighlightPossible not implemented!"),
-        GridType::Puzzle | GridType::PossibilityHeatmap(ViewBy::Cell) => state.solver.get_state().get([r, c]),
+        GridType::Puzzle | GridType::Heatmap(ViewBy::Cell, _) => state.solver.get_state().get([r, c]),
     }
 }
 
@@ -285,9 +288,9 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     if let Some((i, v)) = state.solver.most_recent_action() {
         let ord = v.ordinal();
         let [r, c] = match grid_type {
-            GridType::PossibilityHeatmap(ViewBy::Row) => [i[0], ord],
-            GridType::PossibilityHeatmap(ViewBy::Col) => [ord, i[1]],
-            GridType::PossibilityHeatmap(ViewBy::Box) => {
+            GridType::Heatmap(ViewBy::Row, _) => [i[0], ord],
+            GridType::Heatmap(ViewBy::Col, _) => [ord, i[1]],
+            GridType::Heatmap(ViewBy::Box, _) => {
                 let (b, _) = cfg.overlay.to_box_coords(i);
                 let bw = cfg.overlay.box_width();
                 cfg.overlay.from_box_coords(b, [ord/bw, ord%bw])
@@ -307,53 +310,43 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let mut hm = [[None; M]; N];
     let dim = match grid_type {
         // These 3 cases are all handled the same, indexed by dim.
-        GridType::PossibilityHeatmap(ViewBy::Row) => 0,
-        GridType::PossibilityHeatmap(ViewBy::Col) => 1,
-        GridType::PossibilityHeatmap(ViewBy::Box) => 2,
+        GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities) => 0,
+        GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities) => 1,
+        GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities) => 2,
         // The remaining types return early.
         GridType::Puzzle => return hm,
         GridType::HighlightPossible(_, _) => panic!("TODO: HightlightPossible not implemented!"),
-        GridType::PossibilityHeatmap(ViewBy::Cell) => if let Some(grid) = state.solver.decision_grid() {
-            for r in 0..N {
-                for c in 0..M {
-                    if state.solver.get_state().get([r, c]).is_some() {
-                        continue;
+        GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities) => {
+            if let Some(grid) = state.solver.decision_grid() {
+                for r in 0..N {
+                    for c in 0..M {
+                        if state.solver.get_state().get([r, c]).is_some() {
+                            continue;
+                        }
+                        hm[r][c] = Some(gen_heatmap_color::<P>(grid.get([r, c]).0.len()))
                     }
-                    hm[r][c] = Some(gen_heatmap_color::<P>(grid.get([r, c]).0.len()))
                 }
+                return hm;
+            } else {
+                return hm;
             }
-            return hm;
-        } else {
-            return hm;
         },
     };
     if let Some(grid) = state.solver.decision_grid() {
         // Note: We are assuming that all rows have the same size (and same for cols, boxes).
-        // TODO: Use the ranker
-        let partition_size = cfg.overlay.partition_size(dim, 0);
-        let mut filled = vec![empty_set::<P::Value>(); partition_size];
-        let mut alternatives = vec![empty_map::<P::Value, Vec<_>>(); partition_size];
+        let mut infos = vec![];
         for p in 0..cfg.overlay.n_partitions(dim) {
-            for index in cfg.overlay.partition_iter(dim, p) {
-                if let Some(val) = state.solver.get_state().get(index) {
-                    filled[p].insert(val.to_uval());
-                    continue;
-                }
-                let g = grid.get(index);
-                for uv in g.0.iter() {
-                    alternatives[p].get_mut(uv).push(index);
-                }
-            }
+            infos.push(state.solver.get_ranker().region_info(&grid, state.solver.get_state(), dim, p).unwrap());
         }
         for r in 0..N {
             for c in 0..M {
                 let p = cfg.overlay.enclosing_partition([r, c], dim).unwrap();
                 let v = grid_val_for_index(state, cfg, grid_type, [r, c]).unwrap();
                 let uv = v.to_uval();
-                if filled[p].contains(uv) {
+                if infos[p].filled.contains(uv) {
                     continue;
                 }
-                hm[r][c] = Some(gen_heatmap_color::<P>(alternatives[p].get(uv).len()));
+                hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(uv).len()));
             }
         }
     }
@@ -366,9 +359,8 @@ pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     grid_type: GridType<P>,
 ) -> GridStyledValues<P, N, M> {
     GridStyledValues::<P, N, M> {
-        // TODO: Make the cursor work with 4-way grid display
         cursor: match grid_type {
-            GridType::PossibilityHeatmap(vb) => {
+            GridType::Heatmap(vb, _) => {
                 let (cursor_pos, cursor_vb) = heatmap_cursor(cfg, state.grid_pos);
                 if vb == cursor_vb {
                     Some(cursor_pos)
@@ -546,10 +538,10 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (ul, ur, ll, lr) = (
-        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Cell)),
-        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Row)),
-        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Col)),
-        grid_text(state, cfg, GridType::PossibilityHeatmap(ViewBy::Box)),
+        grid_text(state, cfg, GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities)),
+        grid_text(state, cfg, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
+        grid_text(state, cfg, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
+        grid_text(state, cfg, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),
     );
     let grid_rows = Layout::default()
         .direction(Direction::Vertical)
