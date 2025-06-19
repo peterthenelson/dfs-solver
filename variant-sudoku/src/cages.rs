@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use crate::core::{full_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::constraint::Constraint;
+use crate::region_util::{check_orthogonally_connected};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
 
 #[derive(Debug, Clone)]
@@ -34,7 +35,7 @@ impl <'a, O: Overlay> CageBuilder<'a, O> {
                     probably a mistake; purely decorative cages should not \
                     be included when building your constraints.", cage);
         }
-        // TODO: check for contiguity
+        check_orthogonally_connected(&cage.cells).unwrap();
         cage
     }
 
@@ -313,11 +314,19 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Cag
 mod test {
     use super::*;
     use std::vec;
-    use crate::{constraint::{test_util::*, MultiConstraint}, ranker::StdRanker, solver::{test_util::PuzzleReplay, FindFirstSolution, PuzzleSetter}, sudoku::{four_standard_overlay, four_standard_parse, FourStd, FourStdOverlay, FourStdVal, StdChecker}};
+    use crate::{constraint::{test_util::*, MultiConstraint}, ranker::StdRanker, solver::{test_util::PuzzleReplay, FindFirstSolution, PuzzleSetter}, sudoku::{four_standard_overlay, four_standard_parse, nine_standard_overlay, FourStd, FourStdOverlay, FourStdVal, StdChecker}};
 
     #[test]
     fn test_subset_sum() {
         assert!(subset_sum(&vec![1, 2, 3, 4, 5, 6, 7, 8, 9], 0, 15, 3));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cage_build_orthogonally_connected() {
+        let vis = nine_standard_overlay();
+        let cb = CageBuilder::new(true, &vis);
+        cb.sum(10, vec![[0, 0], [0, 1], [0, 3], [0, 4]]);
     }
 
     #[test]

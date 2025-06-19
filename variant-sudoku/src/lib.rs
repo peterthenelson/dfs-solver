@@ -4,6 +4,7 @@ pub mod ranker;
 pub mod solver;
 pub mod debug;
 pub mod sudoku;
+pub mod region_util;
 pub mod cages;
 pub mod kropki;
 pub mod magic_squares;
