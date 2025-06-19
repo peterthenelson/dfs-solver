@@ -206,7 +206,6 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdState<N, 
     }
 }
 
-// TODO: Organize a Std trait that just exists to bind some types or something?
 pub type NineStdVal = StdVal<1, 9>;
 pub type NineStdOverlay = StdOverlay<9, 9>;
 pub type NineStd = StdState<9, 9, 1, 9>;

@@ -6,7 +6,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -125,27 +125,36 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    _: &TuiState<'a, P>, _: &Option<StdOverlay<N, M>>,
+    state: &TuiState<'a, P>, _: &Option<StdOverlay<N, M>>,
 ) -> Vec<Line<'static>> {
-    vec!["TODO -- not yet implemented".bold().italic().into()]
-    // TODO: take a grid_type and do something with it; this is something
-    // that works for the GridType::PossibilityHeatmap(ViewBy::Cells) case.
-    /*
-    if let Some(g) = state.solver.decision_grid() {
-        let vals = unpack_values::<P::Value>(&g.get(state.grid_pos).0)
-            .into_iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
-        lines = vec![
-            Line::from(vec!["Possible values in cell ".italic(), format!("{:?}:", state.grid_pos).blue()]),
-            format!("{{{}}}", vals).green().into(),
-            "".into(),
-            "Features:".italic().into(),
-        ];
-        lines.extend(to_lines(&*format!("{}", g.get(state.grid_pos).1)).into_iter().map(|l| l.cyan()))
-    } else {
-        lines = vec!["No Decision Grid Available".italic().into()];
+    if state.solver.decision_grid().is_none() {
+        return vec!["No Decision Grid Available".italic().into()];
     }
-    lines
-    */
+    let grid = state.solver.decision_grid().unwrap();
+    let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
+    let _ = match vb {
+        // These 3 cases are all handled the same, indexed by dim.
+        ViewBy::Row => 0,
+        ViewBy::Col => 1,
+        ViewBy::Box => 2,
+        // The last case returns early.
+        ViewBy::Cell => {
+            let vals = unpack_values::<P::Value>(&grid.get(cursor).0)
+                .into_iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
+            let mut lines = vec![
+                Line::from(vec!["Possible values in cell ".italic(), format!("{:?}:", state.grid_pos).blue()]),
+                format!("{{{}}}", vals).green().into(),
+                "".into(),
+                "Features:".italic().into(),
+            ];
+            lines.extend(
+                to_lines(&*format!("{}", grid.get(state.grid_pos).1))
+                    .into_iter().map(|l| l.cyan()),
+            );
+            return lines;
+        },
+    };
+    vec!["TODO: Implement this for ViewBy::{Row, Col, Box}".italic().into()]
 }
 
 pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
