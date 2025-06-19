@@ -226,7 +226,11 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
         let mut info = RankerRegionInfo::new();
         for index in puzzle.overlay().partition_iter(dim, p) {
             if let Some(val) = puzzle.get(index) {
-                info.filled.insert(val.to_uval());
+                let uv = val.to_uval();
+                info.filled.insert(uv);
+                let cc = info.cell_choices.get_mut(uv);
+                cc.clear();
+                cc.push(index);
                 continue;
             }
             let g = grid.get(index);

@@ -1,12 +1,13 @@
 /// Tui implementations can be implemented however they choose, but these are
 /// some generic implementations of a collection of useful tasks. They are used
 /// to implement the standard Tui impls.
+use std::fmt::Display;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{tui_debug, Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -125,14 +126,14 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, _: &Option<StdOverlay<N, M>>,
+    state: &TuiState<'a, P>, so: &Option<StdOverlay<N, M>>,
 ) -> Vec<Line<'static>> {
     if state.solver.decision_grid().is_none() {
         return vec!["No Decision Grid Available".italic().into()];
     }
     let grid = state.solver.decision_grid().unwrap();
     let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
-    let _ = match vb {
+    let dim = match vb {
         // These 3 cases are all handled the same, indexed by dim.
         ViewBy::Row => 0,
         ViewBy::Col => 1,
@@ -142,7 +143,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
             let vals = unpack_values::<P::Value>(&grid.get(cursor).0)
                 .into_iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
             let mut lines = vec![
-                Line::from(vec!["Possible values in cell ".italic(), format!("{:?}:", state.grid_pos).blue()]),
+                Line::from(vec!["Possible values in cell ".into(), format!("{:?}:", state.grid_pos).blue()]).italic(),
                 format!("{{{}}}", vals).green().into(),
                 "".into(),
                 "Features:".italic().into(),
@@ -154,7 +155,35 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
             return lines;
         },
     };
-    vec!["TODO: Implement this for ViewBy::{Row, Col, Box}".italic().into()]
+    let at = val_at_index(state, so, vb, cursor);
+    match (at.val, at.partition_index) {
+        (Some(v), Some(p)) => {
+            tui_debug(format!("{}, {}, {}", v, v.ordinal(), p));
+            let info = state.solver.ranker().region_info(
+                &grid, state.solver.state(), dim, p,
+            ).unwrap();
+            let uv = v.to_uval();
+            let cells = info.cell_choices.get(uv).iter()
+                .map(|c| format!("{:?}", c))
+                .collect::<Vec<_>>().join(", ");
+            let mut lines = vec![
+                Line::from(vec![
+                    format!("Possible cells for {} #{}'s ", vb, p+1).into(),
+                    v.to_string().green(),
+                    ":".into(),
+                ]).italic(),
+                format!("{{{}}}", cells).blue().into(),
+                "".into(),
+                "Features:".italic().into(),
+            ];
+            lines.extend(
+                to_lines(&*format!("{}", info.feature_vecs.get(uv)))
+                    .into_iter().map(|l| l.cyan()),
+            );
+            lines
+        },
+        _ => vec!["Overlay could not derive a value from the cursor".italic().into()],
+    }
 }
 
 pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -182,6 +211,16 @@ pub struct GridStyledValues<P: PuzzleSetter, const N: usize, const M: usize> {
 /// The relevant grid partition types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewBy { Cell, Row, Col, Box }
+impl Display for ViewBy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            ViewBy::Cell => "Cell",
+            ViewBy::Row => "Row",
+            ViewBy::Col => "Col",
+            ViewBy::Box => "Box",
+        })
+    }
+}
 
 /// The relevant heatmap types
 /// TODO: Add Score to this
@@ -202,6 +241,15 @@ pub enum GridType<P: PuzzleSetter> {
 // Why the hell did derive not succeed in doing this for me?
 impl <P: PuzzleSetter> Clone for GridType<P> { fn clone(&self) -> Self { *self } }
 impl <P: PuzzleSetter> Copy for GridType<P> {}
+impl <P: PuzzleSetter> GridType<P> {
+    pub fn view_by(&self) -> ViewBy {
+        match self {
+            GridType::HighlightPossible(_, _) => ViewBy::Cell,
+            GridType::Heatmap(vb, _) => *vb,
+            GridType::Puzzle => ViewBy::Cell,
+        }
+    }
+}
 
 fn heatmap_cursor<const N: usize, const M: usize>(
     grid_pos: Index
@@ -227,23 +275,38 @@ fn heatmap_cursor<const N: usize, const M: usize>(
     )
 }
 
-fn grid_val_for_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+pub struct AtIndex<V: Value> {
+    val: Option<V>,
+    partition_index: Option<usize>,
+}
+
+fn val_at_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
     so: &Option<StdOverlay<N, M>>,
-    grid_type: GridType<P>,
+    view_by: ViewBy,
     index: Index,
-) -> Option<P::Value> {
+) -> AtIndex<P::Value> {
     let [r, c] = index;
-    match grid_type {
+    let empty = AtIndex { val: None, partition_index: None };
+    match view_by {
         // The three ViewBy::{region} types only make sense with a proper layout.
-        GridType::Heatmap(ViewBy::Row, _) => so.map(|_| P::Value::nth(c)),
-        GridType::Heatmap(ViewBy::Col, _) => so.map(|_| P::Value::nth(r)),
-        GridType::Heatmap(ViewBy::Box, _) => so.map(|overlay| {
-            let (_, [br, bc]) = overlay.to_box_coords([r, c]);
-            P::Value::nth(br*overlay.box_width() + bc)
-        }),
-        GridType::HighlightPossible(_, _) => panic!("TODO: HighlightPossible not implemented!"),
-        GridType::Puzzle | GridType::Heatmap(ViewBy::Cell, _) => state.solver.state().get([r, c]),
+        ViewBy::Row => so.map(|_| AtIndex {
+            val: Some(P::Value::nth(c)),
+            partition_index: Some(r),
+        }).unwrap_or(empty),
+        ViewBy::Col => so.map(|_| AtIndex {
+            val: Some(P::Value::nth(r)),
+            partition_index: Some(c),
+        }).unwrap_or(empty),
+        ViewBy::Box => so.map(|overlay| {
+            let (b, [br, bc]) = overlay.to_box_coords([r, c]);
+            let nth = br*overlay.box_width() + bc;
+            AtIndex { val: Some(P::Value::nth(nth)), partition_index: Some(b) }
+        }).unwrap_or(empty),
+        ViewBy::Cell => AtIndex {
+            val: state.solver.state().get([r, c]),
+            partition_index: None,
+        },
     }
 }
 
@@ -252,10 +315,13 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<P::Value>; M]; N] {
+    if let GridType::HighlightPossible(_, _) = grid_type {
+        panic!("TODO: HighlightPossible not yet implemented")
+    }
     let mut vm = [[None; M]; N];
     for r in 0..N {
         for c in 0..M {
-            vm[r][c] = grid_val_for_index(state, so, grid_type, [r, c]);
+            vm[r][c] = val_at_index(state, so, grid_type.view_by(), [r, c]).val;
         }
     }
     vm
@@ -337,7 +403,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             for r in 0..N {
                 for c in 0..M {
                     let p = overlay.enclosing_partition([r, c], dim).unwrap();
-                    let v = grid_val_for_index(state, so, grid_type, [r, c]).unwrap();
+                    let v = val_at_index(state, so, grid_type.view_by(), [r, c]).val.unwrap();
                     let uv = v.to_uval();
                     if infos[p].filled.contains(uv) {
                         continue;

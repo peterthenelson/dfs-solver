@@ -1,4 +1,4 @@
-use std::{env, io, time::Duration};
+use std::{env, io, sync::Mutex, time::Duration};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -149,6 +149,18 @@ fn parse_main_args() -> MainFlags {
     } else {
         MainFlags::Default
     }
+}
+
+lazy_static::lazy_static! {
+    static ref DEBUG_TEXT: Mutex<Option<String>> = {
+        Mutex::new(None)
+    };
+}
+
+pub fn tui_debug(s: String) {
+    let mut lock = DEBUG_TEXT.lock().unwrap();
+    let mut dt = s.clone();
+    lock.as_mut().replace(&mut dt);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,12 +318,20 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
         DfsSolverState::Exhausted => "Exhausted".magenta(),
         DfsSolverState::Solved => "Solved".blue(),
     };
+    let mut first_line = vec![
+        "State: ".into(), solver_state,
+        " Steps: ".into(), state.solver.step_count().to_string().yellow(),
+        " Mode: ".into(), format!("{:?}", state.mode).yellow(),
+    ];
+    {
+        let lock = DEBUG_TEXT.lock().unwrap();
+        lock.as_ref().map(|dt| {
+            first_line.push(" -- ".into());
+            first_line.push(dt.clone().magenta());
+        });
+    }
     let header_lines = vec![
-        Line::from(vec![
-            "State: ".into(), solver_state,
-            " Steps: ".into(), state.solver.step_count().to_string().yellow(),
-            " Mode: ".into(), format!("{:?}", state.mode).yellow(),
-        ]),
+        Line::from(first_line),
         if let DfsSolverState::Initializing(_) = state.solver.solver_state() {
             Line::from("Replaying given cells...")
         } else {
