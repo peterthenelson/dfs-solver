@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{tui_debug, Mode, Pane, TuiState}
+    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -158,7 +158,6 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     let at = val_at_index(state, so, vb, cursor);
     match (at.val, at.partition_index) {
         (Some(v), Some(p)) => {
-            tui_debug(format!("{}, {}, {}", v, v.ordinal(), p));
             let info = state.solver.ranker().region_info(
                 &grid, state.solver.state(), dim, p,
             ).unwrap();

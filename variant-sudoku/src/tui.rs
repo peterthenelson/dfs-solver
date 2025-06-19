@@ -152,15 +152,12 @@ fn parse_main_args() -> MainFlags {
 }
 
 lazy_static::lazy_static! {
-    static ref DEBUG_TEXT: Mutex<Option<String>> = {
-        Mutex::new(None)
-    };
+    static ref DEBUG_TEXT: Mutex<Option<String>> = Mutex::new(None);
 }
 
 pub fn tui_debug(s: String) {
     let mut lock = DEBUG_TEXT.lock().unwrap();
-    let mut dt = s.clone();
-    lock.as_mut().replace(&mut dt);
+    *lock = Some(s);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,10 +322,10 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
     ];
     {
         let lock = DEBUG_TEXT.lock().unwrap();
-        lock.as_ref().map(|dt| {
+        if let Some(dt) = &*lock {
             first_line.push(" -- ".into());
             first_line.push(dt.clone().magenta());
-        });
+        };
     }
     let header_lines = vec![
         Line::from(first_line),
