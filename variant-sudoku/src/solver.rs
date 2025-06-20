@@ -636,8 +636,14 @@ pub mod test_util {
         type State = S;
         type Ranker = R;
         type Constraint = C;
-        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) { todo!() }
-        fn setup_with_givens(_: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) { todo!() }
+        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+            panic!("FakeSetter does not implement setup/setup_with_givens and \
+                    is only valid to use as a collection of associated types.");
+        }
+        fn setup_with_givens(_: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+            panic!("FakeSetter does not implement setup/setup_with_givens and \
+                    is only valid to use as a collection of associated types.");
+        }
     }
 }
 

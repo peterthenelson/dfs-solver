@@ -317,7 +317,6 @@ mod test {
         dw.whisper(vec![[2, 1], [2, 2], [2, 4]]);
     }
 
-    // TODO: more detailed testing of the constraint.
     #[test]
     fn test_dutch_whisper_constraint() {
         // This is a 9x9 puzzle with a whisper going from [0, 0] over to [0, 4]
