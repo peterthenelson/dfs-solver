@@ -1,4 +1,4 @@
-use variant_sudoku::core::FeatureVec;
+use variant_sudoku::core::{FeatureVec, State};
 use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
@@ -24,7 +24,7 @@ impl PuzzleSetter for DoubleDown {
 
     fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
-        let cb = CageBuilder::new(false, puzzle.get_overlay());
+        let cb = CageBuilder::new(false, puzzle.overlay());
         let cages = vec![
             cb.across(14, [2, 2], 2),
             cb.down(15, [2, 7], 3),

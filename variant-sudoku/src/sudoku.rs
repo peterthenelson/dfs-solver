@@ -163,8 +163,6 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdState<N, 
         Self { grid: UVGrid::new(N, M), given: UVGrid::new(N, M), overlay }
     }
 
-    pub fn get_overlay(&self) -> &StdOverlay<N, M> { &self.overlay }
-
     pub fn parse(s: &str, overlay: StdOverlay<N, M>) -> Result<Self, Error> {
         let mut grid = UVGrid::new(N, M);
         let lines: Vec<&str> = s.lines().collect();
@@ -558,10 +556,10 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N, M, MIN, MAX> {
     pub fn new(state: &StdState<N, M, MIN, MAX>) -> Self {
         return Self {
-            overlay: state.get_overlay().clone(),
+            overlay: state.overlay().clone(),
             row: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
             col: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
-            boxes: vec![full_set::<StdVal<MIN, MAX>>(); state.get_overlay().boxes()].into_boxed_slice(),
+            boxes: vec![full_set::<StdVal<MIN, MAX>>(); state.overlay().boxes()].into_boxed_slice(),
             row_attr: Attribution::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
             col_attr: Attribution::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
             box_attr: Attribution::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),

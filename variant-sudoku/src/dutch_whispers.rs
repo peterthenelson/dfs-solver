@@ -114,6 +114,9 @@ impl DutchWhisperChecker {
 
 impl Debug for DutchWhisperChecker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((i, v, a)) = &self.illegal {
+            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
+        }
         for (i, w) in self.whispers.iter().enumerate() {
             write!(f, " Whisper[{}]: ", i)?;
             for (cell, _) in &w.cells {
@@ -287,7 +290,7 @@ Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperC
 
 #[cfg(test)]
 mod test {
-    use crate::{constraint::{test_util::assert_contradiction, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{nine_standard_overlay, nine_standard_parse, StdChecker}};
+    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{nine_standard_overlay, nine_standard_parse, StdChecker}};
     use super::*;
 
     #[test]
@@ -317,65 +320,88 @@ mod test {
         dw.whisper(vec![[2, 1], [2, 2], [2, 4]]);
     }
 
-    #[test]
-    fn test_dutch_whisper_constraint() {
-        // This is a 9x9 puzzle with a whisper going from [0, 0] over to [0, 4]
-        // and down to [4, 4]. I show how different initial setups lead to
-        // contradiction or not.
-        let overlay = nine_standard_overlay();
-        let db = DutchWhisperBuilder::new(&overlay);
+    // This is a 9x9 puzzle with a whisper going from [0, 0] over to [0, 4]
+    // and down to [4, 4]. Call with different givens and an expectation for it
+    // to return a contradiction (or not).
+    fn assert_dutch_whisper_result(
+        setup: &str, 
+        expected: Option<&'static str>,
+    ) {
+        let mut puzzle = nine_standard_parse(setup).unwrap();
+        let db = DutchWhisperBuilder::new(puzzle.overlay());
         let whispers = vec![db.polyline(vec![[0, 0], [0, 4], [4, 4]])];
         let ranker = StdRanker::default();
-        for (attr, bad_setup) in [
-            (
-                // 8 and 5 are too close
-                "DW_TOO_CLOSE",
-                "85.......\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n",
-            ),
-            (
-                // [0, 2] must be a 1 for DWs reasons, but it's ruled out for
-                // Sudoku reasons.
-                "DG_CELL_NO_VALS",
-                "95......1\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n",
-            ),
-            (
-                // [0, 4] is squeezed between 8 and 2 -- there are not values
-                // four from both.
-                "DG_CELL_NO_VALS",
-                "...8....1\n\
-                 ....2....\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n\
-                 .........\n",
-            ),
-        ] {
-            let mut puzzle = nine_standard_parse(bad_setup).unwrap();
-            let mut constraint = MultiConstraint::new(vec_box::vec_box![
-                StdChecker::new(&puzzle),
-                DutchWhisperChecker::new(whispers.clone()),
-            ]);
-            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();
+        let mut constraint = MultiConstraint::new(vec_box::vec_box![
+            StdChecker::new(&puzzle),
+            DutchWhisperChecker::new(whispers),
+        ]);
+        let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();
+        if let Some(attr) = expected {
             assert_contradiction(result, attr);
+        } else {
+            assert_no_contradiction(result);
         }
+    }
+
+    #[test]
+    fn test_dutch_whisper_too_close() {
+        // 8 and 5 are too close
+        let input: &str = "85.......\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n";
+        assert_dutch_whisper_result(input, Some("DW_TOO_CLOSE"));
+    }
+
+    #[test]
+    fn test_dutch_whisper_sudoku_interaction() {
+        // [0, 2] must be a 1 for DWs reasons, but it's ruled out for
+        // Sudoku reasons.
+        let input: &str = "95......1\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n";
+        assert_dutch_whisper_result(input, Some("DG_CELL_NO_VALS"));
+    }
+
+    #[test]
+    fn test_dutch_whisper_squeeze() {
+        // [0, 4] is squeezed between 8 and 2 -- there are not values that work
+        // for both.
+        let input: &str = "...8.....\n\
+                           ....2....\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n";
+        assert_dutch_whisper_result(input, Some("DG_CELL_NO_VALS"));
+    }
+
+    #[test]
+    fn test_dutch_whisper_valid_fill() {
+        // Valid fill
+        let input: &str = "15928....\n\
+                           ....3....\n\
+                           ....7....\n\
+                           ....2....\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n\
+                           .........\n";
+        assert_dutch_whisper_result(input, None);
     }
 }

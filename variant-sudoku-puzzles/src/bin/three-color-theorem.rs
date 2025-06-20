@@ -1,4 +1,4 @@
-use variant_sudoku::core::FeatureVec;
+use variant_sudoku::core::{FeatureVec, State};
 use variant_sudoku::kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE};
 use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
@@ -24,7 +24,7 @@ impl PuzzleSetter for ThreeColorTheorem {
 
     fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
-        let cb = CageBuilder::new(true, puzzle.get_overlay());
+        let cb = CageBuilder::new(true, puzzle.overlay());
         let cages = vec![
             cb.across(15, [0, 0], 3),
             cb.nosum(vec![[0, 3], [0, 4], [0, 5]]),
@@ -54,7 +54,7 @@ impl PuzzleSetter for ThreeColorTheorem {
             cb.nosum(vec![[8, 6], [7, 6], [7, 7]]),
             cb.sum(16, vec![[8, 7], [8, 8], [7, 8]]),
         ];
-        let kb = KropkiBuilder::new(puzzle.get_overlay());
+        let kb = KropkiBuilder::new(puzzle.overlay());
         let kropkis = vec![
             kb.b_chain(vec![[0, 0], [1, 0], [2, 0]]),
             kb.b_chain(vec![[1, 2], [0, 2], [0, 3]]),

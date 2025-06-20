@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
-use crate::index_util::check_orthogonally_adjacent;
+use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, Stateful, UVSet, Value, WithId};
+use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -66,6 +66,14 @@ impl <'a, O: Overlay> KropkiBuilder<'a, O> {
 
     pub fn w_chain(&self, cells: Vec<Index>) -> KropkiDotChain {
         self.create(KropkiColor::White, cells)
+    }
+
+    pub fn b_polyline(&self, vertices: Vec<Index>) -> KropkiDotChain {
+        self.create(KropkiColor::Black, expand_orthogonal_polyline(vertices).unwrap())
+    }
+
+    pub fn w_polyline(&self, vertices: Vec<Index>) -> KropkiDotChain {
+        self.create(KropkiColor::White, expand_orthogonal_polyline(vertices).unwrap())
     }
 }
 
@@ -198,8 +206,10 @@ fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &
 
 // TODO: Useful functions for kropki white dots
 
+pub const KROPKI_ILLEGAL_ACTION: Error = Error::new_const("A kropki violation already exists; can't apply further actions.");
+pub const KROPKI_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const KROPKI_BLACK_FEATURE: &str = "KROPKI_BLACK";
-// TODO: pub const KROPKI_BLACK_CONFLICT_ATTRIBUTION: &str = "KROPKI_BLACK_CONFLICT";
+pub const KROPKI_BLACK_CONFLICT_ATTRIBUTION: &str = "KROPKI_BLACK_CONFLICT";
 pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 
 // TODO: Add support for white kropki dots
@@ -207,8 +217,9 @@ pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, UVSet<u8>>,
     kb_feature: FeatureKey<WithId>,
-    // TODO: kb_conflict_attribute: Attribution<WithId>,
-    kb_if_attribute: Attribution<WithId>,
+    kb_conflict_attr: Attribution<WithId>,
+    kb_if_attr: Attribution<WithId>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
 }
 
 impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
@@ -229,8 +240,9 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
             blacks: chains,
             black_remaining: HashMap::new(),
             kb_feature: FeatureKey::new(KROPKI_BLACK_FEATURE).unwrap(),
-            // TODO: kb_conflict_attribute: Attribution::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
-            kb_if_attribute: Attribution::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
+            kb_conflict_attr: Attribution::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
+            kb_if_attr: Attribution::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
+            illegal: None,
         };
         kc.reset();
         kc
@@ -239,6 +251,9 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
 
 impl <const MIN: u8, const MAX: u8> Debug for KropkiChecker<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((i, v, a)) = &self.illegal {
+            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
+        }
         for (i, b) in self.blacks.iter().enumerate() {
             write!(f, " Black[{}]: ", i)?;
             for cell in &b.cells {
@@ -271,17 +286,34 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
                 }
             }
         }
+        self.illegal = None;
     }
 
-    // TODO: Check for direct conflicts
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
+        // In theory we could be allow multiple illegal moves and just
+        // invalidate and recalculate the grid or something, but it seems hard.
+        if self.illegal.is_some() {
+            return Err(KROPKI_ILLEGAL_ACTION);
+        }
         if let Some(r) = self.black_remaining.get_mut(&index) {
-            *r = singleton_set::<StdVal<MIN, MAX>>(value);
+            if r.contains(value.to_uval()) {
+                *r = singleton_set::<StdVal<MIN, MAX>>(value);
+            } else {
+                self.illegal = Some((index, value, self.kb_conflict_attr));
+            }
         }
         Ok(())
     }
 
-    fn undo(&mut self, index: Index, _: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
+    fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
+        if let Some((i, v, _)) = self.illegal {
+            if i != index || v != value {
+                return Err(KROPKI_UNDO_MISMATCH);
+            } else {
+                self.illegal = None;
+                return Ok(());
+            }
+        }
         if !self.black_remaining.contains_key(&index) {
             return Ok(());
         }
@@ -304,34 +336,35 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for KropkiChecker<MIN, MAX> {
-    fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+    fn check(&self, _: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+        if let Some((_, _, a)) = &self.illegal {
+            return ConstraintResult::Contradiction(*a);
+        }
         for b in &self.blacks {
             for cell in &b.cells {
-                if puzzle.get(*cell).is_some() {
-                    continue;
-                }
                 let g = grid.get_mut(*cell);
-                if puzzle.get(*cell).is_none() {
-                    g.0.intersect_with(&self.black_remaining.get(cell).unwrap());
-                }
                 g.1.add(&self.kb_feature, 1.0);
+                //print!("Black remaining @ {:?}: {:?}\n", *cell, unpack_stdval_vals::<MIN, MAX>(&self.black_remaining.get(cell).unwrap()));
+                //print!("Before intersect: {:?}\n", unpack_stdval_vals::<MIN, MAX>(&g.0));
+                g.0.intersect_with(&self.black_remaining.get(cell).unwrap());
+                //print!("After intersect: {:?}\n", unpack_stdval_vals::<MIN, MAX>(&g.0));
             }
         }
         for b in &self.blacks {
             for (i, cell) in b.cells.iter().enumerate() {
-                if puzzle.get(*cell).is_some() {
-                    continue;
-                }
                 if i > 0 {
                     let prev = grid.get(b.cells[i-1]).0.clone();
                     if i < b.cells.len() - 1 {
                         let next = grid.get(b.cells[i+1]).0.clone();
+                        //print!("{:?} before squeeze: {:?}\n", *cell, unpack_stdval_vals::<MIN, MAX>(&grid.get(*cell).0));
                         grid.get_mut(*cell).0.intersect_with(
                             &kropki_black_between::<MIN, MAX>(&prev, &next, b.mutually_visible)
                         );
+                        //print!("{:?} after squeeze: {:?}\n", *cell, unpack_stdval_vals::<MIN, MAX>(&grid.get(*cell).0));
                     }
                     if !kropki_black_adj_ok::<MIN, MAX>(&prev, &grid.get(*cell).0) {
-                        return ConstraintResult::Contradiction(self.kb_if_attribute.clone());
+                        //print!("Kropki black adj not ok\n");
+                        return ConstraintResult::Contradiction(self.kb_if_attr.clone());
                     }
                 }
             }
@@ -366,7 +399,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Kro
 
 #[cfg(test)]
 mod test {
-    use crate::{core::pack_values, sudoku::unpack_stdval_vals};
+    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, core::{pack_values, State}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{six_standard_parse, unpack_stdval_vals, StdChecker}};
     use super::*;
 
     fn assert_black_possible<const MIN: u8, const MAX: u8>(
@@ -584,6 +617,81 @@ mod test {
             vec![],
         );
     }
-    
-    // TODO: test the constraint
+
+    // This is a 6x6 puzzle with a black kropki chain from [1, 0] to [1, 2] and
+    // a black kropki dot from [1, 4] to [1, 5]. Call with different givens and
+    // an expectation for it to return a contradiction (or not).
+    fn assert_kropki_black_result(
+        setup: &str, 
+        expected: Option<&'static str>,
+    ) {
+        let mut puzzle = six_standard_parse(setup).unwrap();
+        let kb = KropkiBuilder::new(puzzle.overlay());
+        let kropkis = vec![
+            kb.b_polyline(vec![[1, 0], [1, 2]]),
+            kb.b_across([1, 4]),
+        ];
+        let ranker = StdRanker::default();
+        let mut constraint = MultiConstraint::new(vec_box::vec_box![
+            StdChecker::new(&puzzle),
+            KropkiChecker::new(kropkis),
+        ]);
+        //debug_std!(SixStdTui, &mut puzzle, &ranker, &mut constraint);
+        let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();
+        if let Some(attr) = expected {
+            assert_contradiction(result, attr);
+        } else {
+            assert_no_contradiction(result);
+        }
+    }
+
+    #[test]
+    #[ignore = "TODO"]
+    fn test_kropki_black_1_not_middle() {
+        // 1 can't be a middle value at all
+        let input: &str = "......\n\
+                           .1....\n\
+                           ......\n\
+                           ......\n\
+                           ......\n\
+                           ......\n";
+        assert_kropki_black_result(input, Some("KROPKI_BLACK_INFEASIBLE"));
+    }
+
+    #[test]
+    fn test_kropki_black_sudoku_interaction() {
+        // [1, 1] has to be a 2 for KB reasons but is ruled out for sudoku ones
+        let input: &str = "......\n\
+                           4...2.\n\
+                           ......\n\
+                           ......\n\
+                           ......\n\
+                           ......\n";
+        assert_kropki_black_result(input, Some("KROPKI_BLACK_INFEASIBLE"));
+    }
+
+    #[test]
+    #[ignore = "TODO"]
+    fn test_kropki_black_contradiction() {
+        // Straightforward contradiction
+        let input: &str = "......\n\
+                           41....\n\
+                           ......\n\
+                           ......\n\
+                           ......\n\
+                           ......\n";
+        assert_kropki_black_result(input, Some("KROPKI_BLACK_CONFLICT"));
+    }
+
+    #[test]
+    fn test_kropki_black_valid_fill() {
+        // Valid fill
+        let input: &str = "......\n\
+                           124536\n\
+                           ......\n\
+                           ......\n\
+                           ......\n\
+                           ......\n";
+        assert_kropki_black_result(input, None);
+    }
 }

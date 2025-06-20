@@ -1,4 +1,4 @@
-use variant_sudoku::core::FeatureVec;
+use variant_sudoku::core::{FeatureVec, State};
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker};
 use variant_sudoku::magic_squares::{MagicSquare, MagicSquareChecker, MS_FEATURE};
 use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
@@ -25,12 +25,12 @@ impl PuzzleSetter for DutchMagic {
 
     fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
-        let cb = CageBuilder::new(false, puzzle.get_overlay());
+        let cb = CageBuilder::new(false, puzzle.overlay());
         let cages = vec![
             cb.v([2, 4], [3, 4]),
             cb.v([4, 5], [4, 6]),
         ];
-        let dw = DutchWhisperBuilder::new(puzzle.get_overlay());
+        let dw = DutchWhisperBuilder::new(puzzle.overlay());
         let whispers = vec![
             dw.row([0, 0], 3),
             dw.row([1, 4], 3),

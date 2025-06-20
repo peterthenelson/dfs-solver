@@ -1,4 +1,4 @@
-use variant_sudoku::core::FeatureVec;
+use variant_sudoku::core::{FeatureVec, State};
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker, DW_FEATURE};
 use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
 use variant_sudoku::constraint::MultiConstraint;
@@ -34,7 +34,7 @@ impl PuzzleSetter for DutchClover {
 
     fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
         let puzzle = given;
-        let dw = DutchWhisperBuilder::new(puzzle.get_overlay());
+        let dw = DutchWhisperBuilder::new(puzzle.overlay());
         let whispers = vec![
             dw.polyline(vec![[0, 0], [0, 8], [1, 8], [1, 0], [2, 0], [2, 8]]),
             dw.polyline(vec![[3, 8], [3, 0], [4, 0], [4, 8], [5, 8], [5, 0]]),
