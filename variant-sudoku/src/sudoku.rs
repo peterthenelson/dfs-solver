@@ -549,9 +549,9 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
     row: [UVSet<u8>; N],
     col: [UVSet<u8>; M],
     boxes: Box<[UVSet<u8>]>,
-    row_attribution: Attribution<WithId>,
-    col_attribution: Attribution<WithId>,
-    box_attribution: Attribution<WithId>,
+    row_attr: Attribution<WithId>,
+    col_attr: Attribution<WithId>,
+    box_attr: Attribution<WithId>,
     illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
 }
 
@@ -562,9 +562,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N
             row: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
             col: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
             boxes: vec![full_set::<StdVal<MIN, MAX>>(); state.get_overlay().boxes()].into_boxed_slice(),
-            row_attribution: Attribution::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
-            col_attribution: Attribution::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
-            box_attribution: Attribution::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
+            row_attr: Attribution::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
+            col_attr: Attribution::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
+            box_attr: Attribution::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
             illegal: None,
         }
     }
@@ -613,13 +613,13 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
         }
         let (b, _) = self.overlay.to_box_coords(index);
         if !self.row[index[0]].contains(uv) {
-            self.illegal = Some((index, value, self.row_attribution.clone()));
+            self.illegal = Some((index, value, self.row_attr));
             return Ok(());
         } else if !self.col[index[1]].contains(uv) {
-            self.illegal = Some((index, value, self.col_attribution.clone()));
+            self.illegal = Some((index, value, self.col_attr));
             return Ok(());
         } else if !self.boxes[b].contains(uv){
-            self.illegal = Some((index, value, self.box_attribution.clone()));
+            self.illegal = Some((index, value, self.box_attr));
             return Ok(());
         }
         self.row[index[0]].remove(uv);

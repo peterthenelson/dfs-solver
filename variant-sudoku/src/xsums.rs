@@ -195,10 +195,10 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     grid: Vec<Option<StdVal<MIN, MAX>>>,
     xsum_head_feature: FeatureKey<WithId>,
     xsum_tail_feature: FeatureKey<WithId>,
-    xsum_sum_over_attribution: Attribution<WithId>,
-    xsum_sum_bad_attribution: Attribution<WithId>,
-    xsum_sum_if_attribution: Attribution<WithId>,
-    xsum_len_if_attribution: Attribution<WithId>,
+    xsum_sum_over_attr: Attribution<WithId>,
+    xsum_sum_bad_attr: Attribution<WithId>,
+    xsum_sum_if_attr: Attribution<WithId>,
+    xsum_len_if_attr: Attribution<WithId>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
@@ -210,10 +210,10 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
             xsums, xsums_remaining, xsums_empty, grid,
             xsum_head_feature: FeatureKey::new(XSUM_HEAD_FEATURE).unwrap(),
             xsum_tail_feature: FeatureKey::new(XSUM_TAIL_FEATURE).unwrap(),
-            xsum_sum_over_attribution: Attribution::new(XSUM_SUM_OVER_ATTRIBUTION).unwrap(),
-            xsum_sum_bad_attribution: Attribution::new(XSUM_SUM_BAD_ATTRIBUTION).unwrap(),
-            xsum_sum_if_attribution: Attribution::new(XSUM_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
-            xsum_len_if_attribution: Attribution::new(XSUM_LEN_INFEASIBLE_ATTRIBUTION).unwrap(),
+            xsum_sum_over_attr: Attribution::new(XSUM_SUM_OVER_ATTRIBUTION).unwrap(),
+            xsum_sum_bad_attr: Attribution::new(XSUM_SUM_BAD_ATTRIBUTION).unwrap(),
+            xsum_sum_if_attr: Attribution::new(XSUM_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
+            xsum_len_if_attr: Attribution::new(XSUM_LEN_INFEASIBLE_ATTRIBUTION).unwrap(),
         }
     }
 }
@@ -416,9 +416,9 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSu
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
                 if r < 0 {
-                    return ConstraintResult::Contradiction(self.xsum_sum_over_attribution.clone());
+                    return ConstraintResult::Contradiction(self.xsum_sum_over_attr);
                 } else if e == 0 && r != 0 {
-                    return ConstraintResult::Contradiction(self.xsum_sum_bad_attribution.clone());
+                    return ConstraintResult::Contradiction(self.xsum_sum_bad_attr);
                 } else if r == 0 {
                     // Satisfied!
                     continue;
@@ -436,7 +436,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSu
                         g.1.add(&self.xsum_tail_feature, 1.0);
                     }
                 } else {
-                    return ConstraintResult::Contradiction(self.xsum_sum_if_attribution.clone());
+                    return ConstraintResult::Contradiction(self.xsum_sum_if_attr);
                 }
             } else {
                 // We can constrain length based on total target sum
@@ -451,7 +451,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSu
                     g.1.add(&self.xsum_head_feature, 1.0);
 
                 } else {
-                    return ConstraintResult::Contradiction(self.xsum_len_if_attribution.clone());
+                    return ConstraintResult::Contradiction(self.xsum_len_if_attr);
                 }
             }
         }
@@ -629,8 +629,8 @@ mod test {
             let ranker = StdRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
-            if let Some(expected_attribution) = expected {
-                assert_contradiction(result, expected_attribution);
+            if let Some(expected_attr) = expected {
+                assert_contradiction(result, expected_attr);
             } else {
                 assert_no_contradiction(result);
             }
@@ -671,8 +671,8 @@ mod test {
             let ranker = StdRanker::default();
             let mut xsum_checker = XSumChecker::new(vec![x]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut xsum_checker, None).replay().unwrap();
-            if let Some(expected_attribution) = expected {
-                assert_contradiction(result, expected_attribution);
+            if let Some(expected_attr) = expected {
+                assert_contradiction(result, expected_attr);
             } else {
                 assert_no_contradiction(result);
             }

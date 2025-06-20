@@ -346,7 +346,7 @@ pub fn readable_attribution(id: usize) -> Option<Attribution<WithId>> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Attribution<S>{
     name: &'static str,
     id: Option<usize>,

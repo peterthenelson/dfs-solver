@@ -60,13 +60,13 @@ pub struct StdRanker {
     weights: FeatureVec<FVNormed>,
     num_possible: FeatureKey<WithId>,
     combinator: fn (usize, f64, f64) -> f64,
-    empty_attribution: Attribution<WithId>,
-    top_cell_attribution: Attribution<WithId>,
-    top_val_attribution: Attribution<WithId>,
-    no_vals_attribution: Attribution<WithId>,
-    one_val_attribution: Attribution<WithId>,
-    no_cells_attribution: Attribution<WithId>,
-    one_cell_attribution: Attribution<WithId>,
+    empty_attr: Attribution<WithId>,
+    top_cell_attr: Attribution<WithId>,
+    top_val_attr: Attribution<WithId>,
+    no_vals_attr: Attribution<WithId>,
+    one_val_attr: Attribution<WithId>,
+    no_cells_attr: Attribution<WithId>,
+    one_cell_attr: Attribution<WithId>,
 }
 
 impl <V: Value> RankerRegionInfo<V> {
@@ -89,13 +89,13 @@ impl StdRanker {
             weights: weights.try_normalized().unwrap().clone(),
             num_possible: FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(),
             combinator: combine_features,
-            empty_attribution: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
-            top_cell_attribution: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
-            top_val_attribution: Attribution::new(DG_TOP_VAL_ATTRIBUTION).unwrap(),
-            no_vals_attribution: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
-            one_val_attribution: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
-            no_cells_attribution: Attribution::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
-            one_cell_attribution: Attribution::new(DG_ONE_CELL_ATTRIBUTION).unwrap(),
+            empty_attr: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
+            top_cell_attr: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
+            top_val_attr: Attribution::new(DG_TOP_VAL_ATTRIBUTION).unwrap(),
+            no_vals_attr: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
+            one_val_attr: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
+            no_cells_attr: Attribution::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
+            one_cell_attr: Attribution::new(DG_ONE_CELL_ATTRIBUTION).unwrap(),
         }
     }
 
@@ -162,12 +162,12 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
         }
         match top_choice {
             Some(SRChoice::Cell(index)) => {
-                BranchPoint::for_cell(0, self.top_cell_attribution.clone(), index, unpack_values::<V>(&grid.get(index).0))
+                BranchPoint::for_cell(0, self.top_cell_attr, index, unpack_values::<V>(&grid.get(index).0))
             },
             Some(SRChoice::ValueInRegion(val, alternatives)) => {
-                BranchPoint::for_value(0, self.top_val_attribution.clone(), val, alternatives)
+                BranchPoint::for_value(0, self.top_val_attr, val, alternatives)
             },
-            None => BranchPoint::empty(0, self.empty_attribution.clone()),
+            None => BranchPoint::empty(0, self.empty_attr),
         }
     }
 
@@ -181,12 +181,12 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
                 if puzzle.get([r, c]).is_none() {
                     let cell = &grid.get([r, c]).0;
                     if cell.len() == 0 {
-                        return ConstraintResult::Contradiction(self.no_vals_attribution.clone())
+                        return ConstraintResult::Contradiction(self.no_vals_attr)
                     } else if cell.len() == 1 {
                         let v = unpack_values::<V>(cell)[0];
                         return ConstraintResult::Certainty(
                             CertainDecision::new([r, c], v),
-                            self.one_val_attribution.clone(),
+                            self.one_val_attr,
                         );
                     }
                 }
@@ -203,11 +203,11 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
                         }
                         let choices = info.cell_choices.get(uv);
                         if choices.len() == 0 {
-                            return ConstraintResult::Contradiction(self.no_cells_attribution.clone());
+                            return ConstraintResult::Contradiction(self.no_cells_attr);
                         } else if choices.len() == 1 {
                             return ConstraintResult::Certainty(
                                 CertainDecision::new(choices[0], v),
-                                self.one_cell_attribution.clone(),
+                                self.one_cell_attr,
                             );
                         }
                     }

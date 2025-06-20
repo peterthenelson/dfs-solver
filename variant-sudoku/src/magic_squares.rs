@@ -79,13 +79,13 @@ pub struct MagicSquareChecker {
     evens: UVSet<u8>,
     odds: UVSet<u8>,
     ms_feature: FeatureKey<WithId>,
-    ms_mid_attribution: Attribution<WithId>,
-    ms_mid_5_attribution: Attribution<WithId>,
-    ms_corner_attribution: Attribution<WithId>,
-    ms_side_attribution: Attribution<WithId>,
-    ms_sum_attribution: Attribution<WithId>,
-    ms_sum_exact_attribution: Attribution<WithId>,
-    ms_sum_if_attribution: Attribution<WithId>,
+    ms_mid_attr: Attribution<WithId>,
+    ms_mid_5_attr: Attribution<WithId>,
+    ms_corner_attr: Attribution<WithId>,
+    ms_side_attr: Attribution<WithId>,
+    ms_sum_attr: Attribution<WithId>,
+    ms_sum_exact_attr: Attribution<WithId>,
+    ms_sum_if_attr: Attribution<WithId>,
 }
 
 impl MagicSquareChecker {
@@ -103,13 +103,13 @@ impl MagicSquareChecker {
             evens,
             odds,
             ms_feature: FeatureKey::new(MS_FEATURE).unwrap(),
-            ms_mid_attribution: Attribution::new(MS_MID_ATTRIBUTION).unwrap(),
-            ms_mid_5_attribution: Attribution::new(MS_MID_5_ATTRIBUTION).unwrap(),
-            ms_corner_attribution: Attribution::new(MS_CORNER_ATTRIBUTION).unwrap(),
-            ms_side_attribution: Attribution::new(MS_SIDE_ATTRIBUTION).unwrap(),
-            ms_sum_attribution: Attribution::new(MS_SUM_ATTRIBUTION).unwrap(),
-            ms_sum_exact_attribution: Attribution::new(MS_SUM_EXACT_ATTRIBUTION).unwrap(),
-            ms_sum_if_attribution: Attribution::new(MS_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
+            ms_mid_attr: Attribution::new(MS_MID_ATTRIBUTION).unwrap(),
+            ms_mid_5_attr: Attribution::new(MS_MID_5_ATTRIBUTION).unwrap(),
+            ms_corner_attr: Attribution::new(MS_CORNER_ATTRIBUTION).unwrap(),
+            ms_side_attr: Attribution::new(MS_SIDE_ATTRIBUTION).unwrap(),
+            ms_sum_attr: Attribution::new(MS_SUM_ATTRIBUTION).unwrap(),
+            ms_sum_exact_attr: Attribution::new(MS_SUM_EXACT_ATTRIBUTION).unwrap(),
+            ms_sum_if_attr: Attribution::new(MS_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
         }
     }
 
@@ -122,7 +122,7 @@ impl MagicSquareChecker {
         let (sum, n_empty, first_empty) = sum_trip(triple, puzzle);
         if n_empty == 0 {
             if sum != 15 {
-                Some(ConstraintResult::Contradiction(self.ms_sum_attribution.clone()))
+                Some(ConstraintResult::Contradiction(self.ms_sum_attr))
             } else {
                 None
             }
@@ -133,13 +133,13 @@ impl MagicSquareChecker {
                 if grid.get(i).0.contains(rem.to_uval()) {
                     Some(ConstraintResult::Certainty(
                         CertainDecision::new(i, rem),
-                        self.ms_sum_exact_attribution.clone(),
+                        self.ms_sum_exact_attr,
                     ))
                 } else {
-                    Some(ConstraintResult::Contradiction(self.ms_sum_if_attribution.clone()))
+                    Some(ConstraintResult::Contradiction(self.ms_sum_if_attr))
                 }
             } else {
-                Some(ConstraintResult::Contradiction(self.ms_sum_attribution.clone()))
+                Some(ConstraintResult::Contradiction(self.ms_sum_attr))
             }
         } else {
             None
@@ -199,19 +199,19 @@ Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for MagicSquareCh
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
                 if v.val() != 5 {
-                    return ConstraintResult::Contradiction(self.ms_mid_attribution.clone());
+                    return ConstraintResult::Contradiction(self.ms_mid_attr);
                 }
             } else {
-                return ConstraintResult::Certainty(CertainDecision::new(square.center, NineStdVal::new(5)), self.ms_mid_5_attribution.clone());
+                return ConstraintResult::Certainty(CertainDecision::new(square.center, NineStdVal::new(5)), self.ms_mid_5_attr);
             }
             let [ul, _, lr] = square.diag_0();
             let [ll, _, ur] = square.diag_1();
-            if let Some(cr) = check_vals(&[ul, lr, ll, ur], &self.evens, puzzle, grid, self.ms_corner_attribution.clone()) {
+            if let Some(cr) = check_vals(&[ul, lr, ll, ur], &self.evens, puzzle, grid, self.ms_corner_attr) {
                 return cr;
             }
             let [ml, _, mr] = square.row_1();
             let [mu, _, md] = square.col_1();
-            if let Some(cr) = check_vals(&[ml, mr, mu, md], &self.odds, puzzle, grid, self.ms_side_attribution.clone()) {
+            if let Some(cr) = check_vals(&[ml, mr, mu, md], &self.odds, puzzle, grid, self.ms_side_attr) {
                 return cr;
             }
             for triple in [

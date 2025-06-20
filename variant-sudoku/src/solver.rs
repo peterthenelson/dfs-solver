@@ -78,7 +78,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     decision_grid: Option<DecisionGrid<V>>,
     stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
-    manual_attribution: Attribution<WithId>,
+    manual_attr: Attribution<WithId>,
     state: DfsSolverState,
     _marker: PhantomData<O>,
 }
@@ -195,7 +195,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             decision_grid: None,
             stack: Vec::new(),
             backtracked_steps: None,
-            manual_attribution: Attribution::new(MANUAL_ATTRIBUTION).unwrap(),
+            manual_attr: Attribution::new(MANUAL_ATTRIBUTION).unwrap(),
             state: DfsSolverState::Initializing(InitializingState { last_filled: None }),
             _marker: PhantomData,
         }
@@ -274,7 +274,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     /// Overriding any logic the solver has, manually do a move.
     pub fn manual_step(&mut self, index: Index, value: V) -> Result<(), Error> {
         self.step += 1;
-        self.apply(BranchPoint::unique(self.step, self.manual_attribution.clone(), index, value))
+        self.apply(BranchPoint::unique(self.step, self.manual_attr, index, value))
     }
 
     /// Force the solver into the backtracking state. (Useful for exhaustively

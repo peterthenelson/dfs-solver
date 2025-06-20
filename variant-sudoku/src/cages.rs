@@ -101,9 +101,9 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     empty: Vec<usize>,
     cage_sets: Vec<UVSet<u8>>,
     cage_feature: FeatureKey<WithId>,
-    cage_dupe_attribution: Attribution<WithId>,
-    cage_over_attribution: Attribution<WithId>,
-    cage_if_attribution: Attribution<WithId>,
+    cage_dupe_attr: Attribution<WithId>,
+    cage_over_attr: Attribution<WithId>,
+    cage_if_attr: Attribution<WithId>,
     illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
 }
 
@@ -125,9 +125,9 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         CageChecker {
             cages, remaining, empty, cage_sets, illegal: None,
             cage_feature: FeatureKey::new(CAGE_FEATURE).unwrap(),
-            cage_dupe_attribution: Attribution::new(CAGE_DUPE_ATTRIBUTION).unwrap(),
-            cage_over_attribution: Attribution::new(CAGE_OVER_ATTRIBUTION).unwrap(),
-            cage_if_attribution: Attribution::new(CAGE_INFEASIBLE_ATTRIBUTION).unwrap(),
+            cage_dupe_attr: Attribution::new(CAGE_DUPE_ATTRIBUTION).unwrap(),
+            cage_over_attr: Attribution::new(CAGE_OVER_ATTRIBUTION).unwrap(),
+            cage_if_attr: Attribution::new(CAGE_INFEASIBLE_ATTRIBUTION).unwrap(),
         }
     }
 }
@@ -170,10 +170,10 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
             }
             if let Some(r) = self.remaining[i] {
                 if value.val() > r {
-                    self.illegal = Some((index, value, self.cage_over_attribution.clone()));
+                    self.illegal = Some((index, value, self.cage_over_attr));
                     break;
                 } else if c.exclusive && !self.cage_sets[i].contains(uv) {
-                    self.illegal = Some((index, value, self.cage_dupe_attribution.clone()));
+                    self.illegal = Some((index, value, self.cage_dupe_attr));
                     break;
                 }
             }
@@ -263,7 +263,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Cag
             };
             if let Some(r) = self.remaining[i] {
                 if !cage_feasible::<MIN, MAX>(&set, r, self.empty[i]) {
-                    return ConstraintResult::Contradiction(self.cage_if_attribution.clone());
+                    return ConstraintResult::Contradiction(self.cage_if_attr);
                 }
                 for v in (r+1)..=MAX {
                     set.remove(StdVal::<MIN, MAX>::new(v).to_uval());

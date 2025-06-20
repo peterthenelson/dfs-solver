@@ -87,7 +87,7 @@ pub struct DutchWhisperChecker {
     remaining_init: HashMap<Index, UVSet<u8>>,
     remaining: HashMap<Index, UVSet<u8>>,
     dw_feature: FeatureKey<WithId>,
-    dw_too_close_attribution: Attribution<WithId>,
+    dw_too_close_attr: Attribution<WithId>,
     illegal: Option<(Index, NineStdVal, Attribution<WithId>)>,
 }
 
@@ -106,7 +106,7 @@ impl DutchWhisperChecker {
             remaining_init: remaining.clone(),
             remaining,
             dw_feature: FeatureKey::new(DW_FEATURE).unwrap(),
-            dw_too_close_attribution: Attribution::new(DW_TOO_CLOSE_ATTRIBUTION).unwrap(),
+            dw_too_close_attr: Attribution::new(DW_TOO_CLOSE_ATTRIBUTION).unwrap(),
             illegal: None,
         }
     }
@@ -171,7 +171,7 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
                 if cur.contains(value.to_uval()) {
                     *cur = singleton_set::<NineStdVal>(value);
                 } else {
-                    self.illegal = Some((index, value, self.dw_too_close_attribution.clone()));
+                    self.illegal = Some((index, value, self.dw_too_close_attr));
                     return Ok(());
                 }
                 if i > 0 {
