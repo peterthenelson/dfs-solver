@@ -370,16 +370,19 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
                 short_result::<V, O, S>(&solver.constraint_result()),
             );
         } else if solver.is_done() {
-            if solver.is_valid() {
-                print!(
-                    "SOLVED: {:?}; {} elapsed\n{:?}{:?}{}\n",
-                    solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
-                    state, solver.constraint(),
-                    short_result::<V, O, S>(&solver.constraint_result()),
-                );
-            } else {
-                print!("UNSOLVABLE");
-            }
+            match solver.solver_state() {
+                DfsSolverState::Solved => {
+                    print!(
+                        "SOLVED: {:?}; {} elapsed\n{:?}{:?}{}\n",
+                        solver.most_recent_action(), self.timer.to_duration().as_secs_f64(),
+                        state, solver.constraint(),
+                        short_result::<V, O, S>(&solver.constraint_result()),
+                    );
+                },
+                DfsSolverState::Exhausted => print!("EXHAUSTED\n"),
+                DfsSolverState::InitializationFailed => print!("INITIALIZATION FAILED\n"),
+                _ => panic!("This should be unreachable!"),
+            };
         } else {
             print!(
                 "STEP: {:?}; {} elapsed\n{:?}{:?}{}\n",

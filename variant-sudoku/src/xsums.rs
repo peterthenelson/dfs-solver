@@ -486,6 +486,7 @@ mod test {
     use super::*;
     use std::vec;
     use crate::constraint::test_util::*;
+    use crate::core::test_util::replay_givens;
     use crate::solver::test_util::PuzzleReplay;
     use crate::ranker::StdRanker;
     use crate::sudoku::four_standard_parse;
@@ -508,12 +509,13 @@ mod test {
         let x2 = XSum { direction: XSumDirection::RL, index: 0, target: 5 };
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
-        let puzzle1 = four_standard_parse(
+        let mut puzzle1 = four_standard_parse(
             "2..3\n\
              ....\n\
              ....\n\
              4...\n"
         ).unwrap();
+        replay_givens(&mut puzzle1);
         // x1 contains two cells -- the length digit and the next
         assert!(x1.contains(&puzzle1, [0, 0]));
         assert!(x1.contains(&puzzle1, [0, 1]));
@@ -529,12 +531,13 @@ mod test {
         // x3 contains four cells -- the length digit and the rest
         assert!(x4.contains(&puzzle1, [3, 0]));
         assert!(x4.contains(&puzzle1, [0, 0]));
-        let puzzle2 = four_standard_parse(
+        let mut puzzle2 = four_standard_parse(
             "....\n\
              .21.\n\
              .43.\n\
              ....\n"
         ).unwrap();
+        replay_givens(&mut puzzle2);
         // These all contain their length cell, but since it's empty, they don't
         // contain any other cells.
         assert!(x1.contains(&puzzle2, [0, 0]));
@@ -553,12 +556,13 @@ mod test {
         let x2 = XSum { direction: XSumDirection::RL, index: 0, target: 5 };
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
-        let puzzle1 = four_standard_parse(
+        let mut puzzle1 = four_standard_parse(
             "2..3\n\
              ....\n\
              ....\n\
              4...\n"
         ).unwrap();
+        replay_givens(&mut puzzle1);
         assert_eq!(x1.length(&puzzle1).unwrap(), ([0, 0], StdVal::new(2)));
         assert_eq!(x2.length(&puzzle1).unwrap(), ([0, 3], StdVal::new(3)));
         assert_eq!(x3.length(&puzzle1).unwrap(), ([0, 0], StdVal::new(2)));

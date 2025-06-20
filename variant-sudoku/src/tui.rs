@@ -318,6 +318,7 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
         .border_set(border::PLAIN);
     let solver_state: Span<'_> = match state.solver.solver_state() {
         DfsSolverState::Initializing(_) => "Initializing".yellow(),
+        DfsSolverState::InitializationFailed => "Initialization Failed".magenta(),
         DfsSolverState::Advancing(_) => "Advancing".green(),
         DfsSolverState::Backtracking(_) => "Backtracking".red(),
         DfsSolverState::Exhausted => "Exhausted".magenta(),

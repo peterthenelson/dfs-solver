@@ -185,7 +185,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdState<N, 
                 }
             }
         }
-        Ok(Self { given: grid.clone(), grid, overlay })
+        Ok(Self { given: grid, grid: UVGrid::new(N, M), overlay })
     }
 
     pub fn serialize(&self) -> String {
@@ -265,13 +265,21 @@ State<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdState<N, M, MIN, MAX> {
         self.grid.get(index).map(to_value)
     }
     fn overlay(&self) -> &StdOverlay<N, M> { &self.overlay }
+    fn given_actions(&self) -> Vec<(Index, StdVal<MIN, MAX>)> {
+        (0..N).flat_map(|r| {
+            (0..M).filter_map(move |c| {
+                self.given.get([r, c]).map(|v| {
+                    ([r, c], to_value::<StdVal<MIN, MAX>>(v))
+                })
+            })
+        }).collect()
+    }
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Stateful<StdVal<MIN, MAX>> for StdState<N, M, MIN, MAX> {
-    // Resets back to the given values.
     fn reset(&mut self) {
-        self.grid = self.given.clone();
+        self.grid = UVGrid::new(N, M);
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
@@ -687,7 +695,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Std
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::{empty_set}, ranker::StdRanker, solver::FindFirstSolution};
+    use crate::{core::{empty_set, test_util::replay_givens}, ranker::StdRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
     use crate::constraint::test_util::assert_contradiction;
 
@@ -882,7 +890,8 @@ mod test {
                            .6....28.\n\
                            ...419..5\n\
                            ......8.9\n";
-        let sudoku = nine_standard_parse(input).unwrap();
+        let mut sudoku = nine_standard_parse(input).unwrap();
+        replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 0]), Some(StdVal::new(5)));
         assert_eq!(sudoku.get([8, 8]), Some(StdVal::new(9)));
         assert_eq!(sudoku.get([2, 7]), Some(StdVal::new(6)));
@@ -890,7 +899,7 @@ mod test {
     }
 
     #[test]
-    fn test_sudoku_reset_keeps_initial_moves() {
+    fn test_sudoku_reset_remembers_givesn() {
         let input: &str = "5.3......\n\
                            6..195...\n\
                            .98....6.\n\
@@ -901,10 +910,12 @@ mod test {
                            ...419..5\n\
                            ......8.9\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
+        replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 1]), None);
         sudoku.apply([0, 1], StdVal::new(2)).unwrap();
         assert_eq!(sudoku.get([0, 1]), Some(StdVal::new(2)));
         sudoku.reset();
+        replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 1]), None);
         assert_eq!(sudoku.to_string(), input);
     }

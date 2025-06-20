@@ -820,6 +820,7 @@ pub trait State<V: Value, O: Overlay> where Self: Clone + Debug + Stateful<V> {
     const COLS: usize;
     fn get(&self, index: Index) -> Option<V>;
     fn overlay(&self) -> &O;
+    fn given_actions(&self) -> Vec<(Index, V)>;
 }
 
 #[cfg(any(test, feature = "test-util"))]
@@ -906,6 +907,7 @@ pub mod test_util {
         const COLS: usize = N;
         fn get(&self, index: Index) -> Option<TestVal> { self.grid.get(index).map(to_value) }
         fn overlay(&self) -> &OneDimOverlay<N> { &OneDimOverlay{} }
+        fn given_actions(&self) -> Vec<(Index, TestVal)> { vec![] }
     }
 
     /// Unwrapping UVals is private to the core module, but it's valuable to
@@ -913,5 +915,14 @@ pub mod test_util {
     pub fn round_trip_value<V: Value>(v: V) -> V {
         let u: UVal<V::U, UVWrapped> = v.to_uval();
         V::from_uval(u.unwrap())
+    }
+
+    /// Most of the time, you can just rely on the solver to replay given
+    /// actions, but for tests, you may want to parse a state and check that
+    /// the givens are right.
+    pub fn replay_givens<V: Value, O: Overlay, S: State<V, O>>(state: &mut S) {
+        for (i, v) in state.given_actions() {
+            state.apply(i, v).unwrap();
+        }
     }
 }

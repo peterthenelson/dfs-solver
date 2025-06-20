@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, GridIndex, Index, Overlay, State, Value, WithId};
+use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Overlay, State, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -9,6 +9,8 @@ pub struct InitializingState {
     // The index is that of the most recently applied action (during the
     // initial stage when actions already in the grid are replayed).
     last_filled: Option<Index>,
+    // The index into the vector of givens for the next given.
+    next_given_index: usize,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -30,6 +32,7 @@ pub enum DfsSolverState {
     Initializing(InitializingState),
     Advancing(AdvancingState),
     Backtracking(BacktrackingState),
+    InitializationFailed,
     Solved,
     Exhausted,
 }
@@ -74,6 +77,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     puzzle: &'a mut S,
     ranker: &'a R,
     constraint: &'a mut C,
+    givens: Vec<(Index, V)>,
     check_result: ConstraintResult<V>,
     decision_grid: Option<DecisionGrid<V>>,
     stack: Vec<BranchPoint<V>>,
@@ -111,7 +115,10 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     }
 
     fn is_done(&self) -> bool {
-        self.state == DfsSolverState::Solved || self.state == DfsSolverState::Exhausted
+        match self.state {
+            DfsSolverState::InitializationFailed | DfsSolverState::Solved | DfsSolverState::Exhausted => true,
+            _ => false,
+        }
     }
 
     fn is_valid(&self) -> bool {
@@ -126,7 +133,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             b.chosen()
         } else {
             match self.state {
-                DfsSolverState::Initializing(InitializingState{ last_filled: Some(index) }) => {
+                DfsSolverState::Initializing(InitializingState{ last_filled: Some(index), next_given_index: _ }) => {
                     Some((index, self.puzzle.get(index).unwrap()))
                 },
                 _ => None,
@@ -161,24 +168,6 @@ const NOT_INITIALIZED: Error = Error::new_const("Must call init() before steppin
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
 
-fn next_filled<V: Value, O: Overlay, S: State<V, O>>(index: Option<Index>, puzzle: &S) -> Option<(Index, V)> {
-    let mut i = if index.is_none() {
-        [0, 0]
-    } else {
-        let mut i2 = index.unwrap();
-        i2.increment(S::ROWS, S::COLS);
-        i2
-    };
-    while i.in_bounds(S::ROWS, S::COLS) {
-        let v = puzzle.get(i);
-        if v.is_some() {
-            return Some((i, v.unwrap()));
-        }
-        i.increment(S::ROWS, S::COLS);
-    }
-    None
-}
-
 impl <'a, V, O, S, R, C> DfsSolver<'a, V, O, S, R, C>
 where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
     pub fn new(
@@ -186,17 +175,19 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         ranker: &'a R,
         constraint: &'a mut C, 
     ) -> Self {
+        let givens = puzzle.given_actions();
         DfsSolver {
             step: 0,
             puzzle,
             ranker,
             constraint,
             check_result: ConstraintResult::Ok,
+            givens,
             decision_grid: None,
             stack: Vec::new(),
             backtracked_steps: None,
             manual_attr: Attribution::new(MANUAL_ATTRIBUTION).unwrap(),
-            state: DfsSolverState::Initializing(InitializingState { last_filled: None }),
+            state: DfsSolverState::Initializing(InitializingState { last_filled: None, next_given_index: 0 }),
             _marker: PhantomData,
         }
     }
@@ -325,10 +316,22 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.step += 1;
         match self.state {
             DfsSolverState::Initializing(state) => {
-                if let Some((i, v)) = next_filled(state.last_filled, self.puzzle) {
-                    self.constraint.apply(i, v)?;
+                if state.next_given_index < self.givens.len() {
+                    let (i, v) = self.givens[state.next_given_index];
+                    self.puzzle.apply(i, v)?;
+                    if let Err(e) = self.constraint.apply(i, v) {
+                        self.puzzle.undo(i, v)?;
+                        return Err(e);
+                    }
                     self.check();
-                    self.state = DfsSolverState::Initializing(InitializingState { last_filled: Some(i) });
+                    self.state = if self.is_valid() {
+                        DfsSolverState::Initializing(InitializingState {
+                            last_filled: Some(i),
+                            next_given_index: state.next_given_index + 1,
+                        })
+                    } else {
+                        DfsSolverState::InitializationFailed
+                    };
                 } else {
                     self.state = DfsSolverState::Advancing(AdvancingState {
                         possibilities: 0,
@@ -341,6 +344,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
                 }
                 Ok(())
             }
+            DfsSolverState::InitializationFailed => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Solved => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing(_) => {
@@ -384,7 +388,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.check_result = ConstraintResult::Ok;
         self.decision_grid = None;
         self.stack.clear();
-        self.state = DfsSolverState::Initializing(InitializingState { last_filled: None });
+        self.state = DfsSolverState::Initializing(InitializingState { last_filled: None, next_given_index: 0 });
         self.step = 0;
         self.backtracked_steps = None;
     }
