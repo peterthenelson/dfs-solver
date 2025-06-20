@@ -215,7 +215,7 @@ impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperChecker {
     fn check(&self, puzzle: &StdState<N, M, 1, 9>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
         if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(a.clone());
+            return ConstraintResult::Contradiction(*a);
         }
         for w in &self.whispers {
             for (cell, _) in w.cells.iter() {

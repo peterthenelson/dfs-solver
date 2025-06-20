@@ -253,7 +253,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
     fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(a.clone());
+            return ConstraintResult::Contradiction(*a);
         }
         for (i, c) in self.cages.iter().enumerate() {
             let mut set = if c.exclusive {
