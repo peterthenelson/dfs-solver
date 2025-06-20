@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
 use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::index_util::check_orthogonally_adjacent;
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -29,18 +30,10 @@ impl <'a, O: Overlay> KropkiBuilder<'a, O> {
     fn create(&self, color: KropkiColor, cells: Vec<Index>) -> KropkiDotChain {
         for (i, &cell) in cells.iter().enumerate() {
             if i > 0 {
-                let prev = cells[i - 1];
-                let diff = (cell[0].abs_diff(prev[0]), cell[1].abs_diff(prev[1]));
-                if diff != (0, 1) && diff != (1, 0) && diff != (1, 1) {
-                    panic!("Cells {:?} and {:?} are not adjacent", cell, prev);
-                }
+                check_orthogonally_adjacent(cells[i - 1], cell).unwrap();
             }
             if i < cells.len() - 1{
-                let next = cells[i + 1];
-                let diff = (cell[0].abs_diff(next[0]), cell[1].abs_diff(next[1]));
-                if diff != (0, 1) && diff != (1, 0) && diff != (1, 1) {
-                    panic!("Cells {:?} and {:?} are not adjacent", cell, next);
-                }
+                check_orthogonally_adjacent(cell, cells[i + 1]).unwrap();
             }
         }
         let mutually_visible = self.0.all_mutually_visible(&cells);

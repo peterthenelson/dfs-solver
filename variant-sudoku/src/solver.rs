@@ -620,6 +620,25 @@ pub mod test_util {
             return Ok(self.solver.constraint_result());
         }
     }
+
+    // In tests, it can be helpful to turn a collection of types into a
+    // PuzzleSetter implementation (e.g., to be able to invoke
+    // interactive_debug), even if you don't actually need to use any of the
+    // actual methods.
+    pub struct FakeSetter<V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>(PhantomData<(V, O, S, R, C)>);
+    impl <V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>> FakeSetter<V, O, S, R, C> {
+        pub fn new() -> Self { Self(PhantomData) }
+    }
+    impl <V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>
+    PuzzleSetter for FakeSetter<V, O, S, R, C> {
+        type Value = V;
+        type Overlay = O;
+        type State = S;
+        type Ranker = R;
+        type Constraint = C;
+        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) { todo!() }
+        fn setup_with_givens(_: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) { todo!() }
+    }
 }
 
 #[cfg(test)]

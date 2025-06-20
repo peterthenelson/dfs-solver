@@ -71,6 +71,18 @@ pub type NineStdTui<P> = DefaultTui<P, 9, 9, NineStd>;
 pub type EightStdTui<P> = DefaultTui<P, 8, 8, EightStd>;
 pub type SixStdTui<P> = DefaultTui<P, 6, 6, SixStd>;
 pub type FourStdTui<P> = DefaultTui<P, 4, 4, FourStd>;
+#[macro_export]
+macro_rules! debug_std {
+    ($stdtui:ident, $puzzle:expr, $ranker:expr, $constraint:expr) => {{
+        let puzzle_ref = $puzzle;
+        let ranker_ref = $ranker;
+        let constraint_ref = $constraint;
+        interactive_debug::<
+            FakeSetter<_, _, _, _, _>,
+            $stdtui<FakeSetter<_, _, _, _, _>>
+        >(puzzle_ref, ranker_ref, constraint_ref)
+    }};
+}
 
 impl <P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>> DefaultTui<P, N, M, OS> {
     pub fn new() -> Self { Self(PhantomData) }

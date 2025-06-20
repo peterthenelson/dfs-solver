@@ -84,6 +84,14 @@ pub mod test_util {
     }
 
     /// You can use the interactive debugger in your tests to debug problems.
+    /// Usage notes:
+    /// - If you don't have a PuzzleSetter already, you can probably use
+    ///   FakeSetter to magic one up that's sufficient for using this function.
+    /// - If you have a common puzzle setup, you may be able to do something
+    ///   like this:
+    ///   debug_std!(NineStdTui, &mut puzzle, &ranker, &mut constraint);
+    /// - You should run just the relevant test case and not capture output:
+    ///   $ cargo test my_test_case -- --nocapture
     pub fn interactive_debug<P: PuzzleSetter, T: Tui<P>>(state: &mut P::State, ranker: &P::Ranker, constraint: &mut P::Constraint) {
         let mut terminal = ratatui::init();
         let mut ts = TuiState::<P>::new(state, ranker, constraint);

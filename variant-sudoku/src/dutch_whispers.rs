@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{full_set, singleton_set, unpack_singleton, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, WithId};
+use crate::core::{full_set, singleton_set, unpack_singleton, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::index_util::expand_polyline;
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay, StdState};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
 
@@ -70,17 +71,24 @@ impl <'a, O: Overlay> DutchWhisperBuilder<'a, O> {
             .collect();
         self.whisper(cells)
     }
+
+    pub fn polyline(&self, vertices: Vec<Index>) -> DutchWhisper {
+        self.whisper(expand_polyline(vertices).unwrap())
+    }
 }
 
-pub const ILLEGAL_ACTION_DW: Error = Error::new_const("A dutch whisper violation already exists; can't apply further actions.");
-pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
+pub const DW_ILLEGAL_ACTION: Error = Error::new_const("A dutch-whisper violation already exists; can't apply further actions.");
+pub const DW_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const DW_FEATURE: &str = "DUTCH_WHISPER";
+pub const DW_TOO_CLOSE_ATTRIBUTION: &str = "DW_TOO_CLOSE";
 
 pub struct DutchWhisperChecker {
     whispers: Vec<DutchWhisper>,
     remaining_init: HashMap<Index, UVSet<u8>>,
     remaining: HashMap<Index, UVSet<u8>>,
     dw_feature: FeatureKey<WithId>,
+    dw_too_close_attribution: Attribution<WithId>,
+    illegal: Option<(Index, NineStdVal, Attribution<WithId>)>,
 }
 
 impl DutchWhisperChecker {
@@ -98,6 +106,8 @@ impl DutchWhisperChecker {
             remaining_init: remaining.clone(),
             remaining,
             dw_feature: FeatureKey::new(DW_FEATURE).unwrap(),
+            dw_too_close_attribution: Attribution::new(DW_TOO_CLOSE_ATTRIBUTION).unwrap(),
+            illegal: None,
         }
     }
 }
@@ -139,9 +149,15 @@ fn recompute(remaining: &mut HashMap<Index, UVSet<u8>>, remaining_init: &HashMap
 impl Stateful<NineStdVal> for DutchWhisperChecker {
     fn reset(&mut self) {
         self.remaining = self.remaining_init.clone();
+        self.illegal = None;
     }
 
     fn apply(&mut self, index: Index, value: NineStdVal) -> Result<(), Error> {
+        // In theory we could be allow multiple illegal moves and just
+        // invalidate and recalculate the grid or something, but it seems hard.
+        if self.illegal.is_some() {
+            return Err(DW_ILLEGAL_ACTION);
+        }
         if !self.remaining.contains_key(&index) {
             return Ok(());
         }
@@ -151,7 +167,13 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
                     continue;
                 }
                 let neighbors = whisper_neighbors::<1, 9>(4, value);
-                *self.remaining.get_mut(&index).unwrap() = singleton_set::<NineStdVal>(value);
+                let cur = self.remaining.get_mut(&index).unwrap();
+                if cur.contains(value.to_uval()) {
+                    *cur = singleton_set::<NineStdVal>(value);
+                } else {
+                    self.illegal = Some((index, value, self.dw_too_close_attribution.clone()));
+                    return Ok(());
+                }
                 if i > 0 {
                     let prev = w.cells[i - 1].0;
                     self.remaining.get_mut(&prev).unwrap().intersect_with(&neighbors);
@@ -165,7 +187,15 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
         Ok(())
     }
 
-    fn undo(&mut self, index: Index, _: NineStdVal) -> Result<(), Error> {
+    fn undo(&mut self, index: Index, value: NineStdVal) -> Result<(), Error> {
+        if let Some((i, v, _)) = self.illegal {
+            if i != index || v != value {
+                return Err(DW_UNDO_MISMATCH);
+            } else {
+                self.illegal = None;
+                return Ok(());
+            }
+        }
         if !self.remaining.contains_key(&index) {
             return Ok(());
         }
@@ -184,6 +214,9 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
 impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperChecker {
     fn check(&self, puzzle: &StdState<N, M, 1, 9>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
+        if let Some((_, _, a)) = &self.illegal {
+            return ConstraintResult::Contradiction(a.clone());
+        }
         for w in &self.whispers {
             for (cell, _) in w.cells.iter() {
                 if puzzle.get(*cell).is_some() {
@@ -254,8 +287,7 @@ Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperC
 
 #[cfg(test)]
 mod test {
-    use crate::sudoku::nine_standard_overlay;
-
+    use crate::{constraint::{test_util::assert_contradiction, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{nine_standard_overlay, nine_standard_parse, StdChecker}};
     use super::*;
 
     #[test]
@@ -286,4 +318,65 @@ mod test {
     }
 
     // TODO: more detailed testing of the constraint.
+    #[test]
+    fn test_dutch_whisper_constraint() {
+        // This is a 9x9 puzzle with a whisper going from [0, 0] over to [0, 4]
+        // and down to [4, 4]. I show how different initial setups lead to
+        // contradiction or not.
+        let overlay = nine_standard_overlay();
+        let db = DutchWhisperBuilder::new(&overlay);
+        let whispers = vec![db.polyline(vec![[0, 0], [0, 4], [4, 4]])];
+        let ranker = StdRanker::default();
+        for (attr, bad_setup) in [
+            (
+                // 8 and 5 are too close
+                "DW_TOO_CLOSE",
+                "85.......\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n",
+            ),
+            (
+                // [0, 2] must be a 1 for DWs reasons, but it's ruled out for
+                // Sudoku reasons.
+                "DG_CELL_NO_VALS",
+                "95......1\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n",
+            ),
+            (
+                // [0, 4] is squeezed between 8 and 2 -- there are not values
+                // four from both.
+                "DG_CELL_NO_VALS",
+                "...8....1\n\
+                 ....2....\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n\
+                 .........\n",
+            ),
+        ] {
+            let mut puzzle = nine_standard_parse(bad_setup).unwrap();
+            let mut constraint = MultiConstraint::new(vec_box::vec_box![
+                StdChecker::new(&puzzle),
+                DutchWhisperChecker::new(whispers.clone()),
+            ]);
+            let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();
+            assert_contradiction(result, attr);
+        }
+    }
 }

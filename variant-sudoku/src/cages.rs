@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use crate::core::{full_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::constraint::Constraint;
-use crate::region_util::{check_orthogonally_connected};
+use crate::index_util::{check_orthogonally_connected};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
 
 #[derive(Debug, Clone)]
@@ -88,8 +88,8 @@ impl <'a, O: Overlay> CageBuilder<'a, O> {
     }
 }
 
-pub const ILLEGAL_ACTION_CAGE: Error = Error::new_const("A cage violation already exists; can't apply further actions.");
-pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
+pub const CAGE_ILLEGAL_ACTION: Error = Error::new_const("A cage violation already exists; can't apply further actions.");
+pub const CAGE_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const CAGE_FEATURE: &str = "CAGE";
 pub const CAGE_DUPE_ATTRIBUTION: &str = "CAGE_DUPE";
 pub const CAGE_OVER_ATTRIBUTION: &str = "CAGE_SUM_OVER";
@@ -162,7 +162,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
         // In theory we could be allow multiple illegal moves and just
         // invalidate and recalculate the grid or something, but it seems hard.
         if self.illegal.is_some() {
-            return Err(ILLEGAL_ACTION_CAGE);
+            return Err(CAGE_ILLEGAL_ACTION);
         }
         for (i, c) in self.cages.iter().enumerate() {
             if !c.contains(index) {
@@ -188,7 +188,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
         if let Some((i, v, _)) = self.illegal {
             if i != index || v != value {
-                return Err(UNDO_MISMATCH);
+                return Err(CAGE_UNDO_MISMATCH);
             } else {
                 self.illegal = None;
                 return Ok(());
