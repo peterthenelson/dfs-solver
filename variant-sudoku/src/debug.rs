@@ -3,7 +3,7 @@ use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
 use crate::{constraint::Constraint, core::{ConstraintResult, Overlay, State, Value}, ranker::Ranker};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
-use serde_json::json;
+use serde_derive::{Serialize, Deserialize};
 
 pub struct NullObserver;
 
@@ -118,6 +118,29 @@ pub struct Histogram {
     pub median: f32,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct HistogramSummary {
+    pub total: i32,
+    pub count: i32,
+    pub max: i32,
+    pub max_count: i32,
+    pub mean: f32,
+    pub median: f32,
+}
+
+impl HistogramSummary {
+    pub fn delta_from(&self, base: &HistogramSummary) -> HistogramSummary {
+        HistogramSummary {
+            total: self.total - base.total,
+            count: self.total - base.total,
+            max: self.max - base.max,
+            max_count: self.max_count - base.max_count,
+            mean: self.mean - base.mean,
+            median: self.median - base.median,
+        }
+    }
+}
+
 impl Histogram {
     pub fn from_value_counts(value_to_count: &HashMap<usize, usize>) -> Histogram {
         let mut val_counts = value_to_count.iter().map(|(v, c)| (*v as i32, *c as i32)).collect::<Vec<_>>();
@@ -149,15 +172,15 @@ impl Histogram {
         Histogram { value_counts: value_to_count.clone(), total, count, max, max_count, mean, median }
     }
 
-    fn json_summary(&self) -> serde_json::Value {
-        json!({
-            "total": self.total,
-            "count": self.count,
-            "max": self.max,
-            "max_count": self.max_count,
-            "mean": self.mean,
-            "median": self.median,
-        })
+    fn summary(&self) -> HistogramSummary {
+        HistogramSummary {
+            total: self.total,
+            count: self.count,
+            max: self.max,
+            max_count: self.max_count,
+            mean: self.mean,
+            median: self.median,
+        }
     }
 }
 
@@ -246,6 +269,33 @@ pub struct DbgObserver<V: Value, O: Overlay, S: State<V, O>> {
     _marker: std::marker::PhantomData<(V, O, S)>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct StatsSummary {
+    steps: i32,
+    seconds: f64,
+    decision_width: HistogramSummary,
+    n_filled: HistogramSummary,
+    advance_streak: HistogramSummary,
+    certainty_streak: HistogramSummary,
+    backtrack_streak: HistogramSummary,
+    mistake_delay: HistogramSummary,
+}
+
+impl StatsSummary {
+    pub fn delta_from(&self, base: &StatsSummary) -> StatsSummary {
+        StatsSummary {
+            steps: self.steps - base.steps,
+            seconds: self.seconds - base.seconds,
+            decision_width: self.decision_width.delta_from(&base.decision_width),
+            n_filled: self.n_filled.delta_from(&base.n_filled),
+            advance_streak: self.advance_streak.delta_from(&base.advance_streak),
+            certainty_streak: self.certainty_streak.delta_from(&base.certainty_streak),
+            backtrack_streak: self.backtrack_streak.delta_from(&base.backtrack_streak),
+            mistake_delay: self.mistake_delay.delta_from(&base.mistake_delay),
+        }
+    }
+}
+
 impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
     pub fn new() -> Self {
         DbgObserver {
@@ -326,20 +376,9 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         self.steps += 1;
     }
 
-    fn stats_json(&self, json_filename: &str) -> Result<(), std::io::Error> {
-        let stats = json!({
-            "steps": self.steps,
-            "seconds": self.timer.to_duration().as_secs_f64(),
-            // TODO
-            "decision_width": Histogram::from_value_counts(&self.decision_width_hist).json_summary(),
-            "n_filled": Histogram::from_value_counts(&self.n_filled_hist).json_summary(),
-            "advance_streak": Histogram::from_value_counts(&self.advance_streak_hist).json_summary(),
-            "certainty_streak": Histogram::from_value_counts(&self.certainty_streak_hist).json_summary(),
-            "backtrack_streak": Histogram::from_value_counts(&self.backtrack_streak_hist).json_summary(),
-            "mistake_delay": Histogram::from_value_counts(&self.mistake_delay_hist).json_summary(),
-        });
+    fn stats_json(&self, json_filename: &str, summary: &StatsSummary) -> Result<(), std::io::Error> {
         let mut f = File::create(json_filename)?;
-        let json_data = serde_json::to_string_pretty(&stats)?;
+        let json_data = serde_json::to_string_pretty(&summary)?;
         f.write_all(json_data.as_bytes())?;
         Ok(())
     }
@@ -378,13 +417,26 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         Ok(())
     }
 
+    pub fn stats_summary(&self) -> StatsSummary {
+        StatsSummary {
+            steps: self.steps as i32,
+            seconds: self.timer.to_duration().as_secs_f64(),
+            decision_width: Histogram::from_value_counts(&self.decision_width_hist).summary(),
+            n_filled: Histogram::from_value_counts(&self.n_filled_hist).summary(),
+            advance_streak: Histogram::from_value_counts(&self.advance_streak_hist).summary(),
+            certainty_streak: Histogram::from_value_counts(&self.certainty_streak_hist).summary(),
+            backtrack_streak: Histogram::from_value_counts(&self.backtrack_streak_hist).summary(),
+            mistake_delay: Histogram::from_value_counts(&self.mistake_delay_hist).summary(),
+        }
+    }
+
     pub fn dump_stats(&self, figure_filename: &str, json_filename: &str) -> Result<(), Box<dyn std::error::Error>> {
-        print!("Steps: {}\n", self.steps);
-        print!("Time elapsed: {}\n", self.timer.to_duration().as_secs_f64());
-        let dw = Histogram::from_value_counts(&self.decision_width_hist);
-        print!("Average Decision Width: {}\n", dw.mean);
+        let stats = self.stats_summary();
+        print!("Steps: {}\n", stats.steps);
+        print!("Time elapsed: {}\n", stats.seconds);
+        print!("Average Decision Width: {}\n", stats.decision_width.mean);
         let area = BitMapBackend::new(figure_filename, (800, 1000)).into_drawing_area();
-        self.stats_json(json_filename).map_err(|s| {
+        self.stats_json(json_filename, &stats).map_err(|s| {
             let e: Box<dyn std::error::Error> = s.into();
             e
         })?;
