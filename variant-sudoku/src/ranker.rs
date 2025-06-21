@@ -10,7 +10,7 @@ use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribu
 /// provide useful guidance to base such a decision on.
 pub trait Ranker<V: Value, O: Overlay, S: State<V, O>> {
     // Note: the ranker must not suggest already filled cells.
-    fn top(&self, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V>;
+    fn top(&self, grid: &mut DecisionGrid<V>, puzzle: &S) -> BranchPoint<V>;
 
     // Score for a particular feature vec. Exposed for debugging reasons.
     fn score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
@@ -122,7 +122,7 @@ enum SRChoice<V: Value> {
 }
 
 impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
-    fn top(&self, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V> {
+    fn top(&self, grid: &mut DecisionGrid<V>, puzzle: &S) -> BranchPoint<V> {
         let mut top_choice = None;
         let mut top_score: f64 = 0.0;
         for r in 0..grid.rows() {
@@ -130,10 +130,10 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
                 if puzzle.get([r, c]).is_some() {
                     continue;
                 }
-                let g = grid.get([r, c]);
-                let mut fv = g.1.clone();
+                let g = grid.get_mut([r, c]);
+                let fv = &mut g.1;
                 fv.add(&self.num_possible, g.0.len() as f64);
-                let score = <Self as Ranker<V, O, S>>::score(self, &mut fv);
+                let score = <Self as Ranker<V, O, S>>::score(self, fv);
                 if top_choice.is_none() || score > top_score {
                     top_score = score;
                     top_choice = Some(SRChoice::Cell([r, c]));

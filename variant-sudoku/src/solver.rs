@@ -249,11 +249,11 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.constraint.undo(i, v)
     }
 
-    fn suggest(&self) -> BranchPoint<V> {
+    fn suggest(&mut self) -> BranchPoint<V> {
         if let ConstraintResult::Certainty(d, a) = &self.check_result {
             return BranchPoint::unique(self.step, *a, d.index, d.value);
         }
-        let g = self.decision_grid.as_ref().expect("Suggest called when no grid available!");
+        let g = self.decision_grid.as_mut().expect("Suggest called when no grid available!");
         let mut bp = self.ranker.top(g, self.puzzle);
         bp.branch_step = self.step;
         bp
