@@ -344,10 +344,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Kro
             for cell in &b.cells {
                 let g = grid.get_mut(*cell);
                 g.1.add(&self.kb_feature, 1.0);
-                //print!("Black remaining @ {:?}: {:?}\n", *cell, unpack_stdval_vals::<MIN, MAX>(&self.black_remaining.get(cell).unwrap()));
-                //print!("Before intersect: {:?}\n", unpack_stdval_vals::<MIN, MAX>(&g.0));
                 g.0.intersect_with(&self.black_remaining.get(cell).unwrap());
-                //print!("After intersect: {:?}\n", unpack_stdval_vals::<MIN, MAX>(&g.0));
             }
         }
         for b in &self.blacks {
@@ -356,14 +353,11 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Kro
                     let prev = grid.get(b.cells[i-1]).0.clone();
                     if i < b.cells.len() - 1 {
                         let next = grid.get(b.cells[i+1]).0.clone();
-                        //print!("{:?} before squeeze: {:?}\n", *cell, unpack_stdval_vals::<MIN, MAX>(&grid.get(*cell).0));
                         grid.get_mut(*cell).0.intersect_with(
                             &kropki_black_between::<MIN, MAX>(&prev, &next, b.mutually_visible)
                         );
-                        //print!("{:?} after squeeze: {:?}\n", *cell, unpack_stdval_vals::<MIN, MAX>(&grid.get(*cell).0));
                     }
                     if !kropki_black_adj_ok::<MIN, MAX>(&prev, &grid.get(*cell).0) {
-                        //print!("Kropki black adj not ok\n");
                         return ConstraintResult::Contradiction(self.kb_if_attr.clone());
                     }
                 }
@@ -646,7 +640,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "TODO"]
     fn test_kropki_black_1_not_middle() {
         // 1 can't be a middle value at all
         let input: &str = "......\n\
@@ -655,7 +648,7 @@ mod test {
                            ......\n\
                            ......\n\
                            ......\n";
-        assert_kropki_black_result(input, Some("KROPKI_BLACK_INFEASIBLE"));
+        assert_kropki_black_result(input, Some("KROPKI_BLACK_CONFLICT"));
     }
 
     #[test]
@@ -671,7 +664,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "TODO"]
     fn test_kropki_black_contradiction() {
         // Straightforward contradiction
         let input: &str = "......\n\
