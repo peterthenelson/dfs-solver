@@ -850,7 +850,10 @@ mod test {
         apply2(&mut sudoku, &mut checker, [5, 3], StdVal(1));
         apply2(&mut sudoku, &mut checker, [5, 4], StdVal(3));
         let mut grid = DecisionGrid::new(9, 9);
-        assert!(checker.check(&sudoku, &mut grid).is_ok());
+        match checker.check(&sudoku, &mut grid) {
+            ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
+            _ => {},
+        };
         apply2(&mut sudoku, &mut checker, [5, 8], StdVal(1));
         assert_contradiction(checker.check(&sudoku, &mut grid), "ROW_CONFLICT");
     }
@@ -862,7 +865,10 @@ mod test {
         apply2(&mut sudoku, &mut checker, [1, 3], StdVal(2));
         apply2(&mut sudoku, &mut checker, [3, 3], StdVal(7));
         let mut grid = DecisionGrid::new(9, 9);
-        assert!(checker.check(&sudoku, &mut grid).is_ok());
+        match checker.check(&sudoku, &mut grid) {
+            ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
+            _ => {},
+        };
         apply2(&mut sudoku, &mut checker, [6, 3], StdVal(2));
         assert_contradiction(checker.check(&sudoku, &mut grid), "COL_CONFLICT");
     }
@@ -874,7 +880,10 @@ mod test {
         apply2(&mut sudoku, &mut checker, [3, 0], StdVal(8));
         apply2(&mut sudoku, &mut checker, [4, 1], StdVal(2));
         let mut grid = DecisionGrid::new(9, 9);
-        assert!(checker.check(&sudoku, &mut grid).is_ok());
+        match checker.check(&sudoku, &mut grid) {
+            ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
+            _ => {},
+        };
         apply2(&mut sudoku, &mut checker, [5, 2], StdVal(8));
         assert_contradiction(checker.check(&sudoku, &mut grid), "BOX_CONFLICT");
     }

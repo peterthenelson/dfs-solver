@@ -80,6 +80,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     givens: Vec<(Index, V)>,
     check_result: ConstraintResult<V>,
     decision_grid: Option<DecisionGrid<V>>,
+    next_decision: Option<BranchPoint<V>>,
     stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
     manual_attr: Attribution<WithId>,
@@ -184,6 +185,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             check_result: ConstraintResult::Ok,
             givens,
             decision_grid: None,
+            next_decision: None,
             stack: Vec::new(),
             backtracked_steps: None,
             manual_attr: Attribution::new(MANUAL_ATTRIBUTION).unwrap(),
@@ -192,7 +194,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         }
     }
 
-    fn check(&mut self) {
+    fn check_and_rank(&mut self) {
         let mut grid = DecisionGrid::full(S::ROWS, S::COLS);
         for r in 0..S::ROWS {
             for c in 0..S::COLS {
@@ -202,12 +204,23 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             }
         }
         self.check_result = self.constraint.check(self.puzzle, &mut grid);
-        if self.check_result.is_ok() {
+        let early_exit = if let ConstraintResult::Ok = self.check_result {
             self.check_result = self.ranker.to_constraint_result(&grid, self.puzzle);
-            self.decision_grid = Some(grid);
+            self.ranker.annotate(&mut grid, self.puzzle);
+            false
         } else {
-            self.decision_grid = None;
-        }
+            true
+        };
+        self.next_decision = match &self.check_result {
+            ConstraintResult::Contradiction(_) => None,
+            ConstraintResult::Certainty(d, a) => {
+                Some(BranchPoint::unique(self.step+1, *a, d.index, d.value))
+            },
+            ConstraintResult::Ok => {
+                Some(self.ranker.top(self.step+1, &grid, self.puzzle))
+            },
+        };
+        self.decision_grid = if early_exit { None } else { Some(grid) };
     }
 
     fn apply(&mut self, decision: BranchPoint<V>) -> Result<(), Error> {
@@ -228,7 +241,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         }
         let decision_width = decision.remaining() + 1;
         self.stack.push(decision);
-        self.check();
+        self.check_and_rank();
         self.state = if self.is_valid() {
             DfsSolverState::Advancing(AdvancingState {
                 possibilities: decision_width,
@@ -247,16 +260,6 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             return Err(e);
         }
         self.constraint.undo(i, v)
-    }
-
-    fn suggest(&mut self) -> BranchPoint<V> {
-        if let ConstraintResult::Certainty(d, a) = &self.check_result {
-            return BranchPoint::unique(self.step, *a, d.index, d.value);
-        }
-        let g = self.decision_grid.as_mut().expect("Suggest called when no grid available!");
-        let mut bp = self.ranker.top(g, self.puzzle);
-        bp.branch_step = self.step;
-        bp
     }
 
     /// The stack of BranchPoints
@@ -295,7 +298,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         if decision.retreat() {
             self.apply(decision)?;
         } else {
-            self.check();
+            self.check_and_rank();
             let decision_width = match self.stack.last() {
                 Some(d) => d.remaining() + 1,
                 None => 0,
@@ -316,6 +319,11 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.step += 1;
         match self.state {
             DfsSolverState::Initializing(state) => {
+                // Make sure that check_and_rank gets called once regardless
+                // of whether there are any actual givens to fill in.
+                if state.last_filled.is_none() {
+                    self.check_and_rank();
+                }
                 if state.next_given_index < self.givens.len() {
                     let (i, v) = self.givens[state.next_given_index];
                     self.puzzle.apply(i, v)?;
@@ -323,7 +331,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
                         self.puzzle.undo(i, v)?;
                         return Err(e);
                     }
-                    self.check();
+                    self.check_and_rank();
                     self.state = if self.is_valid() {
                         DfsSolverState::Initializing(InitializingState {
                             last_filled: Some(i),
@@ -337,7 +345,6 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
                         possibilities: 0,
                         step: self.step,
                     });
-                    self.check();
                     if self.decision_grid.is_none() {
                         self.decision_grid = Some(DecisionGrid::full(S::ROWS, S::COLS));
                     }
@@ -349,9 +356,9 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             DfsSolverState::Exhausted => Err(PUZZLE_ALREADY_DONE),
             DfsSolverState::Advancing(_) => {
                 // Take a new action
-                let decision = self.suggest();
+                let decision = self.next_decision.as_ref().unwrap();
                 if decision.chosen().is_some() {
-                    self.apply(decision)?;
+                    self.apply(decision.clone())?;
                 } else {
                     self.state = DfsSolverState::Solved;
                 }

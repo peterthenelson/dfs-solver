@@ -576,15 +576,6 @@ pub enum ConstraintResult<V: Value> {
     Ok,
 }
 
-impl <V: Value> ConstraintResult<V> {
-    pub fn is_ok(&self) -> bool {
-        match self {
-            ConstraintResult::Ok => true,
-            _ => false,
-        }
-    }
-}
-
 /// When choosing to branch, we can either try all the possible values for a
 /// particular cell, or we can try all possible cells for a particular value.
 #[derive(Debug, Clone)]

@@ -1,5 +1,5 @@
 use variant_sudoku::core::{FeatureVec, State};
-use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
+use variant_sudoku::ranker::StdRanker;
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, NineStdOverlay, NineStdVal, StdChecker};
@@ -52,12 +52,11 @@ impl PuzzleSetter for DoubleDown {
             CageChecker::new(cages),
             XSumChecker::new(xsums),
         ]);
-        let ranker = StdRanker::new(true, FeatureVec::from_pairs(vec![
-            (NUM_POSSIBLE_FEATURE, -100.0),
-            (XSUM_TAIL_FEATURE, 10.0),
+        let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![
+            (XSUM_TAIL_FEATURE, 100.0),
             (XSUM_HEAD_FEATURE, 5.0),
             (CAGE_FEATURE, 1.0)
-        ]), |_, x, y| x+y);
+        ]));
         (puzzle, ranker, constraint)
     }
 }

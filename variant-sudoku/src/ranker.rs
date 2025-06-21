@@ -9,11 +9,16 @@ use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribu
 /// branch point, but the StdRanker does not do so, and the DecisionGrid doesn't
 /// provide useful guidance to base such a decision on.
 pub trait Ranker<V: Value, O: Overlay, S: State<V, O>> {
-    // Note: the ranker must not suggest already filled cells.
-    fn top(&self, grid: &mut DecisionGrid<V>, puzzle: &S) -> BranchPoint<V>;
+    fn annotate(&self, grid: &mut DecisionGrid<V>, puzzle: &S);
 
-    // Score for a particular feature vec. Exposed for debugging reasons.
-    fn score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
+    // Note: the ranker must not suggest already filled cells.
+    fn top(&self, step: usize, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V>;
+
+    // Score for a particular feature vec for a cell. Exposed for debugging reasons.
+    fn cell_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
+
+    // Score for a particular feature vec for a val. Exposed for debugging reasons.
+    fn val_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
 
     // Collapse a DecisionGrid into a ConstraintResult, returning any Certainty
     // or Contradiction that is present. This must be compatible with top() --
@@ -41,7 +46,8 @@ pub struct RankerRegionInfo<V: Value> {
     p_v_: PhantomData<V>,
 }
 
-pub const NUM_POSSIBLE_FEATURE: &str = "NUM_POSSIBLE";
+pub const DG_CELL_POSSIBLE_FEATURE: &str = "DG_CELL_POSSIBLE";
+pub const DG_VAL_POSSIBLE_FEATURE: &str = "DG_VAL_POSSIBLE";
 pub const DG_EMPTY_ATTRIBUTION: &str = "DG_EMPTY";
 pub const DG_TOP_CELL_ATTRIBUTION: &str = "DG_CELL_TOP";
 pub const DG_NO_VALS_ATTRIBUTION: &str = "DG_CELL_NO_VALS";
@@ -57,8 +63,10 @@ pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
 /// a region.
 pub struct StdRanker {
     positive_constraint: bool,
-    weights: FeatureVec<FVNormed>,
-    num_possible: FeatureKey<WithId>,
+    cell_weights: FeatureVec<FVNormed>,
+    val_weights: FeatureVec<FVNormed>,
+    cell_possible: FeatureKey<WithId>,
+    val_possible: FeatureKey<WithId>,
     combinator: fn (usize, f64, f64) -> f64,
     empty_attr: Attribution<WithId>,
     top_cell_attr: Attribution<WithId>,
@@ -81,13 +89,17 @@ impl <V: Value> RankerRegionInfo<V> {
 }
 
 impl StdRanker {
-    pub fn new(positive_constraint: bool, feature_weights: FeatureVec<FVMaybeNormed>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
-        let mut weights = feature_weights.clone();
-        weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
+    pub fn new(positive_constraint: bool, cell_weights: FeatureVec<FVMaybeNormed>, val_weights: FeatureVec<FVMaybeNormed>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
+        let mut cell_weights = cell_weights.clone();
+        cell_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
+        let mut val_weights = val_weights.clone();
+        val_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
         StdRanker {
             positive_constraint,
-            weights: weights.try_normalized().unwrap().clone(),
-            num_possible: FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(),
+            cell_weights: cell_weights.try_normalized().unwrap().clone(),
+            val_weights: val_weights.try_normalized().unwrap().clone(),
+            cell_possible: FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(),
+            val_possible: FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(),
             combinator: combine_features,
             empty_attr: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
             top_cell_attr: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
@@ -99,20 +111,35 @@ impl StdRanker {
         }
     }
 
-    // {NUM_POSSIBLE: -100} I.e., highly prioritize cells with the fewest
-    // possible values. Default behavior for combining features in feature
-    // vectors is to take the maximum.
+    // Like the default but extended with additional weights.
+    pub fn with_additional_weights(weights: FeatureVec<FVMaybeNormed>) -> Self {
+        let mut cell_weights = FeatureVec::new();
+        cell_weights.add(&FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.extend(&weights);
+        let mut val_weights = FeatureVec::new();
+        val_weights.add(&FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.extend(&weights);
+        Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
+    }
+
+    // {DB_CELL_POSSIBLE: -10, DB_VAL_POSSIBLE: -10} I.e., highly prioritize
+    // cells/values with the fewest possible values/cells. Default behavior for
+    // combining features in feature vectors is to take the maximum.
     pub fn default() -> Self {
-        let mut weights = FeatureVec::new();
-        weights.add(&FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(), -100.0);
-        Self::new(true, weights, |_, a, b| f64::max(a, b))
+        let mut cell_weights = FeatureVec::new();
+        cell_weights.add(&FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        let mut val_weights = FeatureVec::new();
+        val_weights.add(&FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
     // Same as default but with no positive constraint.
     pub fn default_negative() -> Self {
-        let mut weights = FeatureVec::new();
-        weights.add(&FeatureKey::new(NUM_POSSIBLE_FEATURE).unwrap(), -100.0);
-        Self::new(false, weights, |_, a, b| f64::max(a, b))
+        let mut cell_weights = FeatureVec::new();
+        cell_weights.add(&FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        let mut val_weights = FeatureVec::new();
+        val_weights.add(&FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        Self::new(false, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 }
 
@@ -122,9 +149,7 @@ enum SRChoice<V: Value> {
 }
 
 impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
-    fn top(&self, grid: &mut DecisionGrid<V>, puzzle: &S) -> BranchPoint<V> {
-        let mut top_choice = None;
-        let mut top_score: f64 = 0.0;
+    fn annotate(&self, grid: &mut DecisionGrid<V>, puzzle: &S) {
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_some() {
@@ -132,13 +157,29 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
                 }
                 let g = grid.get_mut([r, c]);
                 let fv = &mut g.1;
-                fv.add(&self.num_possible, g.0.len() as f64);
-                let score = <Self as Ranker<V, O, S>>::score(self, fv);
-                if top_choice.is_none() || score > top_score {
+                fv.add(&self.cell_possible, g.0.len() as f64);
+            }
+        }
+    }
+
+    fn top(&self, step: usize, grid: &DecisionGrid<V>, puzzle: &S) -> BranchPoint<V> {
+        let mut top_choice = None;
+        let mut top_score: f64 = f64::MIN;
+        for r in 0..grid.rows() {
+            for c in 0..grid.cols() {
+                if puzzle.get([r, c]).is_some() {
+                    continue;
+                }
+                let mut fv = grid.get([r, c]).1.clone();
+                let score = <Self as Ranker<V, O, S>>::cell_score(self, &mut fv);
+                if score > top_score {
                     top_score = score;
                     top_choice = Some(SRChoice::Cell([r, c]));
                 }
             }
+        }
+        if top_choice.is_none() {
+            return BranchPoint::empty(step, self.empty_attr);
         }
         let overlay = puzzle.overlay();
         for dim in 0..overlay.partition_dimension() {
@@ -149,8 +190,9 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
                         if info.filled.contains(uv) {
                             continue;
                         }
-                        let score = <Self as Ranker<V, O, S>>::score(
-                            self, info.feature_vecs.get_mut(uv),
+                        let score = <Self as Ranker<V, O, S>>::val_score(
+                            self,
+                            info.feature_vecs.get_mut(uv),
                         );
                         if top_choice.is_none() || score > top_score {
                             top_score = score;
@@ -162,17 +204,21 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
         }
         match top_choice {
             Some(SRChoice::Cell(index)) => {
-                BranchPoint::for_cell(0, self.top_cell_attr, index, unpack_values::<V>(&grid.get(index).0))
+                BranchPoint::for_cell(step, self.top_cell_attr, index, unpack_values::<V>(&grid.get(index).0))
             },
             Some(SRChoice::ValueInRegion(val, alternatives)) => {
-                BranchPoint::for_value(0, self.top_val_attr, val, alternatives)
+                BranchPoint::for_value(step, self.top_val_attr, val, alternatives)
             },
-            None => BranchPoint::empty(0, self.empty_attr),
+            _ => panic!("Should be unreachable!"),
         }
     }
 
-    fn score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64 {
-        fv.normalize_and(self.combinator).dot_product(&self.weights)
+    fn cell_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64 {
+        fv.normalize_and(self.combinator).dot_product(&self.cell_weights)
+    }
+
+    fn val_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64 {
+        fv.normalize_and(self.combinator).dot_product(&self.val_weights)
     }
 
     fn to_constraint_result(&self, grid: &DecisionGrid<V>, puzzle: &S) -> ConstraintResult<V> {
@@ -248,7 +294,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> Ranker<V, O, S> for StdRanker {
             // 1/alternatives? Otherwise we're implicitly overweighting
             // towards choosing a ::ValueInRegion over a ::Cell.
             info.feature_vecs.get_mut(uv).add(
-                &self.num_possible,
+                &self.val_possible,
                 info.cell_choices.get(uv).len() as f64,
             );
         }

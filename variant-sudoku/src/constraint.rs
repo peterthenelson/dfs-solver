@@ -303,7 +303,10 @@ mod test {
         let constraint2 = Mod(3, 0);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
         let mut grid = OneDim::<3>::full_dg();
-        assert!(conjunction.check(&puzzle, &mut grid).is_ok());
+        match conjunction.check(&puzzle, &mut grid) {
+            ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
+            _ => {},
+        };
         assert_eq!(unpack_set(&grid, [0, 0]), vec![3, 9]);
         assert_eq!(unpack_set(&grid, [0, 1]), vec![3, 9]);
         assert_eq!(unpack_set(&grid, [0, 2]), vec![3, 9]);
@@ -316,7 +319,10 @@ mod test {
             Mod(2, 1), Mod(3, 0)
         ]);
         let mut grid = OneDim::<3>::full_dg();
-        assert!(constraint.check(&puzzle, &mut grid).is_ok());
+        match constraint.check(&puzzle, &mut grid) {
+            ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
+            _ => {},
+        };
         assert_eq!(unpack_set(&grid, [0, 0]), vec![3, 9]);
         assert_eq!(unpack_set(&grid, [0, 1]), vec![3, 9]);
         assert_eq!(unpack_set(&grid, [0, 2]), vec![3, 9]);

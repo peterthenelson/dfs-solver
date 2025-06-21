@@ -1,7 +1,7 @@
 use variant_sudoku::core::{FeatureVec, State};
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker};
 use variant_sudoku::magic_squares::{MagicSquare, MagicSquareChecker, MS_FEATURE};
-use variant_sudoku::ranker::{StdRanker, NUM_POSSIBLE_FEATURE};
+use variant_sudoku::ranker::StdRanker;
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, NineStdOverlay, NineStdVal, StdChecker};
@@ -52,11 +52,10 @@ impl PuzzleSetter for DutchMagic {
             DutchWhisperChecker::new(whispers),
             MagicSquareChecker::new(squares),
         ]);
-        let ranker = StdRanker::new(true, FeatureVec::from_pairs(vec![
-            (NUM_POSSIBLE_FEATURE, -100.0),
+        let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![
             (CAGE_FEATURE, 1.0),
             (MS_FEATURE, 1.0),
-        ]), |_, x, y| x+y);
+        ]));
         (puzzle, ranker, constraint)
     }
 }
