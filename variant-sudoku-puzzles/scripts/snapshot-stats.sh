@@ -10,3 +10,4 @@ for puzzle in variant-sudoku-puzzles/src/bin/*.rs; do
   cargo run --release --bin $puzzle 1>> "figures/$hash/summary.txt"
   mv "figures/$puzzle.png" "figures/$hash"
 done
+echo "$hash"
