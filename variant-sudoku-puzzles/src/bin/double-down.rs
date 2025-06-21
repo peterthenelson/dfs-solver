@@ -17,6 +17,8 @@ impl PuzzleSetter for DoubleDown {
     type Ranker = StdRanker;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
 
+    fn name() -> Option<String> { Some("double-down".into()) }
+
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // Real puzzle has no givens
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
@@ -62,7 +64,7 @@ impl PuzzleSetter for DoubleDown {
 }
 
 pub fn main() {
-    solve_main::<DoubleDown, NineStdTui<_>>("figures/double-down.png");
+    solve_main::<DoubleDown, NineStdTui<_>>();
 }
 
 #[cfg(test)]

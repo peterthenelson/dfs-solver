@@ -18,6 +18,8 @@ impl PuzzleSetter for DutchMagic {
     type Ranker = StdRanker;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
 
+    fn name() -> Option<String> { Some("dutch-magic".into()) }
+
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
@@ -61,7 +63,7 @@ impl PuzzleSetter for DutchMagic {
 }
 
 pub fn main() {
-    solve_main::<DutchMagic, NineStdTui<DutchMagic>>("figures/dutch-magic.png");
+    solve_main::<DutchMagic, NineStdTui<DutchMagic>>();
 }
 
 #[cfg(test)]

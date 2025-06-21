@@ -45,14 +45,20 @@ pub fn solve_interactive<P: PuzzleSetter, T: Tui<P>>() -> io::Result<()> {
 ///    --sample_every=10000 <-- Sample::every_n(10000)
 ///  - Can run in interactive mode instead:
 ///    --interactive
-pub fn solve_main<P: PuzzleSetter, T: Tui<P>>(stats_file: &str) {
+pub fn solve_main<P: PuzzleSetter, T: Tui<P>>() {
     let flag = parse_main_args();
     if let MainFlags::Interactive = &flag {
         solve_interactive::<P, T>().unwrap();
         return;
     }
     let mut dbg = DbgObserver::new();
-    dbg.sample_stats(stats_file, Sample::time(Duration::from_secs(30)));
+    if let Some(name) = P::name() {
+        let figure = format!("figures/{}.png", name);
+        let json = format!("figures/{}.json", name);
+        dbg.sample_stats(figure, json, Sample::time(Duration::from_secs(30)));
+    } else {
+        println!("Warning: Puzzle does not have a name; no stats will be saved.")
+    }
     match flag {
         MainFlags::Default => {
             dbg.sample_print(Sample::never());

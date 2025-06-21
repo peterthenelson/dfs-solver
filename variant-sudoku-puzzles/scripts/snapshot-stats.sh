@@ -48,4 +48,5 @@ for puzzle in variant-sudoku-puzzles/src/bin/*.rs; do
   puzzle=$(basename "$puzzle" .rs)
   cargo run --release --bin "$puzzle" 1>> "figures/$hash/summary.txt"
   mv "figures/$puzzle.png" "figures/$hash"
+  mv "figures/$puzzle.json" "figures/$hash"
 done

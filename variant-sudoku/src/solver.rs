@@ -550,6 +550,7 @@ pub trait PuzzleSetter {
     type Ranker: Ranker<Self::Value, Self::Overlay, Self::State>;
     type Constraint: Constraint<Self::Value, Self::Overlay, Self::State>;
 
+    fn name() -> Option<String> { None }
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint);
     // Useful for testing: setup the state with a different set of givens.
     fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint);

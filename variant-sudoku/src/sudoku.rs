@@ -739,7 +739,7 @@ mod test {
     #[test]
     fn test_stdval_set() {
         let mut mostly_empty = empty_set::<StdVal<3, 9>>();
-        assert_eq!(unpack_stdval_vals::<3, 9>(&mostly_empty), vec![]);
+        assert_eq!(unpack_stdval_vals::<3, 9>(&mostly_empty), Vec::<u8>::new());
         mostly_empty.insert(StdVal::<3, 9>::new(4).to_uval());
         assert_eq!(unpack_stdval_vals::<3, 9>(&mostly_empty), vec![4]);
         let mut mostly_full = full_set::<StdVal<3, 9>>();

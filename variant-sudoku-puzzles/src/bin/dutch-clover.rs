@@ -16,6 +16,7 @@ impl PuzzleSetter for DutchClover {
     type Ranker = StdRanker;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
     
+    fn name() -> Option<String> { Some("dutch-clover".into()) }
 
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
@@ -52,7 +53,7 @@ impl PuzzleSetter for DutchClover {
 }
 
 pub fn main() {
-    solve_main::<DutchClover, NineStdTui<DutchClover>>("figures/dutch-clover.png");
+    solve_main::<DutchClover, NineStdTui<DutchClover>>();
 }
 
 #[cfg(test)]

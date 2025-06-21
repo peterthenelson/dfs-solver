@@ -1,8 +1,9 @@
-use std::{collections::HashMap, time::{Duration, SystemTime}};
+use std::{collections::HashMap, fs::File, io::Write, time::{Duration, SystemTime}};
 use rand::{distr::{Bernoulli, Distribution}, rng, rngs::ThreadRng};
 use crate::{constraint::Constraint, core::{ConstraintResult, Overlay, State, Value}, ranker::Ranker};
 use crate::solver::{DfsSolverState, DfsSolverView, StepObserver};
 use plotters::{chart::ChartBuilder, coord::Shift, prelude::{BitMapBackend, Circle, DrawResult, DrawingArea, DrawingBackend, IntoDrawingArea, IntoLogRange, IntoSegmentedCoord, MultiLineText, Rectangle, SegmentValue}, style::{Color, IntoFont, BLUE, RED, WHITE}};
+use serde_json::json;
 
 pub struct NullObserver;
 
@@ -147,6 +148,17 @@ impl Histogram {
         let median = (median_lo.unwrap_or(0) as f32 + median_hi.unwrap_or(0) as f32)/2.0;
         Histogram { value_counts: value_to_count.clone(), total, count, max, max_count, mean, median }
     }
+
+    fn json_summary(&self) -> serde_json::Value {
+        json!({
+            "total": self.total,
+            "count": self.count,
+            "max": self.max,
+            "max_count": self.max_count,
+            "mean": self.mean,
+            "median": self.median,
+        })
+    }
 }
 
 enum SampleState {
@@ -220,14 +232,14 @@ impl Sample {
 pub struct DbgObserver<V: Value, O: Overlay, S: State<V, O>> {
     timer: TimerState,
     print_sample: Sample,
-    stat: Option<(String, Sample)>,
+    stat: Option<(String, String, Sample)>,
     certainty_streak: usize,
-    certainty_hist: HashMap<usize, usize>,
-    advance_hist: HashMap<usize, usize>,
-    width_hist: HashMap<usize, usize>,
-    backtrack_hist: HashMap<usize, usize>,
-    backtrack_delay_hist: HashMap<usize, usize>,
-    filled_hist: HashMap<usize, usize>,
+    certainty_streak_hist: HashMap<usize, usize>,
+    advance_streak_hist: HashMap<usize, usize>,
+    decision_width_hist: HashMap<usize, usize>,
+    backtrack_streak_hist: HashMap<usize, usize>,
+    mistake_delay_hist: HashMap<usize, usize>,
+    n_filled_hist: HashMap<usize, usize>,
     prev_state: Option<DfsSolverState>,
     streak: usize,
     steps: usize,
@@ -241,12 +253,12 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
             print_sample: Sample::every_n(1),
             stat: None,
             certainty_streak: 0,
-            certainty_hist: HashMap::new(),
-            advance_hist: HashMap::new(),
-            width_hist: HashMap::new(),
-            backtrack_hist: HashMap::new(),
-            backtrack_delay_hist: HashMap::new(),
-            filled_hist: HashMap::new(),
+            certainty_streak_hist: HashMap::new(),
+            advance_streak_hist: HashMap::new(),
+            decision_width_hist: HashMap::new(),
+            backtrack_streak_hist: HashMap::new(),
+            mistake_delay_hist: HashMap::new(),
+            n_filled_hist: HashMap::new(),
             prev_state: None,
             streak: 0,
             steps: 0,
@@ -259,8 +271,8 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         self
     }
 
-    pub fn sample_stats<Str: Into<String>>(&mut self, filename: Str, sample: Sample) -> &mut Self {
-        self.stat = Some((filename.into(), sample));
+    pub fn sample_stats<Str: Into<String>>(&mut self, figure_file: Str, json_file: Str, sample: Sample) -> &mut Self {
+        self.stat = Some((figure_file.into(), json_file.into(), sample));
         self
     }
 
@@ -272,8 +284,8 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
                 } else {
                     self.streak = 1;
                 }
-                *self.advance_hist.entry(self.streak).or_default() += 1;
-                *self.width_hist.entry(state.possibilities).or_default() += 1;
+                *self.advance_streak_hist.entry(self.streak).or_default() += 1;
+                *self.decision_width_hist.entry(state.possibilities).or_default() += 1;
                 if let ConstraintResult::Certainty(_, _) = solver.constraint_result() {
                     self.certainty_streak += 1;
                 }
@@ -284,15 +296,15 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
                 } else {
                     self.streak = 1;
                 }
-                *self.backtrack_hist.entry(self.streak).or_default() += 1;
+                *self.backtrack_streak_hist.entry(self.streak).or_default() += 1;
                 if self.certainty_streak > 0 {
-                    *self.certainty_hist.entry(self.certainty_streak).or_default() += 1;
+                    *self.certainty_streak_hist.entry(self.certainty_streak).or_default() += 1;
                     self.certainty_streak = 0
                 }
             },
             DfsSolverState::Solved => {
                 if self.certainty_streak > 0 {
-                    *self.certainty_hist.entry(self.certainty_streak + 1).or_default() += 1;
+                    *self.certainty_streak_hist.entry(self.certainty_streak + 1).or_default() += 1;
                     self.certainty_streak = 0;
                 }
             },
@@ -300,7 +312,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         }
         self.prev_state = Some(solver.solver_state());
         if let Some(backtracked_steps) = solver.backtracked_steps() {
-            *self.backtrack_delay_hist.entry(backtracked_steps).or_default() += 1;
+            *self.mistake_delay_hist.entry(backtracked_steps).or_default() += 1;
         }
         let mut filled = 0;
         for r in 0..S::ROWS {
@@ -310,8 +322,26 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
                 }
             }
         }
-        *self.filled_hist.entry(filled).or_default() += 1;
+        *self.n_filled_hist.entry(filled).or_default() += 1;
         self.steps += 1;
+    }
+
+    fn stats_json(&self, json_filename: &str) -> Result<(), std::io::Error> {
+        let stats = json!({
+            "steps": self.steps,
+            "seconds": self.timer.to_duration().as_secs_f64(),
+            // TODO
+            "decision_width": Histogram::from_value_counts(&self.decision_width_hist).json_summary(),
+            "n_filled": Histogram::from_value_counts(&self.n_filled_hist).json_summary(),
+            "advance_streak": Histogram::from_value_counts(&self.advance_streak_hist).json_summary(),
+            "certainty_streak": Histogram::from_value_counts(&self.certainty_streak_hist).json_summary(),
+            "backtrack_streak": Histogram::from_value_counts(&self.backtrack_streak_hist).json_summary(),
+            "mistake_delay": Histogram::from_value_counts(&self.mistake_delay_hist).json_summary(),
+        });
+        let mut f = File::create(json_filename)?;
+        let json_data = serde_json::to_string_pretty(&stats)?;
+        f.write_all(json_data.as_bytes())?;
+        Ok(())
     }
 
     fn stats_figure<'a, DB: DrawingBackend>(&self, area: &DrawingArea<DB, Shift>) -> DrawResult<(), DB> {
@@ -325,12 +355,12 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         top.draw(&top_caption)?;
         let areas = bottom.split_evenly((3, 2));
         for (i, caption, value_counts, bar_margin) in vec![
-            (0, "Num. choices at each advance", &self.width_hist, 5),
-            (1, "Num. steps with N filled-in cells", &self.filled_hist, 0),
-            (2, "Advance streaks", &self.advance_hist, 1),
-            (3, "Certainty streaks", &self.certainty_hist, 1),
-            (4, "Backtrack streaks", &self.backtrack_hist, 1),
-            (5, "Misstep/backtrack delay", &self.backtrack_delay_hist, 1),
+            (0, "Num. choices at each advance", &self.decision_width_hist, 5),
+            (1, "Num. steps with N filled-in cells", &self.n_filled_hist, 0),
+            (2, "Advance streaks", &self.advance_streak_hist, 1),
+            (3, "Certainty streaks", &self.certainty_streak_hist, 1),
+            (4, "Backtrack streaks", &self.backtrack_streak_hist, 1),
+            (5, "Mistake/backtrack delay", &self.mistake_delay_hist, 1),
         ] {
             let hist = Histogram::from_value_counts(&value_counts);
             let (upper, lower) = areas[i].split_vertically(areas[i].relative_to_height(0.18));
@@ -348,15 +378,19 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         Ok(())
     }
 
-    pub fn dump_stats(&self, hist_filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn dump_stats(&self, figure_filename: &str, json_filename: &str) -> Result<(), Box<dyn std::error::Error>> {
         print!("Steps: {}\n", self.steps);
         print!("Time elapsed: {}\n", self.timer.to_duration().as_secs_f64());
-        let n_decisions = self.width_hist.iter().fold(0, |n, (_, count)| n+count);
-        let total_choices = self.width_hist.iter().fold(0, |n, (w, count)| n+w*count);
-        print!("Average Decision Width: {}\n", (total_choices as f64)/(n_decisions as f64));
-        let area = BitMapBackend::new(hist_filename, (800, 1000)).into_drawing_area();
-        self.stats_figure(&area).map_err(|e| {
-            Box::new(e) as Box<dyn std::error::Error>
+        let dw = Histogram::from_value_counts(&self.decision_width_hist);
+        print!("Average Decision Width: {}\n", dw.mean);
+        let area = BitMapBackend::new(figure_filename, (800, 1000)).into_drawing_area();
+        self.stats_json(json_filename).map_err(|s| {
+            let e: Box<dyn std::error::Error> = s.into();
+            e
+        })?;
+        self.stats_figure(&area).map_err(|de| {
+            let e: Box<dyn std::error::Error> = Box::new(de);
+            e
         })
     }
 
@@ -407,10 +441,10 @@ StepObserver<V, O, S, R, C> for DbgObserver<V, O, S> {
         if self.print_sample.sample(solver) {
             self.print(solver);
         }
-        if let Some((f, s)) = &mut self.stat {
-            let filename = f.clone();
+        if let Some((f, j, s)) = &mut self.stat {
+            let (figure_filename, json_filename) = (f.clone(), j.clone());
             if s.sample(solver) {
-                self.dump_stats(&filename)
+                self.dump_stats(&figure_filename, &json_filename)
                     .unwrap_or_else(|e| {
                         eprintln!("Failed to dump stats: {}\n", e)
                     });

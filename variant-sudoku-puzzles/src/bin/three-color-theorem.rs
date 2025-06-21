@@ -17,6 +17,8 @@ impl PuzzleSetter for ThreeColorTheorem {
     type Ranker = StdRanker;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
 
+    fn name() -> Option<String> { Some("three-color-theorem".into()) }
+
     fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
@@ -95,7 +97,7 @@ impl PuzzleSetter for ThreeColorTheorem {
 }
 
 pub fn main() {
-    solve_main::<ThreeColorTheorem, NineStdTui<ThreeColorTheorem>>("figures/three-color-theorem.png");
+    solve_main::<ThreeColorTheorem, NineStdTui<ThreeColorTheorem>>();
 }
 
 #[cfg(test)]
