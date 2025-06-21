@@ -149,7 +149,7 @@ impl Histogram {
         let count = val_counts.iter().fold(0, |n, (_, c)| n + c);
         let max = val_counts.iter().fold(0, |n, (v, _)| std::cmp::max(*v, n));
         let max_count = val_counts.iter().fold(0, |n, (_, c)| std::cmp::max(*c, n));
-        let mean = (total as f32)/(count as f32);
+        let mean = if count > 0 { (total as f32)/(count as f32) } else { 0.0 };
         let median_lo_index = (count - 1) / 2;
         let median_hi_index = count / 2;
         let mut median_lo = None;
