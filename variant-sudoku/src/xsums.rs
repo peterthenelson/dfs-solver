@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::core::{empty_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, State, Stateful, Value, WithId};
+use crate::core::{empty_set, ConstraintResult, DecisionGrid, Error, Key, Index, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
 use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdState, StdVal};
 
@@ -194,13 +194,13 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     xsums_empty: Vec<Option<i16>>,
     // To calculate remaining and empty when a length cell becomes known.
     grid: Vec<Option<StdVal<MIN, MAX>>>,
-    xsum_head_feature: FeatureKey<WithId>,
-    xsum_ln_possibilities_feature: FeatureKey<WithId>,
-    xsum_tail_feature: FeatureKey<WithId>,
-    xsum_sum_over_attr: Attribution<WithId>,
-    xsum_sum_bad_attr: Attribution<WithId>,
-    xsum_sum_if_attr: Attribution<WithId>,
-    xsum_len_if_attr: Attribution<WithId>,
+    xsum_head_feature: Key<WithId>,
+    xsum_ln_possibilities_feature: Key<WithId>,
+    xsum_tail_feature: Key<WithId>,
+    xsum_sum_over_attr: Key<WithId>,
+    xsum_sum_bad_attr: Key<WithId>,
+    xsum_sum_if_attr: Key<WithId>,
+    xsum_len_if_attr: Key<WithId>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
@@ -210,13 +210,13 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
         let grid = vec![None; N * M];
         XSumChecker {
             xsums, xsums_remaining, xsums_empty, grid,
-            xsum_head_feature: FeatureKey::new(XSUM_HEAD_FEATURE).unwrap(),
-            xsum_ln_possibilities_feature: FeatureKey::new(XSUM_LN_POSSIBILITIES_FEATURE).unwrap(),
-            xsum_tail_feature: FeatureKey::new(XSUM_TAIL_FEATURE).unwrap(),
-            xsum_sum_over_attr: Attribution::new(XSUM_SUM_OVER_ATTRIBUTION).unwrap(),
-            xsum_sum_bad_attr: Attribution::new(XSUM_SUM_BAD_ATTRIBUTION).unwrap(),
-            xsum_sum_if_attr: Attribution::new(XSUM_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
-            xsum_len_if_attr: Attribution::new(XSUM_LEN_INFEASIBLE_ATTRIBUTION).unwrap(),
+            xsum_head_feature: Key::new(XSUM_HEAD_FEATURE).unwrap(),
+            xsum_ln_possibilities_feature: Key::new(XSUM_LN_POSSIBILITIES_FEATURE).unwrap(),
+            xsum_tail_feature: Key::new(XSUM_TAIL_FEATURE).unwrap(),
+            xsum_sum_over_attr: Key::new(XSUM_SUM_OVER_ATTRIBUTION).unwrap(),
+            xsum_sum_bad_attr: Key::new(XSUM_SUM_BAD_ATTRIBUTION).unwrap(),
+            xsum_sum_if_attr: Key::new(XSUM_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
+            xsum_len_if_attr: Key::new(XSUM_LEN_INFEASIBLE_ATTRIBUTION).unwrap(),
         }
     }
 }

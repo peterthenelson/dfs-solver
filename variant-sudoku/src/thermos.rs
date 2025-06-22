@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Debug};
 
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, WithId}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
+use crate::{constraint::Constraint, core::{ConstraintResult, DecisionGrid, Error, Key, Index, Overlay, State, Stateful, WithId}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
 
 // TODO: Add support for slow thermos
 
@@ -74,10 +74,10 @@ pub const THERMO_BULB_FEATURE: &str = "THERMO_BULB";
 pub struct ThermoChecker<const MIN: u8, const MAX: u8> {
     thermos: Vec<Thermo>,
     init_ranges: HashMap<Index, Range<MIN, MAX>>,
-    thermo_feature: FeatureKey<WithId>,
-    thermo_bulb_feature: FeatureKey<WithId>,
-    //thermo_conflict_attr: Attribution<WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
+    thermo_feature: Key<WithId>,
+    thermo_bulb_feature: Key<WithId>,
+    //thermo_conflict_attr: Key<WithId>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Key<WithId>)>,
 }
 
 fn thermo_init<const MIN: u8, const MAX: u8>(thermo: &Thermo) -> Vec<(Index, Range<MIN, MAX>)> {
@@ -135,9 +135,9 @@ impl <const MIN: u8, const MAX: u8> ThermoChecker<MIN, MAX> {
         Self {
             thermos,
             init_ranges,
-            thermo_feature: FeatureKey::new(THERMO_FEATURE).unwrap(),
-            thermo_bulb_feature: FeatureKey::new(THERMO_BULB_FEATURE).unwrap(),
-            //thermo_conflict_attr: Attribution::new(THERMO_CONFLICT_ATTRIBUTION).unwrap(),
+            thermo_feature: Key::new(THERMO_FEATURE).unwrap(),
+            thermo_bulb_feature: Key::new(THERMO_BULB_FEATURE).unwrap(),
+            //thermo_conflict_attr: Key::new(THERMO_CONFLICT_ATTRIBUTION).unwrap(),
             illegal: None,
         }
     }
