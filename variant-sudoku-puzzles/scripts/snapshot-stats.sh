@@ -21,31 +21,31 @@ if [[ $# -gt 0 ]]; then
 fi
 
 git add .
-hash=$(git describe --always --dirty)
-echo "$hash"
-if [[ -d "figures/$hash" ]]; then
+HASH=$(git describe --always --dirty)
+echo "$HASH"
+if [[ -d "figures/$HASH" ]]; then
   case "$EXIST" in
   skip)
-    echo "Stats for $hash already exists; skipping." >&2
+    echo "Stats for $HASH already exists; skipping." >&2
     exit 0
     ;;
   redo)
-    echo "Stats for $hash already exists; redoing." >&2
-    rm figures/$hash/*
+    echo "Stats for $HASH already exists; redoing." >&2
+    rm figures/$HASH/*
     ;;
   *)
-    echo "Stats for $hash already exists!" >&2
+    echo "Stats for $HASH already exists!" >&2
     exit 1
     ;;
   esac
 else
-  mkdir "figures/$hash"
+  mkdir "figures/$HASH"
 fi
-echo "Stats for commit $hash" >> "figures/$hash/summary.txt"
-echo "------------------------" >> "figures/$hash/summary.txt"
+echo "Stats for commit $HASH" >> "figures/$HASH/summary.txt"
+echo "------------------------" >> "figures/$HASH/summary.txt"
 cargo build --release
-for puzzle in $(./variant-sudoku-puzzles/scripts/list-puzzles.sh); do
-  cargo run --release --bin "$puzzle" 1>> "figures/$hash/summary.txt"
-  mv "figures/$puzzle.png" "figures/$hash"
-  mv "figures/$puzzle.json" "figures/$hash"
+for PUZZLE in $(./variant-sudoku-puzzles/scripts/list-puzzles.sh); do
+  cargo run --release --bin "$PUZZLE" 1>> "figures/$HASH/summary.txt"
+  mv "figures/$PUZZLE.png" "figures/$HASH"
+  mv "figures/$PUZZLE.json" "figures/$HASH"
 done
