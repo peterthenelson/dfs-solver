@@ -1,23 +1,28 @@
 set -euo pipefail
 if [[ "$#" -ne 1 ]]; then
-    echo "Usage: $0 <commit-hash>"
-    exit 1
+  echo "Usage: $0 <commit-hash>"
+  exit 1
 fi
+
 EXP="$1"
 if [[ -n "$(git status --porcelain)" ]]; then
-    echo "Error: You have uncommitted changes. Please commit or stash them before running this script."
-    exit 1
+  echo "Error: You have uncommitted changes. Please commit or stash them before running this script."
+  exit 1
 fi
-MSG=$(git log -1 --pretty=format:%s "$EXP")
-echo "Running diff for commit: $MSG"
-BASE=$(git rev-parse "${EXP}^")
 
-HEAD=$(git rev-parse HEAD)
+BRANCH=$(git symbolic-ref --short -q HEAD || echo "DETACHED")
+if [[ "$BRANCH" == "DETACHED" ]]; then
+  echo "Error: Currently in a detached HEAD state. Please return to some branch before running this script."
+  exit 1
+fi
 cleanup() {
-    git checkout "$HEAD" >/dev/null 2>&1
+    git checkout "$BRANCH" >/dev/null 2>&1
 }
 trap cleanup EXIT
 
+MSG=$(git log -1 --pretty=format:%s "$EXP")
+echo "Running diff for commit: $MSG"
+BASE=$(git rev-parse "${EXP}^")
 git checkout "$BASE"
 ID_BASE=$(./variant-sudoku-puzzles/scripts/snapshot-stats.sh --exist_skip)
 git checkout "$EXP"
