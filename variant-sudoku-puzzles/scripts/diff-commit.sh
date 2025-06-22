@@ -12,8 +12,9 @@ MSG=$(git log -1 --pretty=format:%s "$EXP")
 echo "Running diff for commit: $MSG"
 BASE=$(git rev-parse "${EXP}^")
 
+HEAD=$(git rev-parse HEAD)
 cleanup() {
-    git checkout - >/dev/null 2>&1
+    git checkout "$HEAD" >/dev/null 2>&1
 }
 trap cleanup EXIT
 
