@@ -57,7 +57,7 @@ impl PuzzleSetter for DoubleDown {
         let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![
             (XSUM_TAIL_FEATURE, 100.0),
             (XSUM_HEAD_FEATURE, 5.0),
-            //(XSUM_LN_POSSIBILITIES_FEATURE, -1.0),
+            (XSUM_LN_POSSIBILITIES_FEATURE, -1.0),
             (CAGE_FEATURE, 1.0)
         ]));
         (puzzle, ranker, constraint)
