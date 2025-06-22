@@ -274,11 +274,11 @@ pub struct StatsSummary {
     steps: i32,
     seconds: f64,
     decision_width: HistogramSummary,
-    n_filled: HistogramSummary,
-    advance_streak: HistogramSummary,
-    certainty_streak: HistogramSummary,
-    backtrack_streak: HistogramSummary,
     mistake_delay: HistogramSummary,
+    n_filled: HistogramSummary,
+    certainty_streak: HistogramSummary,
+    advance_streak: HistogramSummary,
+    backtrack_streak: HistogramSummary,
 }
 
 impl StatsSummary {
@@ -287,11 +287,11 @@ impl StatsSummary {
             steps: self.steps - base.steps,
             seconds: self.seconds - base.seconds,
             decision_width: self.decision_width.delta_from(&base.decision_width),
-            n_filled: self.n_filled.delta_from(&base.n_filled),
-            advance_streak: self.advance_streak.delta_from(&base.advance_streak),
-            certainty_streak: self.certainty_streak.delta_from(&base.certainty_streak),
-            backtrack_streak: self.backtrack_streak.delta_from(&base.backtrack_streak),
             mistake_delay: self.mistake_delay.delta_from(&base.mistake_delay),
+            n_filled: self.n_filled.delta_from(&base.n_filled),
+            certainty_streak: self.certainty_streak.delta_from(&base.certainty_streak),
+            advance_streak: self.advance_streak.delta_from(&base.advance_streak),
+            backtrack_streak: self.backtrack_streak.delta_from(&base.backtrack_streak),
         }
     }
 }
@@ -395,11 +395,11 @@ impl <V: Value, O: Overlay, S: State<V, O>> DbgObserver<V, O, S> {
         let areas = bottom.split_evenly((3, 2));
         for (i, caption, value_counts, bar_margin) in vec![
             (0, "Num. choices at each advance", &self.decision_width_hist, 5),
-            (1, "Num. steps with N filled-in cells", &self.n_filled_hist, 0),
-            (2, "Advance streaks", &self.advance_streak_hist, 1),
+            (1, "Mistake/backtrack delay", &self.mistake_delay_hist, 1),
+            (2, "Num. steps with N filled-in cells", &self.n_filled_hist, 0),
             (3, "Certainty streaks", &self.certainty_streak_hist, 1),
-            (4, "Backtrack streaks", &self.backtrack_streak_hist, 1),
-            (5, "Mistake/backtrack delay", &self.mistake_delay_hist, 1),
+            (4, "Advance streaks", &self.advance_streak_hist, 1),
+            (5, "Backtrack streaks", &self.backtrack_streak_hist, 1),
         ] {
             let hist = Histogram::from_value_counts(&value_counts);
             let (upper, lower) = areas[i].split_vertically(areas[i].relative_to_height(0.18));

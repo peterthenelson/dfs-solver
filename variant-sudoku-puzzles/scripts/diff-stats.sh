@@ -16,7 +16,7 @@ for puzzle in $(./variant-sudoku-puzzles/scripts/list-puzzles.sh); do
 done
 diff "figures/${ID_BASE}/summary.txt" "figures/${ID_EXP}/summary.txt" \
   > "figures/${ID_BASE}-diff/summary.txt"
-echo "figures/${ID_BASE}-diff/summary.txt" | grep "Steps.*"
+cat "figures/${ID_BASE}-diff/summary.txt" | grep "Steps:.*"
 if [[ -t 0 ]]; then
   echo "Press any key to exit..."
   read -n 1 -s
