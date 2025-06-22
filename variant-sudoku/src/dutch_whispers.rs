@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
 use crate::core::{full_set, singleton_set, unpack_singleton, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
-use crate::index_util::expand_polyline;
+use crate::index_util::{check_adjacent, expand_polyline};
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay, StdState};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
 
@@ -34,23 +34,10 @@ impl <'a, O: Overlay> DutchWhisperBuilder<'a, O> {
         let mut has_mutual_visibility = vec![false; cells.len()];
         for (i, &cell) in cells.iter().enumerate() {
             if i > 0 {
-                let prev = cells[i - 1];
-                let diff = (cell[0].abs_diff(prev[0]), cell[1].abs_diff(prev[1]));
-                if diff != (0, 1) && diff != (1, 0) && diff != (1, 1) {
-                    panic!("Cells {:?} and {:?} are not adjacent", cell, prev);
-                }
-            }
-            if i < cells.len() - 1{
-                let next = cells[i + 1];
-                let diff = (cell[0].abs_diff(next[0]), cell[1].abs_diff(next[1]));
-                if diff != (0, 1) && diff != (1, 0) && diff != (1, 1) {
-                    panic!("Cells {:?} and {:?} are not adjacent", cell, next);
-                }
+                check_adjacent(cells[i - 1], cell).unwrap();
             }
             if i > 0 && i < cells.len() - 1 {
-                let prev = cells[i - 1];
-                let next = cells[i + 1];
-                has_mutual_visibility[i] = self.0.mutually_visible(prev, next);
+                has_mutual_visibility[i] = self.0.mutually_visible(cells[i - 1], cells[i + 1]);
             }
         }
         DutchWhisper {

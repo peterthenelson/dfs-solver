@@ -251,6 +251,14 @@ pub fn unpack_singleton<V: Value>(s: &UVSet<V::U>) -> Option<V> {
     }
 }
 
+pub fn unpack_first<V: Value>(s: &UVSet<V::U>) -> Option<V> {
+    s.iter().next().map(|uv| to_value::<V>(uv))
+}
+
+pub fn unpack_last<V: Value>(s: &UVSet<V::U>) -> Option<V> {
+    s.iter().last().map(|uv| to_value::<V>(uv))
+}
+
 impl <U: UInt> UVSet<U> {
     pub fn insert(&mut self, value: UVal<U, UVWrapped>) {
         self.s.insert(value.unwrap().value().as_usize());
@@ -295,6 +303,7 @@ impl <U: UInt> UVSet<U> {
         u.s.union_with(&other.s);
         u
     }
+
 }
 
 struct ConstStringRegistry {
