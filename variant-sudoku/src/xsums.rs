@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::core::{empty_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
-use crate::sudoku::{stdval_sum_bound, StdState, StdVal, StdOverlay};
+use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdState, StdVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum XSumDirection {
@@ -179,6 +179,7 @@ XSum<MIN, MAX, N, M> {
 }
 
 pub const XSUM_HEAD_FEATURE: &str = "XSUM_HEAD";
+pub const XSUM_LN_POSSIBILITIES_FEATURE: &str = "XSUM_LN_POSSIBILITIES";
 pub const XSUM_TAIL_FEATURE: &str = "XSUM_TAIL";
 pub const XSUM_SUM_OVER_ATTRIBUTION: &str = "XSUM_SUM_OVER";
 pub const XSUM_SUM_BAD_ATTRIBUTION: &str = "XSUM_SUM_BAD";
@@ -194,6 +195,7 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
     // To calculate remaining and empty when a length cell becomes known.
     grid: Vec<Option<StdVal<MIN, MAX>>>,
     xsum_head_feature: FeatureKey<WithId>,
+    xsum_ln_possibilities_feature: FeatureKey<WithId>,
     xsum_tail_feature: FeatureKey<WithId>,
     xsum_sum_over_attr: Attribution<WithId>,
     xsum_sum_bad_attr: Attribution<WithId>,
@@ -209,6 +211,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<
         XSumChecker {
             xsums, xsums_remaining, xsums_empty, grid,
             xsum_head_feature: FeatureKey::new(XSUM_HEAD_FEATURE).unwrap(),
+            xsum_ln_possibilities_feature: FeatureKey::new(XSUM_LN_POSSIBILITIES_FEATURE).unwrap(),
             xsum_tail_feature: FeatureKey::new(XSUM_TAIL_FEATURE).unwrap(),
             xsum_sum_over_attr: Attribution::new(XSUM_SUM_OVER_ATTRIBUTION).unwrap(),
             xsum_sum_bad_attr: Attribution::new(XSUM_SUM_BAD_ATTRIBUTION).unwrap(),
@@ -292,8 +295,11 @@ static ELEM_IN_SUM: LazyLock<Mutex<HashMap<(u8, u8), HashMap<(u8, u8), Option<(u
 static XSUM_LENS: LazyLock<Mutex<HashMap<(u8, u8), HashMap<u8, Option<(u8, u8)>>>>> = LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
+static XSUM_POSSIBILITIES: LazyLock<Mutex<HashMap<(u8, u8), HashMap<u8, usize>>>> = LazyLock::new(|| {
+    Mutex::new(HashMap::new())
+});
 
-fn elem_in_sum_bound<const MIN: u8, const MAX: u8>(sum: u8, len: u8) -> Option<(u8, u8)> {
+pub fn elem_in_sum_bound<const MIN: u8, const MAX: u8>(sum: u8, len: u8) -> Option<(u8, u8)> {
     let mut map = ELEM_IN_SUM.lock().unwrap();
     let inner_map = map.entry((MIN, MAX)).or_default();
     if let Some(r) = inner_map.get(&(sum, len)) {
@@ -371,7 +377,7 @@ fn sum_one_out_bound<const MIN: u8, const MAX: u8>(out: u8, len: u8) -> Option<(
     Some((min, max))
 }
 
-fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
+pub fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
     let mut map = XSUM_LENS.lock().unwrap();
     let inner_map = map.entry((MIN, MAX)).or_default();
     if let Some(r) = inner_map.get(&sum) {
@@ -407,6 +413,48 @@ fn xsum_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8)> {
     };
     inner_map.insert(sum, r);
     r
+}
+
+fn n_sum<const MIN: u8, const MAX: u8>(n: u8, sum: u8, remaining: &mut Vec<bool>) -> usize {
+    if n == 0 {
+        return if sum == 0 { 1 } else { 0 };
+    }
+    if let Some((lo, hi)) = stdval_len_bound::<MIN, MAX>(sum) {
+        if n < lo || hi < n {
+            return 0;
+        }
+        let remaining_vals = remaining
+            .iter().enumerate()
+            .filter_map(|(v, r)| if *r && (v as u8) + MIN <= sum { Some(v) } else { None })
+            .collect::<Vec<_>>();
+        let mut total = 0;
+        for v in remaining_vals {
+            remaining[v] = false;
+            total += n_sum::<MIN, MAX>(n-1, sum-MIN-(v as u8), remaining);
+            remaining[v] = true;
+        }
+        total
+    } else {
+        0
+    }
+}
+
+pub fn xsum_possibilities<const MIN: u8, const MAX: u8>(sum: u8) -> usize {
+    let mut map = XSUM_POSSIBILITIES.lock().unwrap();
+    let inner_map = map.entry((MIN, MAX)).or_default();
+    if let Some(p) = inner_map.get(&sum) {
+        return *p;
+    }
+    let mut total = 0;
+    if let Some((lo, hi)) = xsum_len_bound::<MIN, MAX>(sum) {
+        for n in lo..=hi {
+            let mut remaining = vec![true; (MAX as usize)+1-(MIN as usize)];
+            remaining[(n-1) as usize] = false;
+            total += n_sum::<MIN, MAX>(n-1, sum-n, &mut remaining);
+        }
+    }
+    inner_map.insert(sum, total);
+    total
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
@@ -449,7 +497,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSu
                         g.0.intersect_with(&set);
                     }
                     g.1.add(&self.xsum_head_feature, 1.0);
-
+                    let np = xsum_possibilities::<MIN, MAX>(xsum.target) as f64;
+                    g.1.add(&self.xsum_ln_possibilities_feature, np.ln_1p())
                 } else {
                     return ConstraintResult::Contradiction(self.xsum_len_if_attr);
                 }
@@ -493,14 +542,37 @@ mod test {
 
     #[test]
     fn test_elem_in_sum_bound() {
+        // {1, 2, 4} is the only valid way to make 7 with 3 digits, so [1, 4] is
+        // the range of valid values.
         assert_eq!(elem_in_sum_bound::<1, 9>(7, 3), Some((1, 4)));
+        // {6, 8, 9} is the only valid way to make 23 with 3 digits, so [6, 9]
+        // is the range of valid values.
         assert_eq!(elem_in_sum_bound::<1, 9>(23, 3), Some((6, 9)));
     }
 
     #[test]
     fn test_xsum_len_bound() {
+        // Possibilities are 2-4, 3-1-2, and 3-2-1, so [2, 3] is the range of
+        // valid lens.
         assert_eq!(xsum_len_bound::<1, 9>(6), Some((2, 3)));
+        // All the valid possibilities are 8-{permutation of 2..=9}, so [8, 8]
+        // is the range of valid lens.
         assert_eq!(xsum_len_bound::<1, 9>(44), Some((8, 8)));
+    }
+
+    #[test]
+    fn test_xsum_possibilities() {
+        // 1 is the only possibility.
+        assert_eq!(xsum_possibilities::<1, 9>(1), 1);
+        // The length of 1 is too short, the length of 3 is too long, and the
+        // length of 2 doesn't work because you can't have two 2s.
+        assert_eq!(xsum_possibilities::<1, 9>(4), 0);
+        // 2-4, 3-1-2, 3-2-1 are the possibilities.
+        assert_eq!(xsum_possibilities::<1, 9>(6), 3);
+        // Every possibility is 8-{permutation of 2..=9}
+        assert_eq!(xsum_possibilities::<1, 9>(44), 5040 /* == 7! */);
+        // Every possibility is 9-{permutation of 1..=8}
+        assert_eq!(xsum_possibilities::<1, 9>(45), 40320 /* == 8! */);
     }
 
     #[test]

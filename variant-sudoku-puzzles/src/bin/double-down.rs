@@ -6,7 +6,7 @@ use variant_sudoku::sudoku::{nine_standard_overlay, NineStd, NineStdOverlay, Nin
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::NineStdTui;
-use variant_sudoku::xsums::{XSum, XSumDirection, XSumChecker, XSUM_HEAD_FEATURE, XSUM_TAIL_FEATURE};
+use variant_sudoku::xsums::{XSum, XSumChecker, XSumDirection, XSUM_HEAD_FEATURE, XSUM_LN_POSSIBILITIES_FEATURE, XSUM_TAIL_FEATURE};
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?id=000N7H
 pub struct DoubleDown;
@@ -57,6 +57,7 @@ impl PuzzleSetter for DoubleDown {
         let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![
             (XSUM_TAIL_FEATURE, 100.0),
             (XSUM_HEAD_FEATURE, 5.0),
+            (XSUM_LN_POSSIBILITIES_FEATURE, -1.0),
             (CAGE_FEATURE, 1.0)
         ]));
         (puzzle, ranker, constraint)
