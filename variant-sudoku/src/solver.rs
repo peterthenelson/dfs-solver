@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Overlay, State, Value, WithId};
+use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -83,7 +83,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     next_decision: Option<BranchPoint<V>>,
     stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
-    manual_attr: Attribution<WithId>,
+    manual_attr: Key<Attribution, WithId>,
     state: DfsSolverState,
     _marker: PhantomData<O>,
 }
@@ -188,7 +188,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
             next_decision: None,
             stack: Vec::new(),
             backtracked_steps: None,
-            manual_attr: Attribution::new(MANUAL_ATTRIBUTION).unwrap(),
+            manual_attr: Key::new(MANUAL_ATTRIBUTION).unwrap(),
             state: DfsSolverState::Initializing(InitializingState { last_filled: None, next_given_index: 0 }),
             _marker: PhantomData,
         }
@@ -663,7 +663,7 @@ pub mod test_util {
 mod test {
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::test_util::{OneDim, OneDimOverlay, TestVal};
-    use crate::core::{Attribution, Stateful, Value};
+    use crate::core::{Stateful, Value};
     use crate::ranker::StdRanker;
     use super::*;
 
@@ -686,11 +686,11 @@ mod test {
                     }
                     let j_val = puzzle.get([0, j]).unwrap().0;
                     if i_val == j_val {
-                        return ConstraintResult::Contradiction(Attribution::new("GW_DUPE").unwrap())
+                        return ConstraintResult::Contradiction(Key::new("GW_DUPE").unwrap())
                     }
                     let diff: i16 = (i_val as i16) - (j_val as i16);
                     if j == i+1 && diff.abs() < 5 {
-                        return ConstraintResult::Contradiction(Attribution::new("GW_TOO_CLOSE").unwrap());
+                        return ConstraintResult::Contradiction(Key::new("GW_TOO_CLOSE").unwrap());
                     }
                 }
             }

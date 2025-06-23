@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
 
-use crate::core::{full_set, to_value, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Overlay, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
+use crate::core::{full_set, to_value, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -555,10 +555,10 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
     row: [UVSet<u8>; N],
     col: [UVSet<u8>; M],
     boxes: Box<[UVSet<u8>]>,
-    row_attr: Attribution<WithId>,
-    col_attr: Attribution<WithId>,
-    box_attr: Attribution<WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
+    row_attr: Key<Attribution, WithId>,
+    col_attr: Key<Attribution, WithId>,
+    box_attr: Key<Attribution, WithId>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution, WithId>)>,
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N, M, MIN, MAX> {
@@ -568,9 +568,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N
             row: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
             col: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
             boxes: vec![full_set::<StdVal<MIN, MAX>>(); state.overlay().boxes()].into_boxed_slice(),
-            row_attr: Attribution::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
-            col_attr: Attribution::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
-            box_attr: Attribution::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
+            row_attr: Key::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
+            col_attr: Key::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
+            box_attr: Key::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
             illegal: None,
         }
     }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{full_set, singleton_set, unpack_singleton, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::core::{full_set, singleton_set, unpack_singleton, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::index_util::{check_adjacent, expand_polyline};
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay, StdState};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
@@ -73,9 +73,9 @@ pub struct DutchWhisperChecker {
     whispers: Vec<DutchWhisper>,
     remaining_init: HashMap<Index, UVSet<u8>>,
     remaining: HashMap<Index, UVSet<u8>>,
-    dw_feature: FeatureKey<WithId>,
-    dw_too_close_attr: Attribution<WithId>,
-    illegal: Option<(Index, NineStdVal, Attribution<WithId>)>,
+    dw_feature: Key<Feature, WithId>,
+    dw_too_close_attr: Key<Attribution, WithId>,
+    illegal: Option<(Index, NineStdVal, Key<Attribution, WithId>)>,
 }
 
 impl DutchWhisperChecker {
@@ -92,8 +92,8 @@ impl DutchWhisperChecker {
             whispers,
             remaining_init: remaining.clone(),
             remaining,
-            dw_feature: FeatureKey::new(DW_FEATURE).unwrap(),
-            dw_too_close_attr: Attribution::new(DW_TOO_CLOSE_ATTRIBUTION).unwrap(),
+            dw_feature: Key::new(DW_FEATURE).unwrap(),
+            dw_too_close_attr: Key::new(DW_TOO_CLOSE_ATTRIBUTION).unwrap(),
             illegal: None,
         }
     }

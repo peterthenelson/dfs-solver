@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, FeatureKey, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{NineStdVal, StdOverlay, StdState}};
+use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, Feature, Key, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{NineStdVal, StdOverlay, StdState}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -78,14 +78,14 @@ pub struct MagicSquareChecker {
     squares: Vec<MagicSquare>,
     evens: UVSet<u8>,
     odds: UVSet<u8>,
-    ms_feature: FeatureKey<WithId>,
-    ms_mid_attr: Attribution<WithId>,
-    ms_mid_5_attr: Attribution<WithId>,
-    ms_corner_attr: Attribution<WithId>,
-    ms_side_attr: Attribution<WithId>,
-    ms_sum_attr: Attribution<WithId>,
-    ms_sum_exact_attr: Attribution<WithId>,
-    ms_sum_if_attr: Attribution<WithId>,
+    ms_feature: Key<Feature, WithId>,
+    ms_mid_attr: Key<Attribution, WithId>,
+    ms_mid_5_attr: Key<Attribution, WithId>,
+    ms_corner_attr: Key<Attribution, WithId>,
+    ms_side_attr: Key<Attribution, WithId>,
+    ms_sum_attr: Key<Attribution, WithId>,
+    ms_sum_exact_attr: Key<Attribution, WithId>,
+    ms_sum_if_attr: Key<Attribution, WithId>,
 }
 
 impl MagicSquareChecker {
@@ -102,14 +102,14 @@ impl MagicSquareChecker {
             squares,
             evens,
             odds,
-            ms_feature: FeatureKey::new(MS_FEATURE).unwrap(),
-            ms_mid_attr: Attribution::new(MS_MID_ATTRIBUTION).unwrap(),
-            ms_mid_5_attr: Attribution::new(MS_MID_5_ATTRIBUTION).unwrap(),
-            ms_corner_attr: Attribution::new(MS_CORNER_ATTRIBUTION).unwrap(),
-            ms_side_attr: Attribution::new(MS_SIDE_ATTRIBUTION).unwrap(),
-            ms_sum_attr: Attribution::new(MS_SUM_ATTRIBUTION).unwrap(),
-            ms_sum_exact_attr: Attribution::new(MS_SUM_EXACT_ATTRIBUTION).unwrap(),
-            ms_sum_if_attr: Attribution::new(MS_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
+            ms_feature: Key::new(MS_FEATURE).unwrap(),
+            ms_mid_attr: Key::new(MS_MID_ATTRIBUTION).unwrap(),
+            ms_mid_5_attr: Key::new(MS_MID_5_ATTRIBUTION).unwrap(),
+            ms_corner_attr: Key::new(MS_CORNER_ATTRIBUTION).unwrap(),
+            ms_side_attr: Key::new(MS_SIDE_ATTRIBUTION).unwrap(),
+            ms_sum_attr: Key::new(MS_SUM_ATTRIBUTION).unwrap(),
+            ms_sum_exact_attr: Key::new(MS_SUM_EXACT_ATTRIBUTION).unwrap(),
+            ms_sum_if_attr: Key::new(MS_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
         }
     }
 
@@ -161,7 +161,7 @@ fn check_vals<const N: usize, const M: usize>(
     values: &UVSet<u8>,
     puzzle: &StdState<N, M, 1, 9>,
     grid: &mut DecisionGrid<NineStdVal>,
-    attribution: Attribution<WithId>,
+    attribution: Key<Attribution, WithId>,
 ) -> Option<ConstraintResult<NineStdVal>> {
     for i in indices {
         if let Some(v) = puzzle.get(*i) {
