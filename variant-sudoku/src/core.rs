@@ -359,7 +359,13 @@ lazy_static::lazy_static! {
         let mut h = HashMap::new();
         h.insert(Attribution::type_id(), ConstStringRegistry::new());
         h.insert(Feature::type_id(), ConstStringRegistry::new());
-        h.insert(Partition::type_id(), ConstStringRegistry::new());
+        let mut p = ConstStringRegistry::new();
+        // These partition types have special treatment so they can serve as
+        // indices without hashing or searching.
+        assert_eq!(p.register("ROWS"), 0);
+        assert_eq!(p.register("COLS"), 1);
+        assert_eq!(p.register("BOXES"), 2);
+        h.insert(Partition::type_id(), p);
         Mutex::new(h)
     };
 }
