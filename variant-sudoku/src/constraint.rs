@@ -216,7 +216,7 @@ mod test {
     use super::*;
     use super::test_util::*;
     use crate::core::test_util::{OneDim, OneDimOverlay, TestVal};
-    use crate::core::{singleton_set, to_value, unpack_values, Key, DecisionGrid, Stateful, Value};
+    use crate::core::{singleton_set, to_value, unpack_values, Attribution, DecisionGrid, Stateful, Value};
 
     #[derive(Debug, Clone)]
     pub struct BlacklistedVal(pub u8);
@@ -225,7 +225,7 @@ mod test {
         fn check(&self, puzzle: &OneDim<3>, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
             for j in 0..3 {
                 if puzzle.grid.get([0, j]).map(to_value) == Some(TestVal(self.0)) {
-                    return ConstraintResult::Contradiction(Key::new("BLACKLISTED").unwrap());
+                    return ConstraintResult::Contradiction(Attribution::new("BLACKLISTED").unwrap());
                 } else {
                     grid.get_mut([0, j]).0.remove(TestVal(self.0).to_uval());
                 }
@@ -243,7 +243,7 @@ mod test {
             for j in 0..3 {
                 if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<TestVal>) {
                     if v.0 % self.0 != self.1 {
-                        return ConstraintResult::Contradiction(Key::new("WRONG_MOD").unwrap());
+                        return ConstraintResult::Contradiction(Attribution::new("WRONG_MOD").unwrap());
                     }
                     grid.get_mut([0, j]).0 = singleton_set(v);
                 } else {

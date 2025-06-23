@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, ConstraintResult, DecisionGrid, Error, Key, Index, Overlay, Stateful, UVSet, Value, WithId};
+use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, Stateful, UVSet, Value, WithId};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
 
@@ -216,10 +216,10 @@ pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, UVSet<u8>>,
-    kb_feature: Key<WithId>,
-    kb_conflict_attr: Key<WithId>,
-    kb_if_attr: Key<WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<WithId>)>,
+    kb_feature: FeatureKey<WithId>,
+    kb_conflict_attr: Attribution<WithId>,
+    kb_if_attr: Attribution<WithId>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
 }
 
 impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
@@ -239,9 +239,9 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
         let mut kc = Self {
             blacks: chains,
             black_remaining: HashMap::new(),
-            kb_feature: Key::new(KROPKI_BLACK_FEATURE).unwrap(),
-            kb_conflict_attr: Key::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
-            kb_if_attr: Key::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
+            kb_feature: FeatureKey::new(KROPKI_BLACK_FEATURE).unwrap(),
+            kb_conflict_attr: Attribution::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
+            kb_if_attr: Attribution::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
             illegal: None,
         };
         kc.reset();
@@ -358,7 +358,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Kro
                         );
                     }
                     if !kropki_black_adj_ok::<MIN, MAX>(&prev, &grid.get(*cell).0) {
-                        return ConstraintResult::Contradiction(self.kb_if_attr);
+                        return ConstraintResult::Contradiction(self.kb_if_attr.clone());
                     }
                 }
             }

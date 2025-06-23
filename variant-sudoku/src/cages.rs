@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{full_set, ConstraintResult, DecisionGrid, Error, Key, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::core::{full_set, Attribution, ConstraintResult, DecisionGrid, Error, FeatureKey, Index, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
@@ -100,11 +100,11 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     remaining: Vec<Option<u8>>,
     empty: Vec<usize>,
     cage_sets: Vec<UVSet<u8>>,
-    cage_feature: Key<WithId>,
-    cage_dupe_attr: Key<WithId>,
-    cage_over_attr: Key<WithId>,
-    cage_if_attr: Key<WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<WithId>)>,
+    cage_feature: FeatureKey<WithId>,
+    cage_dupe_attr: Attribution<WithId>,
+    cage_over_attr: Attribution<WithId>,
+    cage_if_attr: Attribution<WithId>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Attribution<WithId>)>,
 }
 
 impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
@@ -124,10 +124,10 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         let cage_sets = vec![full_set::<StdVal<MIN, MAX>>(); cages.len()];
         CageChecker {
             cages, remaining, empty, cage_sets, illegal: None,
-            cage_feature: Key::new(CAGE_FEATURE).unwrap(),
-            cage_dupe_attr: Key::new(CAGE_DUPE_ATTRIBUTION).unwrap(),
-            cage_over_attr: Key::new(CAGE_OVER_ATTRIBUTION).unwrap(),
-            cage_if_attr: Key::new(CAGE_INFEASIBLE_ATTRIBUTION).unwrap(),
+            cage_feature: FeatureKey::new(CAGE_FEATURE).unwrap(),
+            cage_dupe_attr: Attribution::new(CAGE_DUPE_ATTRIBUTION).unwrap(),
+            cage_over_attr: Attribution::new(CAGE_OVER_ATTRIBUTION).unwrap(),
+            cage_if_attr: Attribution::new(CAGE_INFEASIBLE_ATTRIBUTION).unwrap(),
         }
     }
 }

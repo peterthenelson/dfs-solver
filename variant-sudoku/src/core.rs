@@ -341,6 +341,53 @@ pub struct MaybeId;
 pub struct WithId;
 
 lazy_static::lazy_static! {
+    static ref ATTRIBUTION_REGISTRY: Mutex<ConstStringRegistry> = {
+        Mutex::new(ConstStringRegistry::new())
+    };
+}
+
+// NOTE: This is an expensive operation, so only use it for human-interface
+// purposes (e.g., debugging, logging, etc.) and not during the solving process.
+pub fn readable_attribution(id: usize) -> Option<Attribution<WithId>> {
+    let registry = ATTRIBUTION_REGISTRY.lock().unwrap();
+    registry.name(id).map(|name| {
+        Attribution { name, id: Some(id), _state: PhantomData}
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Attribution<S>{
+    name: &'static str,
+    id: Option<usize>,
+    _state: PhantomData<S>,
+}
+
+impl <S> Attribution<S> {
+    pub fn name(&self) -> &'static str { self.name }
+}
+
+impl Attribution<MaybeId> {
+    // Attributions are lazily initialized; the id is set when it is first used.
+    pub fn new(name: &'static str) -> Self {
+        Attribution { name, id: None, _state: PhantomData }
+    }
+
+    pub fn unwrap(&mut self) -> Attribution<WithId> {
+        if let Some(id) = self.id {
+            return Attribution { name: self.name, id: Some(id), _state: PhantomData };
+        } else {
+            let id = ATTRIBUTION_REGISTRY.lock().unwrap().register(self.name);
+            self.id = Some(id);
+            return Attribution { name: self.name, id: Some(id), _state: PhantomData };
+        }
+    }
+}
+
+impl Attribution<WithId> {
+    pub fn id(&self) -> usize { self.id.unwrap() }
+}
+
+lazy_static::lazy_static! {
     static ref FEATURE_REGISTRY: Mutex<ConstStringRegistry> = {
         Mutex::new(ConstStringRegistry::new())
     };
@@ -348,42 +395,42 @@ lazy_static::lazy_static! {
 
 // NOTE: This is an expensive operation, so only use it for human-interface
 // purposes (e.g., debugging, logging, etc.) and not during the solving process.
-pub fn readable_key(id: usize) -> Option<Key<WithId>> {
+pub fn readable_feature(id: usize) -> Option<FeatureKey<WithId>> {
     let registry = FEATURE_REGISTRY.lock().unwrap();
     registry.name(id).map(|name| {
-        Key { name, id: Some(id), _state: PhantomData}
+        FeatureKey { name, id: Some(id), _state: PhantomData}
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Key<S>{
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureKey<S>{
     name: &'static str,
     id: Option<usize>,
     _state: PhantomData<S>,
 }
 
-impl <S> Key<S> {
+impl <S> FeatureKey<S> {
     pub fn name(&self) -> &'static str { self.name }
 }
 
-impl Key<MaybeId> {
-    // Keys are lazily initialized; the id is set when it is first used.
+impl FeatureKey<MaybeId> {
+    // Features are lazily initialized; the id is set when it is first used.
     pub fn new(name: &'static str) -> Self {
-        Key { name, id: None, _state: PhantomData }
+        FeatureKey { name, id: None, _state: PhantomData }
     }
 
-    pub fn unwrap(&mut self) -> Key<WithId> {
+    pub fn unwrap(&mut self) -> FeatureKey<WithId> {
         if let Some(id) = self.id {
-            return Key { name: self.name, id: Some(id), _state: PhantomData };
+            return FeatureKey { name: self.name, id: Some(id), _state: PhantomData };
         } else {
             let id = FEATURE_REGISTRY.lock().unwrap().register(self.name);
             self.id = Some(id);
-            return Key { name: self.name, id: Some(id), _state: PhantomData };
+            return FeatureKey { name: self.name, id: Some(id), _state: PhantomData };
         }
     }
 }
 
-impl Key<WithId> {
+impl FeatureKey<WithId> {
     pub fn id(&self) -> usize { self.id.unwrap() }
 }
 
@@ -409,12 +456,12 @@ impl FeatureVec<FVMaybeNormed> {
     pub fn from_pairs(weights: Vec<(&'static str, f64)>) -> Self {
         let mut fv = FeatureVec::new();
         for (k, v) in weights {
-            fv.add(&Key::new(k).unwrap(), v);
+            fv.add(&FeatureKey::new(k).unwrap(), v);
         }
         fv
     }
 
-    pub fn add(&mut self, key: &Key<WithId>, value: f64) {
+    pub fn add(&mut self, key: &FeatureKey<WithId>, value: f64) {
         let id = key.id();
         self.features.push((id, value));
         self.normalized = false;
@@ -473,7 +520,7 @@ impl Display for FeatureVec<FVMaybeNormed> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         for (i, (k, v)) in self.features.iter().enumerate() {
-            if let Some(feature) = readable_key(*k) {
+            if let Some(feature) = readable_feature(*k) {
                 write!(f, "{} => {}", feature.name(), *v)?;
             } else {
                 write!(f, "??? => {}", *v)?;
@@ -487,7 +534,7 @@ impl Display for FeatureVec<FVMaybeNormed> {
 }
 
 impl FeatureVec<FVNormed> {
-    pub fn get(&self, key: &Key<WithId>) -> Option<f64> {
+    pub fn get(&self, key: &FeatureKey<WithId>) -> Option<f64> {
         let id = key.id();
         for (k, v) in &self.features {
             if *k == id {
@@ -533,8 +580,8 @@ impl <V: Value> CertainDecision<V> {
 /// short-circuiting.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstraintResult<V: Value> {
-    Contradiction(Key<WithId>),
-    Certainty(CertainDecision<V>, Key<WithId>),
+    Contradiction(Attribution<WithId>),
+    Certainty(CertainDecision<V>, Attribution<WithId>),
     Ok,
 }
 
@@ -553,20 +600,20 @@ pub enum BranchOver<V: Value> {
 #[derive(Debug, Clone)]
 pub struct BranchPoint<V: Value> {
     pub branch_step: usize,
-    pub branch_attribution: Key<WithId>,
+    pub branch_attribution: Attribution<WithId>,
     pub choices: BranchOver<V>,
 }
 
 impl <V: Value> BranchPoint<V> {
-    pub fn unique(step: usize, attribution: Key<WithId>, index: Index, value: V) -> Self {
+    pub fn unique(step: usize, attribution: Attribution<WithId>, index: Index, value: V) -> Self {
         Self::for_cell(step, attribution, index, vec![value])
     }
 
-    pub fn empty(step: usize, attribution: Key<WithId>) -> Self {
+    pub fn empty(step: usize, attribution: Attribution<WithId>) -> Self {
         BranchPoint { branch_step: step, branch_attribution: attribution, choices: BranchOver::Empty }
     }
 
-    pub fn for_cell(step: usize, attribution: Key<WithId>, index: Index, values: Vec<V>) -> Self {
+    pub fn for_cell(step: usize, attribution: Attribution<WithId>, index: Index, values: Vec<V>) -> Self {
         if values.len() > 0 {
             BranchPoint {
                 branch_step: step,
@@ -578,7 +625,7 @@ impl <V: Value> BranchPoint<V> {
         }
     }
 
-    pub fn for_value(step: usize, attribution: Key<WithId>, val: V, cells: Vec<Index>) -> Self {
+    pub fn for_value(step: usize, attribution: Attribution<WithId>, val: V, cells: Vec<Index>) -> Self {
         if cells.len() > 0 {
             BranchPoint {
                 branch_step: step,

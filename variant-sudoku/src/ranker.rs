@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::core::{empty_map, empty_set, readable_key, unpack_values, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Key, FeatureVec, Index, Overlay, State, UVMap, UVSet, Value, WithId};
+use crate::core::{empty_map, empty_set, readable_feature, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, FeatureKey, FeatureVec, Index, Overlay, State, UVMap, UVSet, Value, WithId};
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
@@ -65,16 +65,16 @@ pub struct StdRanker {
     positive_constraint: bool,
     cell_weights: FeatureVec<FVNormed>,
     val_weights: FeatureVec<FVNormed>,
-    cell_possible: Key<WithId>,
-    val_possible: Key<WithId>,
+    cell_possible: FeatureKey<WithId>,
+    val_possible: FeatureKey<WithId>,
     combinator: fn (usize, f64, f64) -> f64,
-    empty_attr: Key<WithId>,
-    top_cell_attr: Key<WithId>,
-    top_val_attr: Key<WithId>,
-    no_vals_attr: Key<WithId>,
-    one_val_attr: Key<WithId>,
-    no_cells_attr: Key<WithId>,
-    one_cell_attr: Key<WithId>,
+    empty_attr: Attribution<WithId>,
+    top_cell_attr: Attribution<WithId>,
+    top_val_attr: Attribution<WithId>,
+    no_vals_attr: Attribution<WithId>,
+    one_val_attr: Attribution<WithId>,
+    no_cells_attr: Attribution<WithId>,
+    one_cell_attr: Attribution<WithId>,
 }
 
 impl <V: Value> RankerRegionInfo<V> {
@@ -91,33 +91,33 @@ impl <V: Value> RankerRegionInfo<V> {
 impl StdRanker {
     pub fn new(positive_constraint: bool, cell_weights: FeatureVec<FVMaybeNormed>, val_weights: FeatureVec<FVMaybeNormed>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
         let mut cell_weights = cell_weights.clone();
-        cell_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key(id)));
+        cell_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
         let mut val_weights = val_weights.clone();
-        val_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key(id)));
+        val_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_feature(id)));
         StdRanker {
             positive_constraint,
             cell_weights: cell_weights.try_normalized().unwrap().clone(),
             val_weights: val_weights.try_normalized().unwrap().clone(),
-            cell_possible: Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(),
-            val_possible: Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(),
+            cell_possible: FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(),
+            val_possible: FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(),
             combinator: combine_features,
-            empty_attr: Key::new(DG_EMPTY_ATTRIBUTION).unwrap(),
-            top_cell_attr: Key::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
-            top_val_attr: Key::new(DG_TOP_VAL_ATTRIBUTION).unwrap(),
-            no_vals_attr: Key::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
-            one_val_attr: Key::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
-            no_cells_attr: Key::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
-            one_cell_attr: Key::new(DG_ONE_CELL_ATTRIBUTION).unwrap(),
+            empty_attr: Attribution::new(DG_EMPTY_ATTRIBUTION).unwrap(),
+            top_cell_attr: Attribution::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
+            top_val_attr: Attribution::new(DG_TOP_VAL_ATTRIBUTION).unwrap(),
+            no_vals_attr: Attribution::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
+            one_val_attr: Attribution::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
+            no_cells_attr: Attribution::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
+            one_cell_attr: Attribution::new(DG_ONE_CELL_ATTRIBUTION).unwrap(),
         }
     }
 
     // Like the default but extended with additional weights.
     pub fn with_additional_weights(weights: FeatureVec<FVMaybeNormed>) -> Self {
         let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.add(&FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
         cell_weights.extend(&weights);
         let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.add(&FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
         val_weights.extend(&weights);
         Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
@@ -127,18 +127,18 @@ impl StdRanker {
     // combining features in feature vectors is to take the maximum.
     pub fn default() -> Self {
         let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.add(&FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
         let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.add(&FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
         Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
     // Same as default but with no positive constraint.
     pub fn default_negative() -> Self {
         let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.add(&FeatureKey::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
         let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.add(&FeatureKey::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
         Self::new(false, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 }
