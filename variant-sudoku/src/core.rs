@@ -372,8 +372,18 @@ impl KeyType for Attribution { fn type_id() -> u8 { 1 } }
 pub struct Feature;
 impl KeyType for Feature { fn type_id() -> u8 { 2 } }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Partition;
-impl KeyType for Partition { fn type_id() -> u8 { 3 } }
+pub struct RegionLayer;
+impl KeyType for RegionLayer { fn type_id() -> u8 { 3 } }
+
+pub const ROWS_LAYER: Key<RegionLayer, WithId> = Key {
+    name: "ROWS", id: Some(0), _state: PhantomData,
+};
+pub const COLS_LAYER: Key<RegionLayer, WithId> = Key {
+    name: "COLS", id: Some(1), _state: PhantomData,
+};
+pub const BOXES_LAYER: Key<RegionLayer, WithId> = Key {
+    name: "BOXES", id: Some(2), _state: PhantomData,
+};
 
 lazy_static::lazy_static! {
     static ref KEY_REGISTRY: Mutex<HashMap<u8, ConstStringRegistry>> = {
@@ -386,7 +396,7 @@ lazy_static::lazy_static! {
         assert_eq!(p.register("ROWS"), 0);
         assert_eq!(p.register("COLS"), 1);
         assert_eq!(p.register("BOXES"), 2);
-        h.insert(Partition::type_id(), p);
+        h.insert(RegionLayer::type_id(), p);
         Mutex::new(h)
     };
 }
@@ -789,19 +799,13 @@ pub trait Stateful<V: Value>: {
 pub trait Overlay: Clone + Debug {
     type Iter<'a>: Iterator<Item = Index> where Self: 'a;
     fn grid_dims(&self) -> (usize, usize);
-    fn partition_dimension(&self) -> usize;
-    fn n_partitions(&self, dim: usize) -> usize;
-    fn partition_size(&self, dim: usize, index: usize) -> usize;
-    fn enclosing_partition(&self, index: Index, dim: usize) -> Option<usize>;
-    fn enclosing_partitions(&self, index: Index) -> Vec<Option<usize>> {
-        (0..self.partition_dimension())
-            .map(|dim| self.enclosing_partition(index, dim))
-            .collect()
-    }
-    fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_>;
+    fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>>;
+    fn regions_in_layer(&self, layer: Key<RegionLayer, WithId>) -> usize;
+    fn enclosing_region(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<usize>;
+    fn region_iter(&self, layer: Key<RegionLayer, WithId>, index: usize) -> Self::Iter<'_>;
     fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
-        for dim in 0..self.partition_dimension() {
-            if self.enclosing_partition(i1, dim) == self.enclosing_partition(i2, dim) {
+        for layer in self.region_layers() {
+            if self.enclosing_region(layer, i1) == self.enclosing_region(layer, i2) {
                 return true;
             }
         }
@@ -952,20 +956,17 @@ pub mod test_util {
     impl <const N: usize> Overlay for OneDimOverlay<N> {
         type Iter<'a> = std::vec::IntoIter<Index>;
         fn grid_dims(&self) -> (usize, usize) { (1, N) }
-        fn partition_dimension(&self) -> usize { 1 }
-        fn n_partitions(&self, _: usize) -> usize { 1 }
-        fn partition_size(&self, _: usize, _: usize) -> usize { 1 }
+        fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>> { vec![] }
+        fn regions_in_layer(&self, _: Key<RegionLayer, WithId>) -> usize {
+            panic!("No region layers exist!")
+        }
+        fn region_iter(&self, _: Key<RegionLayer, WithId>, _: usize) -> Self::Iter<'_> {
+            panic!("No region layers exist!")
+        }
+        fn enclosing_region(&self, _: Key<RegionLayer, WithId>, _: Index) -> Option<usize> {
+            panic!("No region layers exist!")
+        }
         fn mutually_visible(&self, _: Index, _: Index) -> bool { true }
-        fn enclosing_partition(&self, _: Index, dim: usize) -> Option<usize> {
-            assert_eq!(dim, 0);
-            Some(0)
-        }
-        fn enclosing_partitions(&self, _: Index) -> Vec<Option<usize>> { vec![Some(0)] }
-        fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_> {
-            assert_eq!(dim, 0);
-            assert_eq!(index, 0);
-            (0..N).map(|x| [0, x]).collect::<Vec<Index>>().into_iter()
-        }
         fn full_decision_grid<V: Value>(&self, _: &State<V, Self>) -> DecisionGrid<V> {
             DecisionGrid::full(1, N)
         }

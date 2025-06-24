@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::core::{empty_map, empty_set, readable_key, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, Key, FeatureVec, Index, Overlay, State, UVMap, UVSet, Value, WithId};
+use crate::core::{empty_map, empty_set, readable_key, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RegionLayer, State, UVMap, UVSet, Value, WithId};
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
@@ -32,7 +32,7 @@ pub trait Ranker<V: Value, O: Overlay> {
     /// Implementations may return None if they don't generate candidates in
     /// this way.
     fn region_info(
-        &self, grid: &DecisionGrid<V>, puzzle: &State<V, O>, dim: usize, p: usize,
+        &self, grid: &DecisionGrid<V>, puzzle: &State<V, O>, layer: Key<RegionLayer, WithId>, p: usize,
     ) -> Option<RankerRegionInfo<V>>;
 }
 
@@ -181,10 +181,12 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         if top_choice.is_none() {
             return BranchPoint::empty(step, self.empty_attr);
         }
+        // TODO: Factor this into the DecisionGrid and the full_decision_grid
+        // method in the overlay.
         let overlay = puzzle.overlay();
-        for dim in 0..overlay.partition_dimension() {
-            for p in 0..overlay.n_partitions(dim) {
-                if let Some(mut info) = self.region_info(grid, puzzle, dim, p) {
+        for layer in overlay.region_layers() {
+            for p in 0..overlay.regions_in_layer(layer) {
+                if let Some(mut info) = self.region_info(grid, puzzle, layer, p) {
                     for v in V::possibilities() {
                         let uv = v.to_uval();
                         if info.filled.contains(uv) {
@@ -239,9 +241,9 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
             }
         }
         let overlay = puzzle.overlay();
-        for dim in 0..overlay.partition_dimension() {
-            for p in 0..overlay.n_partitions(dim) {
-                if let Some(info) = self.region_info(grid, puzzle, dim, p) {
+        for layer in overlay.region_layers() {
+            for p in 0..overlay.regions_in_layer(layer) {
+                if let Some(info) = self.region_info(grid, puzzle, layer, p) {
                     for v in V::possibilities() {
                         let uv = v.to_uval();
                         if info.filled.contains(uv) {
@@ -264,13 +266,13 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
     }
 
     fn region_info(
-        &self, grid: &DecisionGrid<V>, puzzle: &State<V, O>, dim: usize, p: usize,
+        &self, grid: &DecisionGrid<V>, puzzle: &State<V, O>, layer: Key<RegionLayer, WithId>, p: usize,
     ) -> Option<RankerRegionInfo<V>> {
         if !self.positive_constraint {
             return None;
         }
         let mut info = RankerRegionInfo::new();
-        for index in puzzle.overlay().partition_iter(dim, p) {
+        for index in puzzle.overlay().region_iter(layer, p) {
             if let Some(val) = puzzle.get(index) {
                 let uv = val.to_uval();
                 info.filled.insert(uv);

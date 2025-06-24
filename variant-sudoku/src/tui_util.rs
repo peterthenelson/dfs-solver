@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{unpack_values, BranchOver, Index, Key, Overlay, RegionLayer, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -133,7 +133,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     }
     let grid = state.solver.decision_grid().unwrap();
     let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
-    let dim = match vb {
+    let layer = match vb {
         // This case returns early.
         ViewBy::Cell => {
             let vals = unpack_values::<P::Value>(&grid.get(cursor).0)
@@ -150,14 +150,14 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
             );
             return lines;
         },
-        // These 3 cases are all handled the same, indexed by dim.
-        vb => vb.partition_dim().unwrap(),
+        // These 3 cases are all handled the same, indexed by layer.
+        vb => vb.region_layer().unwrap(),
     };
     let at = val_at_index(state, so, vb, cursor);
-    match (at.val, at.partition_index) {
+    match (at.val, at.region_index) {
         (Some(v), Some(p)) => {
             let info = state.solver.ranker().region_info(
-                &grid, state.solver.state(), dim, p,
+                &grid, state.solver.state(), layer, p,
             ).unwrap();
             let uv = v.to_uval();
             let cells = info.cell_choices.get(uv).iter()
@@ -205,15 +205,16 @@ pub struct GridStyledValues<P: PuzzleSetter, const N: usize, const M: usize> {
     bg: [[Option<Color>; M]; N],
 }
 
-/// The relevant grid partition types
+/// The relevant ways to view the grid (as a grid of cells with values or as a
+/// grid of values in some region layer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewBy { Cell, Row, Col, Box }
 impl ViewBy {
-    pub fn partition_dim(&self) -> Option<usize> {
+    pub fn region_layer(&self) -> Option<Key<RegionLayer, WithId>> {
         match self {
-            ViewBy::Row => Some(0),
-            ViewBy::Col => Some(1),
-            ViewBy::Box => Some(2),
+            ViewBy::Row => Some(ROWS_LAYER),
+            ViewBy::Col => Some(COLS_LAYER),
+            ViewBy::Box => Some(BOXES_LAYER),
             ViewBy::Cell => None,
         }
     }
@@ -240,10 +241,8 @@ pub enum GridType<P: PuzzleSetter> {
     // Just show the puzzle itself, like normal.
     Puzzle,
     // Highlight cells which could be a particular value.
-    // Notes:
-    // - The first usize is the partition dimension
-    // - The second is the index for the relevant partition
-    HighlightPossible(P::Value, usize, usize),
+    // Note: The usize is the index in the relevant region layer
+    HighlightPossible(P::Value, Key<RegionLayer, WithId>, usize),
     // Heatmap of possibilities.
     Heatmap(ViewBy, ColorBy),
 }
@@ -286,7 +285,7 @@ fn heatmap_cursor<const N: usize, const M: usize>(
 
 pub struct AtIndex<V: Value> {
     val: Option<V>,
-    partition_index: Option<usize>,
+    region_index: Option<usize>,
 }
 
 fn val_at_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -296,25 +295,25 @@ fn val_at_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     index: Index,
 ) -> AtIndex<P::Value> {
     let [r, c] = index;
-    let empty = AtIndex { val: None, partition_index: None };
+    let empty = AtIndex { val: None, region_index: None };
     match view_by {
         // The three ViewBy::{region} types only make sense with a proper layout.
         ViewBy::Row => so.map(|_| AtIndex {
             val: Some(P::Value::nth(c)),
-            partition_index: Some(r),
+            region_index: Some(r),
         }).unwrap_or(empty),
         ViewBy::Col => so.map(|_| AtIndex {
             val: Some(P::Value::nth(r)),
-            partition_index: Some(c),
+            region_index: Some(c),
         }).unwrap_or(empty),
         ViewBy::Box => so.map(|overlay| {
             let (b, [br, bc]) = overlay.to_box_coords([r, c]);
             let nth = br*overlay.box_width() + bc;
-            AtIndex { val: Some(P::Value::nth(nth)), partition_index: Some(b) }
+            AtIndex { val: Some(P::Value::nth(nth)), region_index: Some(b) }
         }).unwrap_or(empty),
         ViewBy::Cell => AtIndex {
             val: state.solver.state().get([r, c]),
-            partition_index: None,
+            region_index: None,
         },
     }
 }
@@ -387,16 +386,16 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     grid_type: GridType<P>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
-    let dim = match grid_type {
+    let layer = match grid_type {
         // The remaining types return early.
         GridType::Puzzle => return hm,
-        GridType::HighlightPossible(v, dim, p) => {
+        GridType::HighlightPossible(v, layer, p) => {
             let uv = v.to_uval();
             if let Some((grid, overlay)) = &state.solver.decision_grid().zip(*so) {
                 for r in 0..N {
                     for c in 0..M {
                         if grid.get([r, c]).0.contains(uv) {
-                            hm[r][c] = Some(if overlay.enclosing_partition([r, c], dim).map_or(false, |ep| ep == p) {
+                            hm[r][c] = Some(if overlay.enclosing_region(layer, [r, c]).map_or(false, |ep| ep == p) {
                                 Color::Blue
                             } else {
                                 Color::Cyan
@@ -422,19 +421,19 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                 return hm;
             }
         },
-        // These 3 cases are all handled the same, indexed by dim.
-        GridType::Heatmap(vb, ColorBy::Possibilities) => vb.partition_dim().unwrap(),
+        // These 3 cases are all handled the same, indexed by layer.
+        GridType::Heatmap(vb, ColorBy::Possibilities) => vb.region_layer().unwrap(),
     };
     if let Some(overlay) = so {
         if let Some(grid) = state.solver.decision_grid() {
             // Note: We are assuming that all rows have the same size (and same for cols, boxes).
             let mut infos = vec![];
-            for p in 0..overlay.n_partitions(dim) {
-                infos.push(state.solver.ranker().region_info(&grid, state.solver.state(), dim, p).unwrap());
+            for p in 0..overlay.regions_in_layer(layer) {
+                infos.push(state.solver.ranker().region_info(&grid, state.solver.state(), layer, p).unwrap());
             }
             for r in 0..N {
                 for c in 0..M {
-                    let p = overlay.enclosing_partition([r, c], dim).unwrap();
+                    let p = overlay.enclosing_region(layer, [r, c]).unwrap();
                     let v = val_at_index(state, so, grid_type.view_by(), [r, c]).val.unwrap();
                     let uv = v.to_uval();
                     if infos[p].filled.contains(uv) {
@@ -618,11 +617,11 @@ fn upper_left_type<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     if vb == ViewBy::Cell {
         return fallback;
     }
-    vb.partition_dim().and_then(|dim| {
+    vb.region_layer().and_then(|layer| {
         let at = val_at_index(state, so, vb, cursor);
         at.val.and_then(|v|
-            at.partition_index.and_then(|p|
-                Some(GridType::HighlightPossible(v, dim, p))
+            at.region_index.and_then(|p|
+                Some(GridType::HighlightPossible(v, layer, p))
             )
         )
     }).unwrap_or(fallback)

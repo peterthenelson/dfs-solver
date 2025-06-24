@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{full_set, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
+use crate::core::{full_set, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -358,47 +358,53 @@ impl <const N: usize, const M: usize> StdOverlay<N, M> {
 
 impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
     type Iter<'a> = StdOverlayIterator<'a, N, M> where Self: 'a;
+
     fn grid_dims(&self) -> (usize, usize) { (N, M) }
-    /// There are rows, columns, and boxes.
-    fn partition_dimension(&self) -> usize { 3 }
-    fn n_partitions(&self, dim: usize) -> usize {
-        match dim {
-            0 => self.rows(),
-            1 => self.cols(),
-            2 => self.boxes(),
-            _ => panic!("Invalid dimension for StdOverlay: {}", dim),
+
+    fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>> {
+        vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]
+    }
+
+    fn regions_in_layer(&self, layer: Key<RegionLayer, WithId>) -> usize {
+        let id = layer.id();
+        if id == ROWS_LAYER.id() {
+            self.rows()
+        } else if id == COLS_LAYER.id() {
+            self.cols()
+        } else if id == BOXES_LAYER.id() {
+            self.boxes()
+        } else {
+            panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
-    fn partition_size(&self, dim: usize, _: usize) -> usize {
-        match dim {
-            // All rows have cols() cells
-            0 => self.cols(),
-            // All cols have rows() cells
-            1 => self.rows(),
-            // Boxes all have bh*bw cells
-            2 => self.box_height()*self.box_width(),
-            _ => panic!("Invalid dimension for StdOverlay: {}", dim),
+
+    fn enclosing_region(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<usize> {
+        let id = layer.id();
+        if id == ROWS_LAYER.id() {
+            Some(index[0])
+        } else if id == COLS_LAYER.id() {
+            Some(index[1])
+        } else if id == BOXES_LAYER.id() {
+            let (b, _) = self.to_box_coords(index);
+            Some(b)
+        } else {
+            panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
-    fn enclosing_partition(&self, index: Index, dim: usize) -> Option<usize> {
-        match dim {
-            0 => Some(index[0]),
-            1 => Some(index[1]),
-            2 => {
-                let (b, _) = self.to_box_coords(index);
-                Some(b)
-            },
-            _ => panic!("Invalid dimension for StdOverlay: {}", dim),
+
+    fn region_iter(&self, layer: Key<RegionLayer, WithId>, index: usize) -> Self::Iter<'_> {
+        let id = layer.id();
+        if id == ROWS_LAYER.id() {
+            self.row_iter(index)
+        } else if id == COLS_LAYER.id() {
+            self.col_iter(index)
+        } else if id == BOXES_LAYER.id() {
+            self.box_iter(index)
+        } else {
+            panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
-    fn partition_iter(&self, dim: usize, index: usize) -> Self::Iter<'_> {
-        match dim {
-            0 => self.row_iter(index),
-            1 => self.col_iter(index),
-            2 => self.box_iter(index),
-            _ => panic!("Invalid dimension for StdOverlay: {}", dim),
-        }
-    }
+
     fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
         if i1[0] == i2[0] || i1[1] == i2[1] {
             return true;
