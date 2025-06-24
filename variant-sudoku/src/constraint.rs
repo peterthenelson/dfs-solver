@@ -21,47 +21,47 @@ use crate::core::{ConstraintResult, DecisionGrid, Error, Index, Overlay, State, 
 ///    cells that doesn't seem like a Constraint at all. It's find to also
 ///    implement these as Constraints that only ever return a Certainty (if it
 ///    can be deduced) or Ok (otherwise).
-pub trait Constraint<V: Value, O: Overlay, S: State<V, O>> where Self: Stateful<V> + Debug {
+pub trait Constraint<V: Value, O: Overlay> where Self: Stateful<V> + Debug {
     /// Check that the Constraint is satisfied by the puzzle (and any internal
     /// state from past actions). If a Constraint is able to infer useful
     /// information about what values a cell could take on, they should update
     /// the provided grid (in a way that further constrains it).
-    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<V>) -> ConstraintResult<V>;
+    fn check(&self, puzzle: &State<V, O>, grid: &mut DecisionGrid<V>) -> ConstraintResult<V>;
     /// Provide debug information at a particular grid in the puzzle (if any
     /// is available).
-    fn debug_at(&self, puzzle: &S, index: Index) -> Option<String>;
+    fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String>;
 }
 
-pub struct ConstraintConjunction<V, O, S, X, Y>
+pub struct ConstraintConjunction<V, O, X, Y>
 where
-    V: Value, O: Overlay, S: State<V, O>, X: Constraint<V, O, S>, Y: Constraint<V, O, S>
+    V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
     pub x: X,
     pub y: Y,
-    pub _marker: PhantomData<(V, O, S)>,
+    pub _marker: PhantomData<(V, O)>,
 }
 
-impl <V, O, S, X, Y> ConstraintConjunction<V, O, S, X, Y>
+impl <V, O, X, Y> ConstraintConjunction<V, O, X, Y>
 where
-    V: Value, O: Overlay, S: State<V, O>, X: Constraint<V, O, S>, Y: Constraint<V, O, S>
+    V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
     pub fn new(x: X, y: Y) -> Self {
         ConstraintConjunction { x, y, _marker: PhantomData }
     }
 }
 
-impl <V, O, S, X, Y> Debug for ConstraintConjunction<V, O, S, X, Y>
+impl <V, O, X, Y> Debug for ConstraintConjunction<V, O, X, Y>
 where
-    V: Value, O: Overlay, S: State<V, O>, X: Constraint<V, O, S>, Y: Constraint<V, O, S>
+    V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}{:?}", self.x, self.y)
     }
 }
 
-impl <V, O, S, X, Y> Stateful<V> for ConstraintConjunction<V, O, S, X, Y>
+impl <V, O, X, Y> Stateful<V> for ConstraintConjunction<V, O, X, Y>
 where
-    V: Value, O: Overlay, S: State<V, O>, X: Constraint<V, O, S>, Y: Constraint<V, O, S>
+    V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
     fn reset(&mut self) {
         self.x.reset();
@@ -81,11 +81,11 @@ where
     }
 }
 
-impl <V, O, S, X, Y> Constraint<V, O, S> for ConstraintConjunction<V, O, S, X, Y>
+impl <V, O, X, Y> Constraint<V, O> for ConstraintConjunction<V, O, X, Y>
 where
-    V: Value, O: Overlay, S: State<V, O>, X: Constraint<V, O, S>, Y: Constraint<V, O, S>
+    V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
-    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<V>) -> ConstraintResult<V> {
+    fn check(&self, puzzle: &State<V, O>, grid: &mut DecisionGrid<V>) -> ConstraintResult<V> {
         match self.x.check(puzzle, grid) {
             ConstraintResult::Contradiction(a) => ConstraintResult::Contradiction(a),
             ConstraintResult::Certainty(d, a) => ConstraintResult::Certainty(d, a),
@@ -93,7 +93,7 @@ where
         }
     }
 
-    fn debug_at(&self, puzzle: &S, index: Index) -> Option<String> {
+    fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String> {
         let xd = self.x.debug_at(puzzle, index.clone());
         let yd = self.y.debug_at(puzzle, index);
         if let Some(xds) = &xd {
@@ -108,17 +108,17 @@ where
     }
 }
 
-pub struct MultiConstraint<V: Value, O: Overlay, S: State<V, O>> {
-    constraints: Vec<Box<dyn Constraint<V, O, S>>>,
+pub struct MultiConstraint<V: Value, O: Overlay> {
+    constraints: Vec<Box<dyn Constraint<V, O>>>,
 }
 
-impl <V: Value, O: Overlay, S: State<V, O>> MultiConstraint<V, O, S> {
-    pub fn new(constraints: Vec<Box<dyn Constraint<V, O, S>>>) -> Self {
+impl <V: Value, O: Overlay> MultiConstraint<V, O> {
+    pub fn new(constraints: Vec<Box<dyn Constraint<V, O>>>) -> Self {
         MultiConstraint { constraints }
     }
 }
 
-impl <V: Value, O: Overlay, S: State<V, O>> Debug for MultiConstraint<V, O, S> {
+impl <V: Value, O: Overlay> Debug for MultiConstraint<V, O> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for c in &self.constraints {
             write!(f, "{:?}", c)?
@@ -127,7 +127,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> Debug for MultiConstraint<V, O, S> {
     }
 }
 
-impl <V: Value, O: Overlay, S: State<V, O>> Stateful<V> for MultiConstraint<V, O, S> {
+impl <V: Value, O: Overlay> Stateful<V> for MultiConstraint<V, O> {
     fn reset(&mut self) {
         for c in &mut self.constraints {
             c.reset();
@@ -157,8 +157,8 @@ impl <V: Value, O: Overlay, S: State<V, O>> Stateful<V> for MultiConstraint<V, O
     }
 }
 
-impl <V: Value, O: Overlay, S: State<V, O>> Constraint<V, O, S> for MultiConstraint<V, O, S> {
-    fn check(&self, puzzle: &S, grid: &mut DecisionGrid<V>) -> ConstraintResult<V> {
+impl <V: Value, O: Overlay> Constraint<V, O> for MultiConstraint<V, O> {
+    fn check(&self, puzzle: &State<V, O>, grid: &mut DecisionGrid<V>) -> ConstraintResult<V> {
         for c in &self.constraints {
             match c.check(puzzle, grid) {
                 ConstraintResult::Contradiction(a) => return ConstraintResult::Contradiction(a),
@@ -169,7 +169,7 @@ impl <V: Value, O: Overlay, S: State<V, O>> Constraint<V, O, S> for MultiConstra
         ConstraintResult::Ok
     }
     
-    fn debug_at(&self, puzzle: &S, index: Index) -> Option<String> {
+    fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String> {
         let somes = self.constraints.iter()
             .filter_map(|c| c.debug_at(puzzle, index.clone()))
             .collect::<Vec<String>>();
@@ -215,16 +215,18 @@ pub mod test_util {
 mod test {
     use super::*;
     use super::test_util::*;
-    use crate::core::test_util::{OneDim, OneDimOverlay, TestVal};
-    use crate::core::{singleton_set, to_value, unpack_values, DecisionGrid, Key, Stateful, Value};
+    use crate::core::test_util::{OneDimOverlay, TestVal};
+    use crate::core::{singleton_set, unpack_values, DecisionGrid, Key, Stateful, Value};
+
+    type ThreeVals = State<TestVal, OneDimOverlay<3>>;
 
     #[derive(Debug, Clone)]
     pub struct BlacklistedVal(pub u8);
     impl Stateful<TestVal> for BlacklistedVal {}
-    impl Constraint<TestVal, OneDimOverlay<3>, OneDim<3>> for BlacklistedVal {
-        fn check(&self, puzzle: &OneDim<3>, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
+    impl Constraint<TestVal, OneDimOverlay<3>> for BlacklistedVal {
+        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
             for j in 0..3 {
-                if puzzle.grid.get([0, j]).map(to_value) == Some(TestVal(self.0)) {
+                if puzzle.get([0, j]) == Some(TestVal(self.0)) {
                     return ConstraintResult::Contradiction(Key::new("BLACKLISTED").unwrap());
                 } else {
                     grid.get_mut([0, j]).0.remove(TestVal(self.0).to_uval());
@@ -232,16 +234,16 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &OneDim<3>, _: Index) -> Option<String> { Some("NA".into()) }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { Some("NA".into()) }
     }
 
     #[derive(Debug, Clone)]
     pub struct Mod(pub u8, pub u8);
     impl Stateful<TestVal> for Mod {}
-    impl Constraint<TestVal, OneDimOverlay<3>, OneDim<3>> for Mod {
-        fn check(&self, puzzle: &OneDim<3>, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
+    impl Constraint<TestVal, OneDimOverlay<3>> for Mod {
+        fn check(&self, puzzle: &ThreeVals, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
             for j in 0..3 {
-                if let Some(v) = puzzle.grid.get([0, j]).map(to_value::<TestVal>) {
+                if let Some(v) = puzzle.get([0, j]) {
                     if v.0 % self.0 != self.1 {
                         return ConstraintResult::Contradiction(Key::new("WRONG_MOD").unwrap());
                     }
@@ -257,19 +259,20 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &OneDim<3>, _: Index) -> Option<String> { Some("NA".into()) }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { Some("NA".into()) }
     }
 
     #[test]
     fn test_constraint_conjunction_simple() {
-        let mut puzzle = OneDim::<3>::new();
+        let mut puzzle = ThreeVals::new(OneDimOverlay::<3> {});
         let constraint1 = BlacklistedVal(1);
         let constraint2 = BlacklistedVal(2);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        let mut grid = OneDim::<3>::full_dg();
+        let mut grid = puzzle.overlay().full_decision_grid(&puzzle);
         assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
         assert_contradiction(conjunction.check(&puzzle, &mut grid), "BLACKLISTED");
+        puzzle.undo([0, 0], TestVal(1)).unwrap();
         puzzle.apply([0, 0], TestVal(3)).unwrap();
         assert_eq!(conjunction.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 1], TestVal(2)).unwrap();
@@ -278,14 +281,15 @@ mod test {
 
     #[test]
     fn test_multi_constraint_simple() {
-        let mut puzzle = OneDim::<3>::new();
+        let mut puzzle = ThreeVals::new(OneDimOverlay::<3> {});
         let constraint = MultiConstraint::new(vec_box::vec_box![
             BlacklistedVal(1), BlacklistedVal(2),
         ]);
-        let mut grid = OneDim::<3>::full_dg();
+        let mut grid = puzzle.overlay().full_decision_grid(&puzzle);
         assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
         assert_contradiction(constraint.check(&puzzle, &mut grid), "BLACKLISTED");
+        puzzle.undo([0, 0], TestVal(1)).unwrap();
         puzzle.apply([0, 0], TestVal(3)).unwrap();
         assert_eq!(constraint.check(&puzzle, &mut grid), ConstraintResult::Ok);
         puzzle.apply([0, 1], TestVal(2)).unwrap();
@@ -298,11 +302,11 @@ mod test {
 
     #[test]
     fn test_constraint_conjunction_grids() {
-        let puzzle = OneDim::<3>::new();
+        let puzzle = ThreeVals::new(OneDimOverlay::<3> {});
         let constraint1 = Mod(2, 1);
         let constraint2 = Mod(3, 0);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        let mut grid = OneDim::<3>::full_dg();
+        let mut grid = puzzle.overlay().full_decision_grid(&puzzle);
         match conjunction.check(&puzzle, &mut grid) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
@@ -314,11 +318,11 @@ mod test {
 
     #[test]
     fn test_multi_constraint_grids() {
-        let puzzle = OneDim::<3>::new();
+        let puzzle = ThreeVals::new(OneDimOverlay::<3> {});
         let constraint = MultiConstraint::new(vec_box::vec_box![
             Mod(2, 1), Mod(3, 0)
         ]);
-        let mut grid = OneDim::<3>::full_dg();
+        let mut grid = puzzle.overlay().full_decision_grid(&puzzle);
         match constraint.check(&puzzle, &mut grid) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},

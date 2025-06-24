@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, text::Line, Frame};
 use crate::{
-    core::{Index, State},
+    core::{Index, Overlay},
     solver::{DfsSolverView, PuzzleSetter},
     sudoku::{
         EightStd,
@@ -26,7 +26,7 @@ use crate::{
     },
     tui::{Tui, TuiState},
     tui_util::{
-        draw_grid, draw_text_area, grid_dims, grid_wasd, scroll_lines, text_area_ws,
+        draw_grid, draw_text_area, grid_wasd, scroll_lines, text_area_ws,
     },
 };
 
@@ -53,16 +53,16 @@ pub struct NullOverlayStandardizer<const N: usize, const M: usize>;
 impl <P: PuzzleSetter, const N: usize, const M: usize> OverlayStandardizer<P, N, M> for NullOverlayStandardizer<N, M> {
     fn to_std(_: &<P as PuzzleSetter>::Overlay) -> Option<StdOverlay<N, M>> { None }
 }
-impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay, State = NineStd>> OverlayStandardizer<P, 9, 9> for NineStd {
+impl <P: PuzzleSetter<Value = NineStdVal, Overlay = NineStdOverlay>> OverlayStandardizer<P, 9, 9> for NineStd {
     fn to_std(overlay: &P::Overlay) -> Option<StdOverlay<9, 9>> { Some(overlay.clone()) }
 }
-impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay, State = EightStd>> OverlayStandardizer<P, 8, 8> for EightStd {
+impl <P: PuzzleSetter<Value = EightStdVal, Overlay = EightStdOverlay>> OverlayStandardizer<P, 8, 8> for EightStd {
     fn to_std(overlay: &P::Overlay) -> Option<StdOverlay<8, 8>> { Some(overlay.clone()) }
 }
-impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay, State = SixStd>> OverlayStandardizer<P, 6, 6> for SixStd {
+impl <P: PuzzleSetter<Value = SixStdVal, Overlay = SixStdOverlay>> OverlayStandardizer<P, 6, 6> for SixStd {
     fn to_std(overlay: &P::Overlay) -> Option<StdOverlay<6, 6>> { Some(overlay.clone()) }
 }
-impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay, State = FourStd>> OverlayStandardizer<P, 4, 4> for FourStd {
+impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay>> OverlayStandardizer<P, 4, 4> for FourStd {
     fn to_std(overlay: &P::Overlay) -> Option<StdOverlay<4, 4>> { Some(overlay.clone()) }
 }
 
@@ -99,8 +99,9 @@ impl <P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P
 Tui<P> for DefaultTui<P, N, M, OS> {
     fn init<'a>(state: &mut TuiState<'a, P>) {
         // Wish this could be static
-        assert_eq!(P::State::ROWS, N);
-        assert_eq!(P::State::COLS, M);
+        let (n, m) = state.solver.state().overlay().grid_dims();
+        assert_eq!(n, N);
+        assert_eq!(m, M);
         Self::on_mode_change(state)
     }
 
@@ -108,7 +109,8 @@ Tui<P> for DefaultTui<P, N, M, OS> {
         let so = OS::to_std(state.solver.state().overlay());
         state.scroll_lines = scroll_lines(state, &so);
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
-        state.grid_dims = grid_dims(state, &so);
+        let (n, m) = state.solver.state().overlay().grid_dims();
+        state.grid_dims = [n, m];
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
 

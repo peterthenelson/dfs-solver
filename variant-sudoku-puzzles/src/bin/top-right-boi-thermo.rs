@@ -12,18 +12,17 @@ pub struct TopRightBoiThermo;
 impl PuzzleSetter for TopRightBoiThermo {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type State = NineStd;
     type Ranker = StdRanker;
-    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
     
     fn name() -> Option<String> { Some("top-right-boi-thermo".into()) }
 
-    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // No givens
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
 
-    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup_with_givens(given: NineStd) -> (NineStd, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let tb = ThermoBuilder::<1, 9>::new();
         let thermos = vec![

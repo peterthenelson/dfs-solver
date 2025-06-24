@@ -1,4 +1,4 @@
-use variant_sudoku::core::{FeatureVec, State};
+use variant_sudoku::core::FeatureVec;
 use variant_sudoku::kropki::{KropkiBuilder, KropkiChecker, KROPKI_BLACK_FEATURE};
 use variant_sudoku::ranker::StdRanker;
 use variant_sudoku::constraint::MultiConstraint;
@@ -13,18 +13,17 @@ pub struct ThreeColorTheorem;
 impl PuzzleSetter for ThreeColorTheorem {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type State = NineStd;
     type Ranker = StdRanker;
-    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { Some("three-color-theorem".into()) }
 
-    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
 
-    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup_with_givens(given: NineStd) -> (NineStd, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let cb = CageBuilder::new(true, puzzle.overlay());
         let cages = vec![

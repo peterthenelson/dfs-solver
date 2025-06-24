@@ -1,4 +1,4 @@
-use variant_sudoku::core::{FeatureVec, State};
+use variant_sudoku::core::FeatureVec;
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker};
 use variant_sudoku::magic_squares::{MagicSquare, MagicSquareChecker, MS_FEATURE};
 use variant_sudoku::ranker::StdRanker;
@@ -14,18 +14,17 @@ pub struct DutchMagic;
 impl PuzzleSetter for DutchMagic {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type State = NineStd;
     type Ranker = StdRanker;
-    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { Some("dutch-magic".into()) }
 
-    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // No given digits in real puzzle but can be passed in in test.
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
 
-    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup_with_givens(given: NineStd) -> (NineStd, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let cb = CageBuilder::new(false, puzzle.overlay());
         let cages = vec![

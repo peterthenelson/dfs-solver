@@ -1,4 +1,4 @@
-use variant_sudoku::core::{FeatureVec, State};
+use variant_sudoku::core::FeatureVec;
 use variant_sudoku::ranker::StdRanker;
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
@@ -13,18 +13,17 @@ pub struct DoubleDown;
 impl PuzzleSetter for DoubleDown {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type State = NineStd;
     type Ranker = StdRanker;
-    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { Some("double-down".into()) }
 
-    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // Real puzzle has no givens
         Self::setup_with_givens(NineStd::new(nine_standard_overlay()))
     }
 
-    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup_with_givens(given: NineStd) -> (NineStd, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let cb = CageBuilder::new(false, puzzle.overlay());
         let cages = vec![

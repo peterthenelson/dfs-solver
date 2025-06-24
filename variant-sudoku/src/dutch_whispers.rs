@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use crate::constraint::Constraint;
 use crate::core::{full_set, singleton_set, unpack_singleton, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::index_util::{check_adjacent, expand_polyline};
-use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay, StdState};
+use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
 
 /// DutchWhispers are a line-based constraint where adjacent cells on the line
@@ -202,8 +202,8 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
 }
 
 impl <const N: usize, const M: usize>
-Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperChecker {
-    fn check(&self, puzzle: &StdState<N, M, 1, 9>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
+Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
+    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
@@ -250,7 +250,7 @@ Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for DutchWhisperC
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &StdState<N, M, 1, 9>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "DutchWhisperChecker:\n";
         let mut lines = vec![];
         for (i, w) in self.whispers.iter().enumerate() {

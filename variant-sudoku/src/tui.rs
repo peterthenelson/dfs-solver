@@ -12,7 +12,7 @@ use ratatui::{
 };
 use strum::EnumCount;
 use crate::{
-    core::{ConstraintResult, Index, State},
+    core::{ConstraintResult, Index, Overlay, State},
     debug::{DbgObserver, Sample},
     solver::{DfsSolver, DfsSolverState, DfsSolverView, FindFirstSolution, PuzzleSetter, StepObserver},
 };
@@ -20,7 +20,7 @@ use crate::{
 /// Solves the puzzle in command-line mode. No interactivity, but a StepObserver
 /// can be passed in to periodically print out or save debug information. The
 /// solution will be printed at the end.
-pub fn solve_cli<P: PuzzleSetter, D: StepObserver<P::Value, P::Overlay, P::State, P::Ranker, P::Constraint>>(mut observer: D) {
+pub fn solve_cli<P: PuzzleSetter, D: StepObserver<P::Value, P::Overlay, P::Ranker, P::Constraint>>(mut observer: D) {
     let (mut s, r, mut c) = P::setup();
     let mut finder = FindFirstSolution::new(&mut s, &r, &mut c, Some(&mut observer));
     let maybe_solution = finder.solve().expect("Puzzle solver returned an error:");
@@ -80,8 +80,8 @@ pub mod test_util {
     /// Solves the puzzle (silently, unless a StepObserver is used), replacing the
     /// real givens with the provided ones. This works similar to solve_cli, but
     /// it's useful in testing situations.
-    pub fn solve_with_given<P: PuzzleSetter, D: StepObserver<P::Value, P::Overlay, P::State, P::Ranker, P::Constraint>>(
-        given: P::State,
+    pub fn solve_with_given<P: PuzzleSetter, D: StepObserver<P::Value, P::Overlay, P::Ranker, P::Constraint>>(
+        given: State<P::Value, P::Overlay>,
         mut observer: D,
     ) {
         let (mut s, r, mut c) = P::setup_with_givens(given);
@@ -98,7 +98,7 @@ pub mod test_util {
     ///   debug_std!(NineStdTui, &mut puzzle, &ranker, &mut constraint);
     /// - You should run just the relevant test case and not capture output:
     ///   $ cargo test my_test_case -- --nocapture
-    pub fn interactive_debug<P: PuzzleSetter, T: Tui<P>>(state: &mut P::State, ranker: &P::Ranker, constraint: &mut P::Constraint) {
+    pub fn interactive_debug<P: PuzzleSetter, T: Tui<P>>(state: &mut State<P::Value, P::Overlay>, ranker: &P::Ranker, constraint: &mut P::Constraint) {
         let mut terminal = ratatui::init();
         let mut ts = TuiState::<P>::new(state, ranker, constraint);
         let app_result = tui_run::<P, T>(&mut ts, &mut terminal);
@@ -209,7 +209,7 @@ enum TuiStateEvent {
 }
 
 pub struct TuiState<'a, P: PuzzleSetter> {
-    pub solver: DfsSolver<'a, P::Value, P::Overlay, P::State, P::Ranker, P::Constraint>,
+    pub solver: DfsSolver<'a, P::Value, P::Overlay, P::Ranker, P::Constraint>,
     pub grid_pos: Index,
     pub grid_dims: [usize; 2],
     pub scroll_pos: usize,
@@ -234,11 +234,12 @@ pub trait Tui<P: PuzzleSetter> {
 }
 
 impl <'a, P: PuzzleSetter> TuiState<'a, P> {
-    pub fn new(puzzle: &'a mut P::State, ranker: &'a P::Ranker, constraint: &'a mut P::Constraint) -> Self {
+    pub fn new(puzzle: &'a mut State<P::Value, P::Overlay>, ranker: &'a P::Ranker, constraint: &'a mut P::Constraint) -> Self {
+        let (n, m) = puzzle.overlay().grid_dims();
         Self {
             solver: DfsSolver::new(puzzle, ranker, constraint),
             grid_pos: [0, 0],
-            grid_dims: [P::State::ROWS, P::State::COLS],
+            grid_dims: [n, m],
             scroll_pos: 0,
             scroll_lines: Vec::new(),
             mode: Mode::Readme,

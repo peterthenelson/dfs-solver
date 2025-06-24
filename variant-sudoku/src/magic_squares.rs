@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, Feature, Key, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{NineStdVal, StdOverlay, StdState}};
+use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, Feature, Key, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{NineStdVal, StdOverlay}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -116,7 +116,7 @@ impl MagicSquareChecker {
     fn sum15<const N: usize, const M: usize>(
         &self,
         triple: &[Index; 3], 
-        puzzle: &StdState<N, M, 1, 9>,
+        puzzle: &State<NineStdVal, StdOverlay<N, M>>,
         grid: &mut DecisionGrid<NineStdVal>,
     ) -> Option<ConstraintResult<NineStdVal>> {
         let (sum, n_empty, first_empty) = sum_trip(triple, puzzle);
@@ -159,7 +159,7 @@ impl Stateful<NineStdVal> for MagicSquareChecker {}
 fn check_vals<const N: usize, const M: usize>(
     indices: &[Index; 4],
     values: &UVSet<u8>,
-    puzzle: &StdState<N, M, 1, 9>,
+    puzzle: &State<NineStdVal, StdOverlay<N, M>>,
     grid: &mut DecisionGrid<NineStdVal>,
     attribution: Key<Attribution, WithId>,
 ) -> Option<ConstraintResult<NineStdVal>> {
@@ -177,7 +177,7 @@ fn check_vals<const N: usize, const M: usize>(
 
 fn sum_trip<const N: usize, const M: usize>(
     triple: &[Index; 3], 
-    puzzle: &StdState<N, M, 1, 9>,
+    puzzle: &State<NineStdVal, StdOverlay<N, M>>,
 ) -> (u8, u8, Option<Index>) {
     let mut sum = 0;
     let mut n_empty = 3;
@@ -194,8 +194,8 @@ fn sum_trip<const N: usize, const M: usize>(
 }
 
 impl <const N: usize, const M: usize>
-Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for MagicSquareChecker {
-    fn check(&self, puzzle: &StdState<N, M, 1, 9>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
+Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
+    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
                 if v.val() != 5 {
@@ -238,7 +238,7 @@ Constraint<NineStdVal, StdOverlay<N, M>, StdState<N, M, 1, 9>> for MagicSquareCh
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &StdState<N, M, 1, 9>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<String> {
         for square in &self.squares {
             let [ul, mm, lr] = square.diag_0();
             let [ll, _, ur] = square.diag_1();

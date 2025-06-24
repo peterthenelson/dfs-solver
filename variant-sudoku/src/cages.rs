@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use crate::core::{full_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
-use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
+use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
@@ -250,8 +250,8 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &UVSet<u8>, remaining: u8, e
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for CageChecker<MIN, MAX> {
-    fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for CageChecker<MIN, MAX> {
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
@@ -280,7 +280,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Cag
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &StdState<N, M, MIN, MAX>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "CageChecker:\n";
         let mut lines = vec![];
         if let Some((i, v, a)) = &self.illegal {
@@ -376,13 +376,12 @@ mod test {
     impl PuzzleSetter for E2ECage {
         type Value = FourStdVal;
         type Overlay = FourStdOverlay;
-        type State = FourStd;
         type Ranker = StdRanker;
-        type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
-        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+        type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
+        fn setup() -> (FourStd, Self::Ranker, Self::Constraint) {
             Self::setup_with_givens(FourStd::new(four_standard_overlay()))
         }
-        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+        fn setup_with_givens(given: FourStd) -> (FourStd, Self::Ranker, Self::Constraint) {
             let cb = CageBuilder::new(true, given.overlay());
             let cages = vec![
                 cb.across(8, [0, 0], 3),
@@ -411,7 +410,7 @@ mod test {
                               2143\n\
                               4231\n\
                               1324\n";
-        assert_eq!(maybe_solution.unwrap().state().serialize(), expected);
+        assert_eq!(format!("{:?}", maybe_solution.unwrap().state()), expected);
         Ok(())
     }
 }

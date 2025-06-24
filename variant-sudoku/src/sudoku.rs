@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-
-use crate::core::{full_set, to_value, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
+use crate::core::{full_set, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -144,171 +143,47 @@ pub fn stdval_len_bound<const MIN: u8, const MAX: u8>(sum: u8) -> Option<(u8, u8
     r
 }
 
-/// Standard rectangular Sudoku grid.
-#[derive(Clone)]
-pub struct StdState<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
-    grid: UVGrid<u8>,
-    given: UVGrid<u8>,
-    overlay: StdOverlay<N, M>,
-} 
-
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> Debug for StdState<N, M, MIN, MAX> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.serialize())
-    }
-}
-
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdState<N, M, MIN, MAX> {
-    pub fn new(overlay: StdOverlay<N, M>) -> Self {
-        Self { grid: UVGrid::new(N, M), given: UVGrid::new(N, M), overlay }
-    }
-
-    pub fn parse(s: &str, overlay: StdOverlay<N, M>) -> Result<Self, Error> {
-        let mut grid = UVGrid::new(N, M);
-        let lines: Vec<&str> = s.lines().collect();
-        if lines.len() != N {
-            return Err(Error::new("Invalid number of rows".to_string()));
-        }
-        for i in 0..N {
-            let line = lines[i].trim();
-            if line.len() != M {
-                return Err(Error::new("Invalid number of columns".to_string()));
-            }
-            for j in 0..M {
-                let c = line.chars().nth(j).unwrap();
-                if c == '.' {
-                    // Already None
-                } else {
-                    let s = c.to_string();
-                    let v = StdVal::<MIN, MAX>::parse(s.as_str())?;
-                    grid.set([i, j], Some(v.to_uval()));
-                }
-            }
-        }
-        Ok(Self { given: grid, grid: UVGrid::new(N, M), overlay })
-    }
-
-    pub fn serialize(&self) -> String {
-        let mut result = String::new();
-        for r in 0..N {
-            for c in 0..M {
-                if let Some(v) = self.grid.get([r, c]) {
-                    result.push_str(to_value::<StdVal<MIN, MAX>>(v).val().to_string().as_str());
-                } else {
-                    result.push('.');
-                }
-            }
-            result.push('\n');
-        }
-        result
-    }
-}
-
 pub type NineStdVal = StdVal<1, 9>;
 pub type NineStdOverlay = StdOverlay<9, 9>;
-pub type NineStd = StdState<9, 9, 1, 9>;
+pub type NineStd = State<NineStdVal, NineStdOverlay>;
 pub type EightStdVal = StdVal<1, 8>;
 pub type EightStdOverlay = StdOverlay<8, 8>;
-pub type EightStd = StdState<8, 8, 1, 8>;
+pub type EightStd = State<EightStdVal, EightStdOverlay>;
 pub type SixStdVal = StdVal<1, 6>;
 pub type SixStdOverlay = StdOverlay<6, 6>;
-pub type SixStd = StdState<6, 6, 1, 6>;
+pub type SixStd = State<SixStdVal, SixStdOverlay>;
 pub type FourStdVal = StdVal<1, 4>;
 pub type FourStdOverlay = StdOverlay<4, 4>;
-pub type FourStd = StdState<4, 4, 1, 4>;
+pub type FourStd = State<FourStdVal, FourStdOverlay>;
 
 pub fn nine_standard_parse(s: &str) -> Result<NineStd, Error> {
-    NineStd::parse(s, nine_standard_overlay())
+    nine_standard_overlay().parse_state(s)
 }
 pub fn eight_standard_parse(s: &str) -> Result<EightStd, Error> {
-    EightStd::parse(s, eight_standard_overlay())
+    eight_standard_overlay().parse_state(s)
 }
 pub fn six_standard_parse(s: &str) -> Result<SixStd, Error> {
-    SixStd::parse(s, six_standard_overlay())
+    six_standard_overlay().parse_state(s)
 }
 pub fn four_standard_parse(s: &str) -> Result<FourStd, Error> {
-    FourStd::parse(s, four_standard_overlay())
+    four_standard_overlay().parse_state(s)
+}
+pub fn nine_standard_empty() -> NineStd {
+    NineStd::new(nine_standard_overlay())
+}
+pub fn eight_standard_empty() -> EightStd {
+    EightStd::new(eight_standard_overlay())
+}
+pub fn six_standard_empty() -> SixStd {
+    SixStd::new(six_standard_overlay())
+}
+pub fn four_standard_empty() -> FourStd {
+    FourStd::new(four_standard_overlay())
 }
 
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-Display for StdState<N, M, MIN, MAX> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        for r in 0..N {
-            for c in 0..M {
-                if let Some(v) = self.grid.get([r, c]) {
-                    write!(f, "{}", to_value::<StdVal::<MIN, MAX>>(v).val())?;
-                } else {
-                    write!(f, ".")?;
-                }
-            }
-            writeln!(f)?;
-        }
-        Ok(())
-    }
-}
-
-pub const OUT_OF_BOUNDS_ERROR: Error = Error::new_const("Out of bounds");
-pub const ALREADY_FILLED_ERROR: Error = Error::new_const("Cell already filled");
-pub const NO_SUCH_ACTION_ERROR: Error = Error::new_const("No such action to undo");
-pub const UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
+pub const UNDO_MISMATCH_ERROR: Error = Error::new_const("Undo value mismatch");
 pub const ILLEGAL_ACTION_RC: Error = Error::new_const("A row/col violation already exists; can't apply further actions.");
 pub const ILLEGAL_ACTION_BOX: Error = Error::new_const("A box violation already exists; can't apply further actions.");
-
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-State<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdState<N, M, MIN, MAX> {
-    const ROWS: usize = N;
-    const COLS: usize = M;
-    fn get(&self, index: Index) -> Option<StdVal<MIN, MAX>> {
-        if index[0] >= N || index[1] >= M {
-            return None;
-        }
-        self.grid.get(index).map(to_value)
-    }
-    fn overlay(&self) -> &StdOverlay<N, M> { &self.overlay }
-    fn given_actions(&self) -> Vec<(Index, StdVal<MIN, MAX>)> {
-        (0..N).flat_map(|r| {
-            (0..M).filter_map(move |c| {
-                self.given.get([r, c]).map(|v| {
-                    ([r, c], to_value::<StdVal<MIN, MAX>>(v))
-                })
-            })
-        }).collect()
-    }
-}
-
-impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-Stateful<StdVal<MIN, MAX>> for StdState<N, M, MIN, MAX> {
-    fn reset(&mut self) {
-        self.grid = UVGrid::new(N, M);
-    }
-
-    fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if index[0] >= N || index[1] >= M {
-            return Err(OUT_OF_BOUNDS_ERROR);
-        }
-        if self.grid.get(index).is_some() {
-            return Err(ALREADY_FILLED_ERROR);
-        }
-        self.grid.set(index, Some(value.to_uval()));
-        Ok(())
-    }
-
-    fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if index[0] >= N || index[1] >= M {
-            return Err(OUT_OF_BOUNDS_ERROR);
-        }
-        match self.grid.get(index) {
-            None => return Err(NO_SUCH_ACTION_ERROR),
-            Some(v) => {
-                if v != value.to_uval() {
-                    return Err(UNDO_MISMATCH);
-                }
-            }
-        }
-        self.grid.set(index, None);
-        Ok(())
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct StdOverlay<const N: usize, const M: usize> {
@@ -483,6 +358,7 @@ impl <const N: usize, const M: usize> StdOverlay<N, M> {
 
 impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
     type Iter<'a> = StdOverlayIterator<'a, N, M> where Self: 'a;
+    fn grid_dims(&self) -> (usize, usize) { (N, M) }
     /// There are rows, columns, and boxes.
     fn partition_dimension(&self) -> usize { 3 }
     fn n_partitions(&self, dim: usize) -> usize {
@@ -531,6 +407,50 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         let (b2, _) = self.to_box_coords(i2);
         b1 == b2
     }
+
+    fn full_decision_grid<V: Value>(&self, _: &State<V, Self>) -> DecisionGrid<V> {
+        DecisionGrid::full(N, M)
+    }
+
+    fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {
+        let mut grid = UVGrid::new(N, M);
+        let lines: Vec<&str> = s.lines().collect();
+        if lines.len() != N {
+            return Err(Error::new("Invalid number of rows".to_string()));
+        }
+        for i in 0..N {
+            let line = lines[i].trim();
+            if line.len() != M {
+                return Err(Error::new("Invalid number of columns".to_string()));
+            }
+            for j in 0..M {
+                let c = line.chars().nth(j).unwrap();
+                if c == '.' {
+                    // Already None
+                } else {
+                    let s = c.to_string();
+                    let v = V::parse(s.as_str())?;
+                    grid.set([i, j], Some(v.to_uval()));
+                }
+            }
+        }
+        State::<V, Self>::with_givens(self.clone(), grid)
+    }
+
+    fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String {
+        let mut result = String::new();
+        for r in 0..N {
+            for c in 0..M {
+                if let Some(v) = s.get([r, c]) {
+                    result.push_str(v.to_string().as_str())
+                } else {
+                    result.push('.');
+                }
+            }
+            result.push('\n');
+        }
+        result
+    }
 }
 
 pub fn nine_standard_overlay() -> StdOverlay<9, 9> {
@@ -562,7 +482,7 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N, M, MIN, MAX> {
-    pub fn new(state: &StdState<N, M, MIN, MAX>) -> Self {
+    pub fn new(state: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>) -> Self {
         return Self {
             overlay: state.overlay().clone(),
             row: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
@@ -637,7 +557,7 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
         if let Some((i, v, _)) = self.illegal {
             if i != index || v != value {
-                return Err(UNDO_MISMATCH);
+                return Err(UNDO_MISMATCH_ERROR);
             } else {
                 self.illegal = None;
                 return Ok(());
@@ -653,8 +573,8 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
-    fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
@@ -673,7 +593,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Std
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &StdState<N, M, MIN, MAX>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "StdChecker:\n";
         if let Some((i, v, a)) = &self.illegal {
             if *i == index {
@@ -789,7 +709,7 @@ mod test {
 
     #[test]
     fn test_sudoku_grid() {
-        let mut sudoku: StdState<9, 9, 1, 9> = StdState::new(nine_standard_overlay());
+        let mut sudoku = nine_standard_empty();
         assert_eq!(sudoku.apply([0, 0], StdVal(5)), Ok(()));
         assert_eq!(sudoku.apply([8, 8], StdVal(1)), Ok(()));
         assert_eq!(sudoku.get([0, 0]), Some(StdVal(5)));
@@ -802,7 +722,7 @@ mod test {
 
     #[test]
     fn test_sudoku_overlay() {
-        let overlay = StdOverlay::<9, 9>::new(3, 3, 3, 3);
+        let overlay = nine_standard_overlay();
         assert_eq!(overlay.rows(), 9);
         assert_eq!(overlay.cols(), 9);
         assert_eq!(overlay.boxes(), 9);
@@ -845,7 +765,7 @@ mod test {
 
     #[test]
     fn test_sudoku_row_violation() {
-        let mut sudoku: StdState<9, 9, 1, 9> = StdState::new(nine_standard_overlay());
+        let mut sudoku = nine_standard_empty();
         let mut checker = StdChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [5, 3], StdVal(1));
         apply2(&mut sudoku, &mut checker, [5, 4], StdVal(3));
@@ -860,7 +780,7 @@ mod test {
 
     #[test]
     fn test_sudoku_col_violation() {
-        let mut sudoku: StdState<9, 9, 1, 9> = StdState::new(nine_standard_overlay());
+        let mut sudoku = nine_standard_empty();
         let mut checker = StdChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [1, 3], StdVal(2));
         apply2(&mut sudoku, &mut checker, [3, 3], StdVal(7));
@@ -875,7 +795,7 @@ mod test {
 
     #[test]
     fn test_sudoku_box_violation() {
-        let mut sudoku: StdState<9, 9, 1, 9> = StdState::new(nine_standard_overlay());
+        let mut sudoku = nine_standard_empty();
         let mut checker = StdChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [3, 0], StdVal(8));
         apply2(&mut sudoku, &mut checker, [4, 1], StdVal(2));
@@ -904,7 +824,7 @@ mod test {
         assert_eq!(sudoku.get([0, 0]), Some(StdVal::new(5)));
         assert_eq!(sudoku.get([8, 8]), Some(StdVal::new(9)));
         assert_eq!(sudoku.get([2, 7]), Some(StdVal::new(6)));
-        assert_eq!(sudoku.to_string(), input);
+        assert_eq!(format!("{:?}", sudoku), input);
     }
 
     #[test]
@@ -926,7 +846,7 @@ mod test {
         sudoku.reset();
         replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 1]), None);
-        assert_eq!(sudoku.to_string(), input);
+        assert_eq!(format!("{:?}", sudoku), input);
     }
 
     #[test]

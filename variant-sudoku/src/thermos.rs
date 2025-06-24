@@ -189,9 +189,9 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for ThermoChecker
     }
 }
 
-impl <const MIN: u8, const MAX: u8, O: Overlay, S: State<StdVal<MIN, MAX>, O>>
-Constraint<StdVal<MIN, MAX>, O, S> for ThermoChecker<MIN, MAX> {
-    fn check(&self, _: &S, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+impl <const MIN: u8, const MAX: u8, O: Overlay>
+Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
+    fn check(&self, _: &State<StdVal<MIN, MAX>, O>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
@@ -209,7 +209,7 @@ Constraint<StdVal<MIN, MAX>, O, S> for ThermoChecker<MIN, MAX> {
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &S, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<String> {
         let header = "ThermoChecker:\n";
         let mut lines = vec![];
         if let Some((i, v, a)) = &self.illegal {
@@ -301,10 +301,9 @@ mod test {
     impl PuzzleSetter for E2EThermo {
         type Value = FourStdVal;
         type Overlay = FourStdOverlay;
-        type State = FourStd;
         type Ranker = StdRanker;
-        type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
-        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+        type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
+        fn setup() -> (FourStd, Self::Ranker, Self::Constraint) {
             Self::setup_with_givens(four_standard_parse(
                 "2...\n\
                  ....\n\
@@ -312,7 +311,7 @@ mod test {
                  ....\n"
             ).unwrap())
         }
-        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+        fn setup_with_givens(given: FourStd) -> (FourStd, Self::Ranker, Self::Constraint) {
             let tb = ThermoBuilder::<1, 4>::new();
             let thermos = vec![
                 tb.right([1, 1], 3),
@@ -337,7 +336,7 @@ mod test {
                               3124\n\
                               1342\n\
                               4213\n";
-        assert_eq!(maybe_solution.unwrap().state().serialize(), expected);
+        assert_eq!(format!("{:?}", maybe_solution.unwrap().state()), expected);
         Ok(())
     }
 }

@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, State, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{unpack_values, BranchOver, Index, Overlay, Value}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -607,21 +607,6 @@ pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     }
     lines.push(grid_bottom::<P, N, M>(so));
     Text::from(lines)
-}
-
-pub fn grid_dims<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
-) -> [usize; 2] {
-    let (r, c) = if let Some(overlay) = so {
-        (overlay.rows(), overlay.cols())
-    } else {
-        (P::State::ROWS, P::State::COLS)
-    };
-    match state.mode {
-        Mode::PossibilityHeatmap => [r*2, c*2],
-        _ => [r, c],
-    }
 }
 
 fn upper_left_type<'a, P: PuzzleSetter, const N: usize, const M: usize>(

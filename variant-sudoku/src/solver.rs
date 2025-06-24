@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Value, WithId};
+use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -38,8 +38,8 @@ pub enum DfsSolverState {
 }
 
 // A view on the state and associated data for the solver.
-pub trait DfsSolverView<V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+pub trait DfsSolverView<V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn step_count(&self) -> usize;
     fn solver_state(&self) -> DfsSolverState;
     fn is_initializing(&self) -> bool;
@@ -51,7 +51,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     fn constraint(&self) -> &C;
     fn constraint_result(&self) -> ConstraintResult<V>;
     fn decision_grid(&self) -> Option<DecisionGrid<V>>;
-    fn state(&self) -> &S;
+    fn state(&self) -> &State<V, O>;
 }
 
 // Mostly for debugging purposes, a StepObserver allows the caller of various
@@ -60,9 +60,9 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
 // debugger (and certainly not sufficient for a UI), but when debugging failing
 // tests, it is much easier to inject a StepObserver than it is to invert
 // control and fully instrument the whole solving process.
-pub trait StepObserver<V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
-    fn after_step(&mut self, solver: &dyn DfsSolverView<V, O, S, R, C>);
+pub trait StepObserver<V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
+    fn after_step(&mut self, solver: &dyn DfsSolverView<V, O, R, C>);
 }
 
 pub const MANUAL_ATTRIBUTION: &str = "MANUAL_STEP";
@@ -71,10 +71,10 @@ pub const MANUAL_ATTRIBUTION: &str = "MANUAL_STEP";
 /// the solving process, you can directly use this. Most users should prefer
 /// FindFirstSolution or FindAllSolutions, which are higher-level APIs. However,
 /// if you are implementing a UI or debugging, this API may be useful.
-pub struct DfsSolver<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+pub struct DfsSolver<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     step: usize,
-    puzzle: &'a mut S,
+    puzzle: &'a mut State<V, O>,
     ranker: &'a R,
     constraint: &'a mut C,
     givens: Vec<(Index, V)>,
@@ -88,17 +88,17 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     _marker: PhantomData<O>,
 }
 
-impl <'a, V, O, S, R, C> Debug
-for DfsSolver<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> Debug
+for DfsSolver<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State:\n{:?}Constraint:\n{:?}\n", self.puzzle, self.constraint)
     }
 }
 
-impl <'a, V, O, S, R, C> DfsSolverView<V, O, S, R, C>
-for DfsSolver<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> DfsSolverView<V, O, R, C>
+for DfsSolver<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn step_count(&self) -> usize {
         self.step
     }
@@ -160,7 +160,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         self.decision_grid.clone()
     }
 
-    fn state(&self) -> &S {
+    fn state(&self) -> &State<V, O> {
         self.puzzle
     }
 }
@@ -169,10 +169,10 @@ const NOT_INITIALIZED: Error = Error::new_const("Must call init() before steppin
 const PUZZLE_ALREADY_DONE: Error = Error::new_const("Puzzle already done");
 const NO_CHOICE: Error = Error::new_const("Decision point has no choice");
 
-impl <'a, V, O, S, R, C> DfsSolver<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> DfsSolver<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     pub fn new(
-        puzzle: &'a mut S,
+        puzzle: &'a mut State<V, O>,
         ranker: &'a R,
         constraint: &'a mut C, 
     ) -> Self {
@@ -195,9 +195,10 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     }
 
     fn check_and_rank(&mut self) {
-        let mut grid = DecisionGrid::full(S::ROWS, S::COLS);
-        for r in 0..S::ROWS {
-            for c in 0..S::COLS {
+        let (n, m) = self.puzzle.overlay().grid_dims();
+        let mut grid = DecisionGrid::full(n, m);
+        for r in 0..n {
+            for c in 0..m {
                 if let Some(v) = self.puzzle.get([r, c]) {
                     grid.get_mut([r, c]).0 = singleton_set::<V>(v);
                 }
@@ -346,7 +347,7 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
                         step: self.step,
                     });
                     if self.decision_grid.is_none() {
-                        self.decision_grid = Some(DecisionGrid::full(S::ROWS, S::COLS));
+                        self.decision_grid = Some(self.puzzle.overlay().full_decision_grid(&self.puzzle))
                     }
                 }
                 Ok(())
@@ -402,15 +403,15 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
 }
 
 /// Find first solution to the puzzle using the given ranker and constraints.
-pub struct FindFirstSolution<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
-    solver: DfsSolver<'a, V, O, S, R, C>,
-    observer: Option<&'a mut dyn StepObserver<V, O, S, R, C>>,
+pub struct FindFirstSolution<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
+    solver: DfsSolver<'a, V, O, R, C>,
+    observer: Option<&'a mut dyn StepObserver<V, O, R, C>>,
 }
 
-impl <'a, V, O, S, R, C> DfsSolverView<V, O, S, R, C>
-for FindFirstSolution<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> DfsSolverView<V, O, R, C>
+for FindFirstSolution<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn step_count(&self) -> usize { self.solver.step_count() }
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
@@ -432,16 +433,16 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.solver.decision_grid()
     }
-    fn state(&self) -> &S { self.solver.state() }
+    fn state(&self) -> &State<V, O> { self.solver.state() }
 }
 
-impl <'a, V, O, S, R, C> FindFirstSolution<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> FindFirstSolution<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     pub fn new(
-        puzzle: &'a mut S,
+        puzzle: &'a mut State<V, O>,
         ranker: &'a R,
         constraint: &'a mut C,
-        observer: Option<&'a mut dyn StepObserver<V, O, S, R, C>>,
+        observer: Option<&'a mut dyn StepObserver<V, O, R, C>>,
     ) -> Self {
         FindFirstSolution {
             solver: DfsSolver::new(puzzle, ranker, constraint),
@@ -449,12 +450,12 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
         }
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, O, S, R, C>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, O, R, C>, Error> {
         self.solver.step()?;
         Ok(&self.solver)
     }
 
-    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<V, O, S, R, C>>, Error> {
+    pub fn solve(&mut self) -> Result<Option<&dyn DfsSolverView<V, O, R, C>>, Error> {
         while !self.solver.is_done() {
             self.step()?;
             if let Some(observer) = &mut self.observer {
@@ -470,15 +471,15 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
 }
 
 /// Find all solutions to the puzzle using the given ranker and constraints.
-pub struct FindAllSolutions<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
-    solver: DfsSolver<'a, V, O, S, R, C>,
-    observer: Option<&'a mut dyn StepObserver<V, O, S, R, C>>,
+pub struct FindAllSolutions<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
+    solver: DfsSolver<'a, V, O, R, C>,
+    observer: Option<&'a mut dyn StepObserver<V, O, R, C>>,
 }
 
-impl <'a, V, O, S, R, C> DfsSolverView<V, O, S, R, C>
-for FindAllSolutions<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> DfsSolverView<V, O, R, C>
+for FindAllSolutions<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn step_count(&self) -> usize { self.solver.step_count() }
     fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
     fn is_initializing(&self) -> bool { self.solver.is_initializing() }
@@ -500,23 +501,23 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
     fn decision_grid(&self) -> Option<DecisionGrid<V>> {
         self.solver.decision_grid()
     }
-    fn state(&self) -> &S { self.solver.state() }
+    fn state(&self) -> &State<V, O> { self.solver.state() }
 }
 
-impl <'a, V, O, S, R, C> FindAllSolutions<'a, V, O, S, R, C>
-where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+impl <'a, V, O, R, C> FindAllSolutions<'a, V, O, R, C>
+where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     pub fn new(
-        puzzle: &'a mut S,
+        puzzle: &'a mut State<V, O>,
         ranker: &'a R,
         constraint: &'a mut C,
-        observer: Option<&'a mut dyn StepObserver<V, O, S, R, C>>,
+        observer: Option<&'a mut dyn StepObserver<V, O, R, C>>,
     ) -> Self {
         FindAllSolutions {
             solver: DfsSolver::new(puzzle, ranker, constraint), observer,
         }
     }
 
-    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, O, S, R, C>, Error> {
+    pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, O, R, C>, Error> {
         if self.solver.state == DfsSolverState::Solved {
             self.solver.force_backtrack();
         }
@@ -546,14 +547,13 @@ where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V,
 pub trait PuzzleSetter {
     type Value: Value;
     type Overlay: Overlay;
-    type State: State<Self::Value, Self::Overlay>;
-    type Ranker: Ranker<Self::Value, Self::Overlay, Self::State>;
-    type Constraint: Constraint<Self::Value, Self::Overlay, Self::State>;
+    type Ranker: Ranker<Self::Value, Self::Overlay>;
+    type Constraint: Constraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { None }
-    fn setup() -> (Self::State, Self::Ranker, Self::Constraint);
+    fn setup() -> (State<Self::Value, Self::Overlay>, Self::Ranker, Self::Constraint);
     // Useful for testing: setup the state with a different set of givens.
-    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint);
+    fn setup_with_givens(given: State<Self::Value, Self::Overlay>) -> (State<Self::Value, Self::Overlay>, Self::Ranker, Self::Constraint);
 }
 
 #[cfg(any(test, feature = "test-util"))]
@@ -563,15 +563,15 @@ pub mod test_util {
     /// Replayer for a partially or wholly complete puzzle. This is helpful if
     /// you'd like to test a constraint and would prefer to specify the state
     /// after a number of actions, rather than as a sequence of actions.
-    pub struct PuzzleReplay<'a, V, O, S, R, C>
-    where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
-        solver: DfsSolver<'a, V, O, S, R, C>,
-        observer: Option<&'a mut dyn StepObserver<V, O, S, R, C>>,
+    pub struct PuzzleReplay<'a, V, O, R, C>
+    where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
+        solver: DfsSolver<'a, V, O, R, C>,
+        observer: Option<&'a mut dyn StepObserver<V, O, R, C>>,
     }
 
-    impl <'a, V, O, S, R, C> DfsSolverView<V, O, S, R, C>
-    for PuzzleReplay<'a, V, O, S, R, C>
-    where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+    impl <'a, V, O, R, C> DfsSolverView<V, O, R, C>
+    for PuzzleReplay<'a, V, O, R, C>
+    where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
         fn step_count(&self) -> usize { self.solver.step_count() }
         fn solver_state(&self) -> DfsSolverState { self.solver.solver_state() }
         fn is_initializing(&self) -> bool { self.solver.is_initializing() }
@@ -593,16 +593,16 @@ pub mod test_util {
         fn decision_grid(&self) -> Option<DecisionGrid<V>> {
             self.solver.decision_grid()
         }
-        fn state(&self) -> &S { self.solver.state() }
+        fn state(&self) -> &State<V, O> { self.solver.state() }
     }
 
-    impl <'a, V, O, S, R, C> PuzzleReplay<'a, V, O, S, R, C>
-    where V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S> {
+    impl <'a, V, O, R, C> PuzzleReplay<'a, V, O, R, C>
+    where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
         pub fn new(
-            puzzle: &'a mut S,
+            puzzle: &'a mut State<V, O>,
             ranker: &'a R,
             constraint: &'a mut C,
-            observer: Option<&'a mut dyn StepObserver<V, O, S, R, C>>,
+            observer: Option<&'a mut dyn StepObserver<V, O, R, C>>,
         ) -> Self {
             Self {
                 solver: DfsSolver::new(puzzle, ranker, constraint),
@@ -610,7 +610,7 @@ pub mod test_util {
             }
         }
 
-        pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, O, S, R, C>, Error> {
+        pub fn step(&mut self) -> Result<&dyn DfsSolverView<V, O, R, C>, Error> {
             self.solver.step()?;
             Ok(&self.solver)
         }
@@ -637,22 +637,21 @@ pub mod test_util {
     // PuzzleSetter implementation (e.g., to be able to invoke
     // interactive_debug), even if you don't actually need to use any of the
     // actual methods.
-    pub struct FakeSetter<V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>(PhantomData<(V, O, S, R, C)>);
-    impl <V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>> FakeSetter<V, O, S, R, C> {
+    pub struct FakeSetter<V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O>>(PhantomData<(V, O, R, C)>);
+    impl <V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O>> FakeSetter<V, O, R, C> {
         pub fn new() -> Self { Self(PhantomData) }
     }
-    impl <V: Value, O: Overlay, S: State<V, O>, R: Ranker<V, O, S>, C: Constraint<V, O, S>>
-    PuzzleSetter for FakeSetter<V, O, S, R, C> {
+    impl <V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O>>
+    PuzzleSetter for FakeSetter<V, O, R, C> {
         type Value = V;
         type Overlay = O;
-        type State = S;
         type Ranker = R;
         type Constraint = C;
-        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+        fn setup() -> (State<V, O>, Self::Ranker, Self::Constraint) {
             panic!("FakeSetter does not implement setup/setup_with_givens and \
                     is only valid to use as a collection of associated types.");
         }
-        fn setup_with_givens(_: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+        fn setup_with_givens(_: State<V, O>) -> (State<V, O>, Self::Ranker, Self::Constraint) {
             panic!("FakeSetter does not implement setup/setup_with_givens and \
                     is only valid to use as a collection of associated types.");
         }
@@ -662,18 +661,18 @@ pub mod test_util {
 #[cfg(test)]
 mod test {
     use crate::constraint::test_util::assert_contradiction;
-    use crate::core::test_util::{OneDim, OneDimOverlay, TestVal};
+    use crate::core::test_util::{OneDimOverlay, TestVal};
     use crate::core::{Stateful, Value};
     use crate::ranker::StdRanker;
     use super::*;
 
     type GwOverlay = OneDimOverlay<8>;
-    type GwLine = OneDim<8>;
+    type GwLine = State<TestVal, GwOverlay>;
 
     #[derive(Debug)]
     struct GwLineConstraint {}
     impl Stateful<TestVal> for GwLineConstraint {}
-    impl Constraint<TestVal, GwOverlay, GwLine> for GwLineConstraint {
+    impl Constraint<TestVal, GwOverlay> for GwLineConstraint {
         fn check(&self, puzzle: &GwLine, _: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
             for i in 0..8 {
                 if puzzle.get([0, i]).is_none() {
@@ -702,7 +701,7 @@ mod test {
     #[derive(Debug)]
     struct GwSmartLineConstraint {}
     impl Stateful<TestVal> for GwSmartLineConstraint {}
-    impl Constraint<TestVal, GwOverlay, GwLine> for GwSmartLineConstraint {
+    impl Constraint<TestVal, GwOverlay> for GwSmartLineConstraint {
         fn check(&self, puzzle: &GwLine, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
             for i in 0..8 {
                 if let Some(v) = puzzle.get([0, i]) {
@@ -727,9 +726,9 @@ mod test {
 
     #[test]
     fn test_german_whispers_constraint() {
-        let mut puzzle = GwLine::new();
+        let mut puzzle = GwLine::new(GwOverlay {});
         let constraint = GwLineConstraint {};
-        let mut grid = DecisionGrid::full(GwLine::ROWS, GwLine::COLS);
+        let mut grid = puzzle.overlay().full_decision_grid(&puzzle);
         let violation = constraint.check(&puzzle, &mut grid);
         assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
@@ -753,13 +752,12 @@ mod test {
     impl PuzzleSetter for GwLineSetter {
         type Value = TestVal;
         type Overlay = GwOverlay;
-        type State = GwLine;
         type Ranker = StdRanker;
         type Constraint = GwLineConstraint;
-        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
-            Self::setup_with_givens(GwLine::new())
+        fn setup() -> (GwLine, Self::Ranker, Self::Constraint) {
+            Self::setup_with_givens(GwLine::new(GwOverlay {}))
         }
-        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+        fn setup_with_givens(given: GwLine) -> (GwLine, Self::Ranker, Self::Constraint) {
             (given, StdRanker::default_negative(), GwLineConstraint{})
         }
     }
@@ -767,13 +765,12 @@ mod test {
     impl PuzzleSetter for GwSmartLineSetter {
         type Value = TestVal;
         type Overlay = GwOverlay;
-        type State = GwLine;
         type Ranker = StdRanker;
         type Constraint = GwSmartLineConstraint;
-        fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
-            Self::setup_with_givens(GwLine::new())
+        fn setup() -> (GwLine, Self::Ranker, Self::Constraint) {
+            Self::setup_with_givens(GwLine::new(GwOverlay {}))
         }
-        fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+        fn setup_with_givens(given: GwLine) -> (GwLine, Self::Ranker, Self::Constraint) {
             (given, StdRanker::default_negative(), GwSmartLineConstraint{})
         }
     }
@@ -784,7 +781,7 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
-        assert_eq!(maybe_solution.unwrap().state().to_string(), "49382716");
+        assert_eq!(format!("{:?}", maybe_solution.unwrap().state()), "49382716");
         Ok(())
     }
 
@@ -806,9 +803,9 @@ mod test {
     }
 
     struct ContraCounter(pub usize);
-    impl <R: Ranker<TestVal, GwOverlay, GwLine>, C: Constraint<TestVal, GwOverlay, GwLine>>
-    StepObserver<TestVal, GwOverlay, GwLine, R, C> for ContraCounter {
-        fn after_step(&mut self, solver: &dyn DfsSolverView<TestVal, GwOverlay, GwLine, R, C>) {
+    impl <R: Ranker<TestVal, GwOverlay>, C: Constraint<TestVal, GwOverlay>>
+    StepObserver<TestVal, GwOverlay, R, C> for ContraCounter {
+        fn after_step(&mut self, solver: &dyn DfsSolverView<TestVal, GwOverlay, R, C>) {
             if !solver.is_valid() {
                 self.0 += 1;
             }
@@ -856,7 +853,7 @@ mod test {
                 solver.step()?;
             }
             assert!(solver.is_valid());
-            (0..GwLine::COLS).map(|i| puzzle.get([0, i])).collect::<Vec<_>>()
+            (0..puzzle.overlay().grid_dims().1).map(|i| puzzle.get([0, i])).collect::<Vec<_>>()
         };
         // Next runthrough does undo every once in a while.
         let actual_solution = {
@@ -871,7 +868,7 @@ mod test {
                 }
                 i += 1;
             }
-            (0..GwLine::COLS).map(|i| puzzle.get([0, i])).collect::<Vec<_>>()
+            (0..puzzle.overlay().grid_dims().1).map(|i| puzzle.get([0, i])).collect::<Vec<_>>()
         };
         assert_eq!(actual_solution, expected_solution);
         Ok(())

@@ -1,11 +1,11 @@
 pub mod core;
 pub mod index_util;
-pub mod range_util;
 pub mod constraint;
+pub mod sudoku;
+pub mod range_util;
 pub mod ranker;
 pub mod solver;
 pub mod debug;
-pub mod sudoku;
 pub mod cages;
 pub mod kropki;
 pub mod magic_squares;

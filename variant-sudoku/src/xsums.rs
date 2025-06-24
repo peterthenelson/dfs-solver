@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::core::{empty_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
-use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdState, StdVal};
+use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum XSumDirection {
@@ -119,7 +119,7 @@ XSum<MIN, MAX, N, M> {
         }
     }
 
-    pub fn contains(&self, puzzle: &StdState<N, M, MIN, MAX>, index: Index) -> bool {
+    pub fn contains(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> bool {
         let length_index = self.length_index();
         if index == length_index {
             true
@@ -130,7 +130,7 @@ XSum<MIN, MAX, N, M> {
         }
     }
 
-    pub fn length(&self, puzzle: &StdState<N, M, MIN, MAX>) -> Option<(Index, StdVal<MIN, MAX>)> {
+    pub fn length(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>) -> Option<(Index, StdVal<MIN, MAX>)> {
         match self.direction {
             XSumDirection::RR => if let Some(v) = puzzle.get([self.index, 0]) {
                 Some(([self.index, 0], v))
@@ -458,8 +458,8 @@ pub fn xsum_possibilities<const MIN: u8, const MAX: u8>(sum: u8) -> usize {
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for XSumChecker<MIN, MAX, N, M> {
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];
@@ -507,7 +507,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for XSu
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, puzzle: &StdState<N, M, MIN, MAX>, index: Index) -> Option<String> {
+    fn debug_at(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "XSumChecker:\n";
         let mut lines = vec![];
         for (i, x) in self.xsums.iter().enumerate() {

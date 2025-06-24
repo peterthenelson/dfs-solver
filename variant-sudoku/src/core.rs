@@ -122,11 +122,32 @@ pub trait Value: Copy + Clone + Display + Debug + PartialEq + Eq {
 }
 
 /// This is the underlying grid structure for a puzzle.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UVGrid<U: UInt> {
     rows: usize,
     cols: usize,
     grid: Box<[Option<U>]>,
+}
+
+impl <U: UInt> Debug for UVGrid<U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}x{}: ", self.rows, self.cols)?;
+        for r in 0..self.rows {
+            write!(f, "[")?;
+            for c in 0..self.cols {
+                if let Some(u) = self.grid[r * self.cols + c] {
+                    write!(f, "u{:?}", u)?;
+                } else {
+                    write!(f, "_")?;
+                }
+                if c != self.cols - 1 {
+                    write!(f, ",")?;
+                }
+            }
+            write!(f, "[")?;
+        }
+        Ok(())
+    }
 }
 
 impl<U: UInt> UVGrid<U> {
@@ -767,6 +788,7 @@ pub trait Stateful<V: Value>: {
 /// Used to give meaningful layout information to a State.
 pub trait Overlay: Clone + Debug {
     type Iter<'a>: Iterator<Item = Index> where Self: 'a;
+    fn grid_dims(&self) -> (usize, usize);
     fn partition_dimension(&self) -> usize;
     fn n_partitions(&self, dim: usize) -> usize;
     fn partition_size(&self, dim: usize, index: usize) -> usize;
@@ -788,17 +810,111 @@ pub trait Overlay: Clone + Debug {
     fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
         indices.iter().all(|i| self.mutually_visible(indices[0], *i))
     }
+    fn full_decision_grid<V: Value>(&self, s: &State<V, Self>) -> DecisionGrid<V>;
+    fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error>;
+    fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String;
 }
 
-/// Trait for representing whatever puzzle is being solved in its current state
-/// of being (partially) filled in. Ultimately this is just wrapping a Grid, but
-/// it may impose additional meanings on the values of the grid.
-pub trait State<V: Value, O: Overlay> where Self: Clone + Debug + Stateful<V> {
-    const ROWS: usize;
-    const COLS: usize;
-    fn get(&self, index: Index) -> Option<V>;
-    fn overlay(&self) -> &O;
-    fn given_actions(&self) -> Vec<(Index, V)>;
+/// The state of the puzzle being solved (whether empty, full, or partially
+/// filled in). It is ultimately just a grid of Values with the interpretations
+/// being determined by the Constraints, but the associated Overlay can provide
+/// some global structure (layers, rows/cols/boxes, regions).
+#[derive(Clone)]
+pub struct State<V: Value, O: Overlay> {
+    n: usize,
+    m: usize,
+    grid: UVGrid<V::U>,
+    given: UVGrid<V::U>,
+    overlay: O,
+}
+
+pub const DIMENSION_MISMATCH_ERROR: Error = Error::new_const("Mismatched grid dimensions");
+pub const OUT_OF_BOUNDS_ERROR: Error = Error::new_const("Out of bounds");
+pub const ALREADY_FILLED_ERROR: Error = Error::new_const("Cell already filled");
+pub const NO_SUCH_ACTION_ERROR: Error = Error::new_const("No such action to undo");
+pub const UNDO_MISMATCH_ERROR: Error = Error::new_const("Undo value mismatch");
+
+impl <V: Value, O: Overlay> State<V, O> {
+    pub fn new(overlay: O) -> Self {
+        let (n, m) = overlay.grid_dims();
+        Self {
+            n, m,
+            grid: UVGrid::new(n, m),
+            given: UVGrid::new(n, m),
+            overlay,
+        }
+    }
+
+    pub fn with_givens(overlay: O, given: UVGrid<V::U>) -> Result<Self, Error> {
+        let (n, m) = overlay.grid_dims();
+        if given.rows() != n || given.cols() != m {
+            return Err(DIMENSION_MISMATCH_ERROR);
+        }
+        Ok(Self {
+            n, m,
+            grid: UVGrid::new(n, m),
+            given,
+            overlay,
+        })
+    }
+
+    pub fn get(&self, index: Index) -> Option<V> {
+        if index[0] >= self.n || index[1] >= self.m {
+            return None;
+        }
+        self.grid.get(index).map(to_value::<V>)
+    }
+
+    pub fn overlay(&self) -> &O { &self.overlay }
+
+    pub fn given_actions(&self) -> Vec<(Index, V)> {
+        (0..self.n).flat_map(|r| {
+            (0..self.m).filter_map(move |c| {
+                self.given.get([r, c]).map(|v| {
+                    ([r, c], to_value::<V>(v))
+                })
+            })
+        }).collect()
+    }
+}
+
+impl <V: Value, O: Overlay> Debug for State<V, O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.overlay.serialize_state(&self))
+    }
+}
+
+impl <V: Value, O: Overlay> Stateful<V> for State<V, O> {
+    fn reset(&mut self) {
+        self.grid = UVGrid::new(self.n, self.m);
+    }
+
+    fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
+        if index[0] >= self.n || index[1] >= self.m {
+            return Err(OUT_OF_BOUNDS_ERROR);
+        }
+        if self.grid.get(index).is_some() {
+            return Err(ALREADY_FILLED_ERROR);
+        }
+        self.grid.set(index, Some(value.to_uval()));
+        Ok(())
+    }
+
+    fn undo(&mut self, index: Index, value: V) -> Result<(), Error> {
+        if index[0] >= self.n || index[1] >= self.m {
+            return Err(OUT_OF_BOUNDS_ERROR);
+        }
+        match self.grid.get(index) {
+            None => return Err(NO_SUCH_ACTION_ERROR),
+            Some(v) => {
+                if v != value.to_uval() {
+                    return Err(UNDO_MISMATCH_ERROR);
+                }
+            }
+        }
+        self.grid.set(index, None);
+        Ok(())
+    }
 }
 
 #[cfg(any(test, feature = "test-util"))]
@@ -835,6 +951,7 @@ pub mod test_util {
     pub struct OneDimOverlay<const N: usize>;
     impl <const N: usize> Overlay for OneDimOverlay<N> {
         type Iter<'a> = std::vec::IntoIter<Index>;
+        fn grid_dims(&self) -> (usize, usize) { (1, N) }
         fn partition_dimension(&self) -> usize { 1 }
         fn n_partitions(&self, _: usize) -> usize { 1 }
         fn partition_size(&self, _: usize, _: usize) -> usize { 1 }
@@ -849,43 +966,21 @@ pub mod test_util {
             assert_eq!(index, 0);
             (0..N).map(|x| [0, x]).collect::<Vec<Index>>().into_iter()
         }
-    }
-
-    /// Trivial 1-D grid.
-    #[derive(Debug, Clone)]
-    pub struct OneDim<const N: usize> {
-        pub grid: UVGrid<u8>,
-    }
-    impl <const N: usize> OneDim<N> {
-        pub fn new() -> Self { Self { grid: UVGrid::new(1, N) } }
-        pub fn full_dg() -> DecisionGrid<TestVal> { DecisionGrid::full(1, N) }
-        pub fn to_string(&self) -> String {
-            (0..N).map(|i| {
-                if let Some(v) = self.get([0, i]) {
-                    format!("{}", v.0)
+        fn full_decision_grid<V: Value>(&self, _: &State<V, Self>) -> DecisionGrid<V> {
+            DecisionGrid::full(1, N)
+        }
+        fn parse_state<V: Value>(&self, _: &str) -> Result<State<V, Self>, Error> {
+            panic!("Not implemented")
+        }
+        fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String {
+            (0..N).map(|c| {
+                if let Some(v) = s.get([0, c]) {
+                    v.to_string()
                 } else {
                     ".".to_string()
                 }
             }).collect::<Vec<_>>().join("")
         }
-    }
-    impl <const N: usize> Stateful<TestVal> for OneDim<N> {
-        fn reset(&mut self) { self.grid = UVGrid::new(Self::ROWS, Self::COLS); }
-        fn apply(&mut self, index: Index, value: TestVal) -> Result<(), Error> {
-            self.grid.set(index, Some(value.to_uval()));
-            Ok(())
-        }
-        fn undo(&mut self, index: Index, _: TestVal) -> Result<(), Error> {
-            self.grid.set(index, None);
-            Ok(())
-        }
-    }
-    impl <const N: usize> State<TestVal, OneDimOverlay<N>> for OneDim<N> {
-        const ROWS: usize = 1;
-        const COLS: usize = N;
-        fn get(&self, index: Index) -> Option<TestVal> { self.grid.get(index).map(to_value) }
-        fn overlay(&self) -> &OneDimOverlay<N> { &OneDimOverlay{} }
-        fn given_actions(&self) -> Vec<(Index, TestVal)> { vec![] }
     }
 
     /// Unwrapping UVals is private to the core module, but it's valuable to
@@ -898,7 +993,7 @@ pub mod test_util {
     /// Most of the time, you can just rely on the solver to replay given
     /// actions, but for tests, you may want to parse a state and check that
     /// the givens are right.
-    pub fn replay_givens<V: Value, O: Overlay, S: State<V, O>>(state: &mut S) {
+    pub fn replay_givens<V: Value, O: Overlay>(state: &mut State<V, O>) {
         for (i, v) in state.given_actions() {
             state.apply(i, v).unwrap();
         }

@@ -1,4 +1,4 @@
-use variant_sudoku::core::{FeatureVec, State};
+use variant_sudoku::core::FeatureVec;
 use variant_sudoku::dutch_whispers::{DutchWhisperBuilder, DutchWhisperChecker, DW_FEATURE};
 use variant_sudoku::ranker::StdRanker;
 use variant_sudoku::constraint::MultiConstraint;
@@ -12,13 +12,12 @@ pub struct DutchClover;
 impl PuzzleSetter for DutchClover {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type State = NineStd;
     type Ranker = StdRanker;
-    type Constraint = MultiConstraint<Self::Value, Self::Overlay, Self::State>;
+    type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
     
     fn name() -> Option<String> { Some("dutch-clover".into()) }
 
-    fn setup() -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(nine_standard_parse(
             "..5.6.7..\n\
@@ -33,7 +32,7 @@ impl PuzzleSetter for DutchClover {
         ).unwrap())
     }
 
-    fn setup_with_givens(given: Self::State) -> (Self::State, Self::Ranker, Self::Constraint) {
+    fn setup_with_givens(given: NineStd) -> (NineStd, Self::Ranker, Self::Constraint) {
         let puzzle = given;
         let dw = DutchWhisperBuilder::new(puzzle.overlay());
         let whispers = vec![

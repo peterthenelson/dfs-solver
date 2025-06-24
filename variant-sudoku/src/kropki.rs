@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, Overlay, Stateful, UVSet, Value, WithId};
+use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
-use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdState, StdVal};
+use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum KropkiColor { Black, White }
@@ -335,8 +335,8 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
-Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for KropkiChecker<MIN, MAX> {
-    fn check(&self, _: &StdState<N, M, MIN, MAX>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
+    fn check(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
@@ -366,7 +366,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Kro
         ConstraintResult::Ok
     }
     
-    fn debug_at(&self, _: &StdState<N, M, MIN, MAX>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "KropkiChecker:\n";
         let mut lines = vec![];
         for (i, b) in self.blacks.iter().enumerate() {
@@ -393,7 +393,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>, StdState<N, M, MIN, MAX>> for Kro
 
 #[cfg(test)]
 mod test {
-    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, core::{pack_values, State}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{six_standard_parse, unpack_stdval_vals, StdChecker}};
+    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, core::pack_values, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{six_standard_parse, unpack_stdval_vals, StdChecker}};
     use super::*;
 
     fn assert_black_possible<const MIN: u8, const MAX: u8>(
