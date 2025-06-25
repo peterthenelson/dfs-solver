@@ -4,6 +4,7 @@ use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
 use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, UVSet, Value, WithId};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
+use crate::memo::{FnToCalc, MemoLock};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -85,63 +86,89 @@ static KB_POSSIBLE_MV: LazyLock<Mutex<HashMap<(u8, u8, usize), Vec<UVSet<u8>>>>>
     Mutex::new(HashMap::new())
 });
 
-pub fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> UVSet<u8> {
-    let mut map = KB_POSSIBLE.lock().unwrap();
-    map.entry((MIN, MAX)).or_insert_with(|| {
-        let mut set = empty_set::<StdVal<MIN, MAX>>();
-        for v in StdVal::<MIN, MAX>::possibilities() {
-            if v.val() % 2 == 0 {
-                let half = v.val() / 2;
-                if MIN <= half {
-                    set.insert(v.to_uval());
-                    continue;
-                }
-            }
-            if v.val() < 128 {
-                let double = v.val() * 2;
-                if double <= MAX {
-                    set.insert(v.to_uval());
-                    continue;
-                }
-            }
-        }
-        set
-    }).clone()
-}
-
-pub fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>(n_mutually_visible: usize, mut len_from_end: usize) -> UVSet<u8> {
-    if n_mutually_visible < 2 {
-        panic!("kropki_black_possible_chain only makes sense when chain length \
-                is at least 2; got {}", n_mutually_visible);
-    }
-    if len_from_end >= n_mutually_visible {
-        panic!("kropki_black_possible_chain length argument can't be as high \
-                or higher than the length of the chain itself; got {}", len_from_end)
-    } else if len_from_end >= (n_mutually_visible / 2) {
-        // Standardize to the smaller of two equiv values
-        len_from_end = n_mutually_visible - 1 - len_from_end;
-    }
-    let mut map = KB_POSSIBLE_MV.lock().unwrap();
-    let e = map.entry((MIN, MAX, n_mutually_visible)).or_insert_with(|| {
-        let mut possible = vec![empty_set::<StdVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
-        for v in StdVal::<MIN, MAX>::possibilities() {
-            let mut chain: Vec<StdVal<MIN, MAX>> = vec![];
-            let mut cur = v.val() as u16;
-            while cur <= (MAX as u16) && chain.len() < n_mutually_visible {
-                chain.push(StdVal::new(cur as u8));
-                cur *= 2;
-            }
-            if chain.len() != n_mutually_visible {
+fn kb_possible_raw<const MIN: u8, const MAX: u8>(_: &()) -> UVSet<u8> {
+    let mut set = empty_set::<StdVal<MIN, MAX>>();
+    for v in StdVal::<MIN, MAX>::possibilities() {
+        if v.val() % 2 == 0 {
+            let half = v.val() / 2;
+            if MIN <= half {
+                set.insert(v.to_uval());
                 continue;
             }
-            for i in 0..possible.len() {
-                possible[i].insert(chain[i].to_uval());
-                possible[i].insert(chain[chain.len()-1-i].to_uval());
+        }
+        if v.val() < 128 {
+            let double = v.val() * 2;
+            if double <= MAX {
+                set.insert(v.to_uval());
+                continue;
             }
         }
-        possible
-    });
-    e[len_from_end].clone()
+    }
+    set
+}
+
+pub struct KBPossible<const MIN: u8, const MAX: u8>(MemoLock<(), (u8, u8), UVSet<u8>, FnToCalc<(), (u8, u8), UVSet<u8>>>);
+impl <const MIN: u8, const MAX: u8> KBPossible<MIN, MAX> {
+    pub fn get(&mut self) -> &UVSet<u8> {
+        self.0.get(&())
+    }
+}
+
+pub fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> KBPossible<MIN, MAX> {
+    let guard = KB_POSSIBLE.lock().unwrap();
+    let calc = FnToCalc::<_, _, _>::new(
+        |&()| (MIN, MAX),
+        kb_possible_raw::<MIN, MAX>,
+    );
+    KBPossible(MemoLock::new(guard, calc))
+}
+
+fn kb_possible_mv_raw<const MIN: u8, const MAX: u8>(args: &(usize,)) -> Vec<UVSet<u8>> {
+    let n_mutually_visible = args.0;
+    let mut possible = vec![empty_set::<StdVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
+    for v in StdVal::<MIN, MAX>::possibilities() {
+        let mut chain: Vec<StdVal<MIN, MAX>> = vec![];
+        let mut cur = v.val() as u16;
+        while cur <= (MAX as u16) && chain.len() < n_mutually_visible {
+            chain.push(StdVal::new(cur as u8));
+            cur *= 2;
+        }
+        if chain.len() != n_mutually_visible {
+            continue;
+        }
+        for i in 0..possible.len() {
+            possible[i].insert(chain[i].to_uval());
+            possible[i].insert(chain[chain.len()-1-i].to_uval());
+        }
+    }
+    possible
+}
+
+pub struct KBPossibleChain<const MIN: u8, const MAX: u8>(MemoLock<(usize,), (u8, u8, usize), Vec<UVSet<u8>>, FnToCalc<(usize,), (u8, u8, usize), Vec<UVSet<u8>>>>);
+impl <const MIN: u8, const MAX: u8> KBPossibleChain<MIN, MAX> {
+    pub fn get(&mut self, n_mutually_visible: usize, mut len_from_end: usize) -> &UVSet<u8> {
+        if n_mutually_visible < 2 {
+            panic!("kropki_black_possible_chain only makes sense when chain length \
+                    is at least 2; got {}", n_mutually_visible);
+        }
+        if len_from_end >= n_mutually_visible {
+            panic!("kropki_black_possible_chain length argument can't be as high \
+                    or higher than the length of the chain itself; got {}", len_from_end)
+        } else if len_from_end >= (n_mutually_visible / 2) {
+            // Standardize to the smaller of two equiv values
+            len_from_end = n_mutually_visible - 1 - len_from_end;
+        }
+        &self.0.get(&(n_mutually_visible,))[len_from_end]
+    }
+}
+
+pub fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>() -> KBPossibleChain<MIN, MAX> {
+    let guard = KB_POSSIBLE_MV.lock().unwrap();
+    let calc = FnToCalc::<_, _, _>::new(
+        |&(n_mutually_visible,)| (MIN, MAX, n_mutually_visible),
+        kb_possible_mv_raw::<MIN, MAX>,
+    );
+    KBPossibleChain(MemoLock::new(guard, calc))
 }
 
 fn kropki_black_adj_ok<const MIN: u8, const MAX: u8>(a: &UVSet<u8>, b: &UVSet<u8>) -> bool {
@@ -274,14 +301,14 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
                 for (i, cell) in b.cells.iter().enumerate() {
                     self.black_remaining.insert(
                         *cell,
-                        kropki_black_possible_chain::<MIN, MAX>(b.cells.len(), i),
+                        kropki_black_possible_chain::<MIN, MAX>().get(b.cells.len(), i).clone(),
                     );
                 }
             } else {
                 for cell in &b.cells {
                     self.black_remaining.insert(
                         *cell, 
-                        kropki_black_possible::<MIN, MAX>(),
+                        kropki_black_possible::<MIN, MAX>().get().clone()
                     );
                 }
             }
@@ -323,9 +350,9 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
                     continue;
                 }
                 *self.black_remaining.get_mut(cell).unwrap() = if b.mutually_visible {
-                    kropki_black_possible_chain::<MIN, MAX>(b.cells.len(), i)
+                    kropki_black_possible_chain::<MIN, MAX>().get(b.cells.len(), i).clone()
                 } else {
-                    kropki_black_possible::<MIN, MAX>()
+                    kropki_black_possible::<MIN, MAX>().get().clone()
                 };
                 break;
             }
@@ -400,7 +427,7 @@ mod test {
         expected: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(&kropki_black_possible::<MIN, MAX>()),
+            unpack_stdval_vals::<MIN, MAX>(kropki_black_possible::<MIN, MAX>().get()),
             expected,
             "Possible vals for black kropkis w/{}..={} should be {:?}",
             MIN, MAX, expected,
@@ -426,7 +453,7 @@ mod test {
         expected: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(&kropki_black_possible_chain::<MIN, MAX>(
+            unpack_stdval_vals::<MIN, MAX>(kropki_black_possible_chain::<MIN, MAX>().get(
                 chain_len,
                 len_from_chain_end,
             )),

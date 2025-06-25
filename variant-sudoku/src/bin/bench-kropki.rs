@@ -21,13 +21,13 @@ trait KropkiBench {
 impl <const MIN: u8, const MAX: u8>
 KropkiBench for Kropki<MIN, MAX> {
     fn run_kropki_black_possible(&self, _: &mut ChaCha20Rng) {
-        touch_set::<MIN, MAX>(&kropki_black_possible::<MIN, MAX>());
+        touch_set::<MIN, MAX>(kropki_black_possible::<MIN, MAX>().get());
     }
 
     fn run_kropki_black_possible_chain(&self, rng: &mut ChaCha20Rng) {
         let n_mutually_visible = rng.random_range(2..(MAX-MIN)) as usize;
         let len_from_end = rng.random_range(0..n_mutually_visible) as usize;
-        touch_set::<MIN, MAX>(&kropki_black_possible_chain::<MIN, MAX>(n_mutually_visible, len_from_end));
+        touch_set::<MIN, MAX>(kropki_black_possible_chain::<MIN, MAX>().get(n_mutually_visible, len_from_end));
     }
 }
 
