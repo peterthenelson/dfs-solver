@@ -1,6 +1,7 @@
-pub mod bench;
 pub mod core;
+pub mod bench;
 pub mod index_util;
+pub mod memo;
 pub mod constraint;
 pub mod sudoku;
 pub mod range_util;
