@@ -45,5 +45,5 @@ Desktop.ini
 # Optional: ignore coverage output
 /coverage/
 
-# Generated graphics
-/figures/
+# Generated stats and associated graphics
+/stats/

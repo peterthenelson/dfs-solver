@@ -24,19 +24,24 @@ MSG=$(git log -1 --pretty=format:%s "$EXP")
 echo "Running diff for commit: $MSG"
 BASE=$(git rev-parse "${EXP}^")
 git checkout "$BASE"
-ID_BASE=$(./variant-sudoku-puzzles/scripts/snapshot-stats.sh --exist_skip)
+ID_BASE=$(./scripts/snapshot-stats.sh --exist_skip)
 git checkout "$EXP"
-ID_EXP=$(./variant-sudoku-puzzles/scripts/snapshot-stats.sh --exist_skip)
+ID_EXP=$(./scripts/snapshot-stats.sh --exist_skip)
 git checkout - >/dev/null 2>&1
-mkdir -p "figures/${ID_EXP}-commit-diff"
-for PUZZLE in $(./variant-sudoku-puzzles/scripts/list-puzzles.sh); do
+mkdir -p "stats/${ID_EXP}-commit-diff"
+for PUZZLE in $(./scripts/list-puzzles.sh); do
   cargo run --release --bin stat-diff -- \
-    "figures/${ID_BASE}/${PUZZLE}.json" "figures/${ID_EXP}/${PUZZLE}.json" \
-    > "figures/${ID_EXP}-commit-diff/${PUZZLE}.json"
+    "stats/${ID_BASE}/${PUZZLE}.json" "stats/${ID_EXP}/${PUZZLE}.json" \
+    > "stats/${ID_EXP}-commit-diff/${PUZZLE}.json"
 done
-diff "figures/${ID_BASE}/summary.txt" "figures/${ID_EXP}/summary.txt" \
-  > "figures/${ID_EXP}-commit-diff/summary.txt"
-cat "figures/${ID_EXP}-commit-diff/summary.txt" | grep "Steps:.*"
+for BENCH in $(./scripts/list-benches.sh); do
+  cargo run --release --bin bench-diff -- \
+    "stats/${ID_BASE}/${BENCH}.json" "stats/${ID_EXP}/${BENCH}.json" \
+    > "stats/${ID_EXP}-commit-diff/${BENCH}.json"
+done
+diff "stats/${ID_BASE}/summary.txt" "stats/${ID_EXP}/summary.txt" \
+  > "stats/${ID_EXP}-commit-diff/summary.txt"
+cat "stats/${ID_EXP}-commit-diff/summary.txt"
 if [[ -t 0 ]]; then
   echo "Press any key to exit..."
   read -n 1 -s

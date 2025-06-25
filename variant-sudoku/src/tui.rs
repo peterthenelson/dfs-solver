@@ -53,8 +53,8 @@ pub fn solve_main<P: PuzzleSetter, T: Tui<P>>() {
     }
     let mut dbg = DbgObserver::new();
     if let Some(name) = P::name() {
-        let figure = format!("figures/{}.png", name);
-        let json = format!("figures/{}.json", name);
+        let figure = format!("stats/{}.png", name);
+        let json = format!("stats/{}.json", name);
         dbg.sample_stats(figure, json, Sample::time(Duration::from_secs(30)));
     } else {
         println!("Warning: Puzzle does not have a name; no stats will be saved.")

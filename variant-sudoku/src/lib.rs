@@ -1,3 +1,4 @@
+pub mod bench;
 pub mod core;
 pub mod index_util;
 pub mod constraint;
