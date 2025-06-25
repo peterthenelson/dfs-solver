@@ -129,6 +129,17 @@ pub struct HistogramSummary {
 }
 
 impl HistogramSummary {
+    pub fn default() -> Self {
+        Self {
+            total: 0,
+            count: 0,
+            max: 0,
+            max_count: 0,
+            mean: 0.0,
+            median: 0.0,
+        }
+    }
+
     pub fn delta_from(&self, base: &HistogramSummary) -> HistogramSummary {
         HistogramSummary {
             total: self.total - base.total,
@@ -282,6 +293,19 @@ pub struct StatsSummary {
 }
 
 impl StatsSummary {
+    pub fn default() -> Self {
+        Self {
+            steps: 0,
+            seconds: 0.0,
+            decision_width: HistogramSummary::default(),
+            mistake_delay: HistogramSummary::default(),
+            n_filled: HistogramSummary::default(),
+            certainty_streak: HistogramSummary::default(),
+            advance_streak: HistogramSummary::default(),
+            backtrack_streak: HistogramSummary::default(),
+        }
+    }
+
     pub fn delta_from(&self, base: &StatsSummary) -> StatsSummary {
         StatsSummary {
             steps: self.steps - base.steps,

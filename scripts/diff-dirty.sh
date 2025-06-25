@@ -10,12 +10,16 @@ git stash pop
 ID_EXP=$(./scripts/snapshot-stats.sh --exist_redo)
 mkdir -p "stats/${ID_BASE}-diff"
 for PUZZLE in $(./scripts/list-puzzles.sh); do
-  cargo run --release --bin stat-diff -- \
+  touch "stats/${ID_BASE}/${PUZZLE}.json"
+  touch "stats/${ID_EXP}/${PUZZLE}.json"
+  cargo run --release --bin diff-stat -- \
     "stats/${ID_BASE}/${PUZZLE}.json" "stats/${ID_EXP}/${PUZZLE}.json" \
     > "stats/${ID_BASE}-diff/${PUZZLE}.json"
 done
 for BENCH in $(./scripts/list-benches.sh); do
-  cargo run --release --bin bench-diff -- \
+  touch "stats/${ID_BASE}/${BENCH}.json"
+  touch "stats/${ID_EXP}/${BENCH}.json"
+  cargo run --release --bin diff-bench -- \
     "stats/${ID_BASE}/${BENCH}.json" "stats/${ID_EXP}/${BENCH}.json" \
     > "stats/${ID_BASE}-diff/${BENCH}.json"
 done

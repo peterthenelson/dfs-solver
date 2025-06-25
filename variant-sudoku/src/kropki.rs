@@ -85,7 +85,7 @@ static KB_POSSIBLE_MV: LazyLock<Mutex<HashMap<(u8, u8, usize), Vec<UVSet<u8>>>>>
     Mutex::new(HashMap::new())
 });
 
-fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> UVSet<u8> {
+pub fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> UVSet<u8> {
     let mut map = KB_POSSIBLE.lock().unwrap();
     map.entry((MIN, MAX)).or_insert_with(|| {
         let mut set = empty_set::<StdVal<MIN, MAX>>();
@@ -109,7 +109,7 @@ fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> UVSet<u8> {
     }).clone()
 }
 
-fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>(n_mutually_visible: usize, mut len_from_end: usize) -> UVSet<u8> {
+pub fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>(n_mutually_visible: usize, mut len_from_end: usize) -> UVSet<u8> {
     if n_mutually_visible < 2 {
         panic!("kropki_black_possible_chain only makes sense when chain length \
                 is at least 2; got {}", n_mutually_visible);
