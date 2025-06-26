@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VGrid, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, Unscored, VBitSet, VGrid, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -414,7 +414,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         b1 == b2
     }
 
-    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V> {
+    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Unscored> {
         DecisionGrid::full(N, M)
     }
 
@@ -578,8 +578,8 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
-    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        let grid = &mut ranking.cells;
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
+        let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }

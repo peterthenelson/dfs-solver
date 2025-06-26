@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut, WithId};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut, WithId};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
@@ -250,8 +250,8 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &VBitSet<StdVal<MIN, MAX>>, 
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for CageChecker<MIN, MAX> {
-    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        let grid = &mut ranking.cells;
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
+        let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }

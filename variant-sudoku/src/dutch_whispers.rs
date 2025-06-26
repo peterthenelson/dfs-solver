@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut, WithId};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut, WithId};
 use crate::index_util::{check_adjacent, expand_polyline};
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
@@ -204,11 +204,11 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
 
 impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
-    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal>) -> ConstraintResult<NineStdVal> {
+    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal, Unscored>) -> ConstraintResult<NineStdVal> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
-        let grid = &mut ranking.cells;
+        let grid = ranking.cells_mut();
         for w in &self.whispers {
             for (cell, _) in w.cells.iter() {
                 if puzzle.get(*cell).is_some() {
@@ -228,7 +228,7 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                     let prev = w.cells[i - 1].0;
                     let mut prev_set = self.remaining.get(&prev).unwrap().clone();
                     if puzzle.get(prev).is_none() {
-                        prev_set.intersect_with(&grid.get(prev).0);
+                        prev_set.intersect_with(grid.get(prev).0);
                     }
                     prev_set
                 } else {
@@ -238,7 +238,7 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                     let next = w.cells[i + 1].0;
                     let mut next_set = self.remaining.get(&next).unwrap().clone();
                     if puzzle.get(next).is_none() {
-                        next_set.intersect_with(&grid.get(next).0);
+                        next_set.intersect_with(grid.get(next).0);
                     }
                     next_set
                 } else {

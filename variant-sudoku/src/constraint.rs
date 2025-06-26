@@ -1,5 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
-use crate::core::{ConstraintResult, Error, Index, Overlay, RankingInfo, State, Stateful, Value};
+use crate::core::{ConstraintResult, Error, Index, Overlay, RankingInfo, State, Stateful, Unscored, Value};
 
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
@@ -26,7 +26,7 @@ pub trait Constraint<V: Value, O: Overlay> where Self: Stateful<V> + Debug {
     /// state from past actions). If a Constraint is able to infer useful
     /// information about what values a cell could take on, they should update
     /// the grids in the RankingInfo (in a way that further constrains them).
-    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V>;
+    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V>;
     /// Provide debug information at a particular grid in the puzzle (if any
     /// is available).
     fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String>;
@@ -85,7 +85,7 @@ impl <V, O, X, Y> Constraint<V, O> for ConstraintConjunction<V, O, X, Y>
 where
     V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
-    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
+    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V> {
         match self.x.check(puzzle, ranking) {
             ConstraintResult::Contradiction(a) => ConstraintResult::Contradiction(a),
             ConstraintResult::Certainty(d, a) => ConstraintResult::Certainty(d, a),
@@ -158,7 +158,7 @@ impl <V: Value, O: Overlay> Stateful<V> for MultiConstraint<V, O> {
 }
 
 impl <V: Value, O: Overlay> Constraint<V, O> for MultiConstraint<V, O> {
-    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
+    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V> {
         for c in &self.constraints {
             match c.check(puzzle, ranking) {
                 ConstraintResult::Contradiction(a) => return ConstraintResult::Contradiction(a),
@@ -225,8 +225,8 @@ mod test {
     pub struct BlacklistedVal(pub u8);
     impl Stateful<TestVal> for BlacklistedVal {}
     impl Constraint<TestVal, OneDimOverlay<3>> for BlacklistedVal {
-        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
-            let grid = &mut ranking.cells;
+        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal, Unscored>) -> ConstraintResult<TestVal> {
+            let grid = ranking.cells_mut();
             for j in 0..3 {
                 if puzzle.get([0, j]) == Some(TestVal(self.0)) {
                     return ConstraintResult::Contradiction(Key::new("BLACKLISTED").unwrap());
@@ -243,14 +243,14 @@ mod test {
     pub struct Mod(pub u8, pub u8);
     impl Stateful<TestVal> for Mod {}
     impl Constraint<TestVal, OneDimOverlay<3>> for Mod {
-        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
-            let grid = &mut ranking.cells;
+        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal, Unscored>) -> ConstraintResult<TestVal> {
+            let grid = ranking.cells_mut();
             for j in 0..3 {
                 if let Some(v) = puzzle.get([0, j]) {
                     if v.0 % self.0 != self.1 {
                         return ConstraintResult::Contradiction(Key::new("WRONG_MOD").unwrap());
                     }
-                    grid.get_mut([0, j]).0 = VBitSet::<TestVal>::singleton(&v);
+                    *grid.get_mut([0, j]).0 = VBitSet::<TestVal>::singleton(&v);
                 } else {
                     let s = &mut grid.get_mut([0, j]).0;
                     for v in 1..=9 {
@@ -299,7 +299,7 @@ mod test {
         assert_contradiction(constraint.check(&puzzle, &mut ranking), "BLACKLISTED");
     }
 
-    fn unpack_set(g: &DecisionGrid<TestVal>, index: Index) -> Vec<u8> {
+    fn unpack_set(g: &DecisionGrid<TestVal, Unscored>, index: Index) -> Vec<u8> {
         g.get(index).0.iter().map(|v| v.0).collect::<Vec<u8>>()
     }
 
@@ -314,9 +314,9 @@ mod test {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
         };
-        assert_eq!(unpack_set(&ranking.cells, [0, 0]), vec![3, 9]);
-        assert_eq!(unpack_set(&ranking.cells, [0, 1]), vec![3, 9]);
-        assert_eq!(unpack_set(&ranking.cells, [0, 2]), vec![3, 9]);
+        assert_eq!(unpack_set(ranking.cells(), [0, 0]), vec![3, 9]);
+        assert_eq!(unpack_set(ranking.cells(), [0, 1]), vec![3, 9]);
+        assert_eq!(unpack_set(ranking.cells(), [0, 2]), vec![3, 9]);
     }
 
     #[test]
@@ -330,8 +330,8 @@ mod test {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
         };
-        assert_eq!(unpack_set(&ranking.cells, [0, 0]), vec![3, 9]);
-        assert_eq!(unpack_set(&ranking.cells, [0, 1]), vec![3, 9]);
-        assert_eq!(unpack_set(&ranking.cells, [0, 2]), vec![3, 9]);
+        assert_eq!(unpack_set(ranking.cells(), [0, 0]), vec![3, 9]);
+        assert_eq!(unpack_set(ranking.cells(), [0, 1]), vec![3, 9]);
+        assert_eq!(unpack_set(ranking.cells(), [0, 2]), vec![3, 9]);
     }
 }

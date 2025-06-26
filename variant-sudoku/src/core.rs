@@ -667,7 +667,7 @@ impl Default for FeatureVec<FVMaybeNormed> {
     }
 }
 
-impl Display for FeatureVec<FVMaybeNormed> {
+impl <S> Display for FeatureVec<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         for (i, (k, v)) in self.features.iter().enumerate() {
@@ -711,6 +711,10 @@ impl FeatureVec<FVNormed> {
             }
         }
         sum
+    }
+
+    pub fn decay(&self) -> &FeatureVec<FVMaybeNormed> {
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -851,23 +855,39 @@ impl <V: Value> BranchPoint<V> {
     }
 }
 
+/// Marker structs for both DecisionGrid and RankingInfo state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unscored;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Scored;
+
 /// This is a grid of VBitSets and FeatureVecs. It is used to represent the
 /// not-yet-ruled-out values for each cell in the grid, along with features
 /// attached to each cell.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DecisionGrid<V: Value> {
+pub struct DecisionGrid<V: Value, S> {
     rows: usize,
     cols: usize,
-    grid: Box<[(VBitSet<V>, FeatureVec<FVMaybeNormed>)]>,
-    _marker: PhantomData<V>,
+    grid: Box<[(VBitSet<V>, FeatureVec<FVMaybeNormed>, f64)]>,
+    _marker: PhantomData<(V, S)>,
 }
 
-impl<V: Value> DecisionGrid<V> {
+impl <V: Value, S> DecisionGrid<V, S> {
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+}
+
+impl<V: Value> DecisionGrid<V, Unscored> {
     pub fn new(rows: usize, cols: usize) -> Self {
         Self {
             rows,
             cols,
-            grid: vec![(VBitSet::<V>::empty(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            grid: vec![(VBitSet::<V>::empty(), FeatureVec::new(), 0.0); rows * cols].into_boxed_slice(),
             _marker: PhantomData,
         }
     }
@@ -876,40 +896,56 @@ impl<V: Value> DecisionGrid<V> {
         Self {
             rows,
             cols,
-            grid: vec![(VBitSet::<V>::full(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            grid: vec![(VBitSet::<V>::full(), FeatureVec::new(), 0.0); rows * cols].into_boxed_slice(),
             _marker: PhantomData,
         }
     }
 
-    pub fn get(&self, index: Index) -> &(VBitSet<V>, FeatureVec<FVMaybeNormed>) {
-        &self.grid[index[0] * self.cols + index[1]]
+    pub fn get(&self, index: Index) -> (&VBitSet<V>, &FeatureVec<FVMaybeNormed>) {
+        let (s, f, _) = &self.grid[index[0] * self.cols + index[1]];
+        (s, f)
     }
 
-    pub fn get_mut(&mut self, index: Index) -> &mut (VBitSet<V>, FeatureVec<FVMaybeNormed>) {
-        self.grid.get_mut(index[0] * self.cols + index[1]).unwrap()
-    }
-
-    pub fn rows(&self) -> usize {
-        self.rows
-    }
-
-    pub fn cols(&self) -> usize {
-        self.cols
+    pub fn get_mut(&mut self, index: Index) -> (&mut VBitSet<V>, &mut FeatureVec<FVMaybeNormed>) {
+        let (s, f, _) = &mut self.grid[index[0] * self.cols + index[1]];
+        (s, f)
     }
 
     /// Intersects the possible values of this grid with the possible values of
     /// another grid. Also merges the features of the two grids.
-    pub fn combine_with(&mut self, other: &DecisionGrid<V>) {
+    pub fn combine_with(&mut self, other: &DecisionGrid<V, Unscored>) {
         assert!(self.rows == other.rows && self.cols == other.cols,
                 "Cannot combine grids of different sizes");
         for i in 0..self.rows {
             for j in 0..self.cols {
                 let a = self.get_mut([i, j]);
                 let b = other.get([i, j]);
-                a.0.intersect_with(&b.0);
-                a.1.extend(&b.1);
+                a.0.intersect_with(b.0);
+                a.1.extend(b.1);
             }
         }
+    }
+
+    pub fn into_scored<F: Fn(&mut FeatureVec<FVMaybeNormed>) -> f64>(mut self, score_f: F) -> DecisionGrid<V, Scored> {
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                let cell = &mut self.grid[r * self.cols + c];
+                cell.2 = score_f(&mut cell.1);
+            }
+        }
+        DecisionGrid {
+            rows: self.rows,
+            cols: self.cols,
+            grid: self.grid,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<V: Value> DecisionGrid<V, Scored> {
+    pub fn get(&self, index: Index) -> (&VBitSet<V>, &FeatureVec<FVNormed>, f64) {
+        let (s, f, score) = &self.grid[index[0] * self.cols + index[1]];
+        (s, f.try_normalized().unwrap(), *score)
     }
 }
 
@@ -917,13 +953,32 @@ impl<V: Value> DecisionGrid<V> {
 /// RankingInfo. The available grids should be consistent with the regions
 /// visible in the Overlay.
 #[derive(Debug, Clone)]
-pub struct RankingInfo<V: Value> {
+pub struct RankingInfo<V: Value, S> {
     // The primary way to provide ranking-relevant information is to add
     // features to or restrict available values in a DecisionGrid.
-    pub cells: DecisionGrid<V>,
+    cells: DecisionGrid<V, S>,
 
-    // TODO: Add grids for RegionLayers in the Overlay.
+    // TODO: Add info for RegionLayers in the Overlay.
 }
+
+impl <V: Value, S> RankingInfo<V, S> {
+    pub fn new(cells: DecisionGrid<V, S>) -> Self { Self { cells } }
+
+    pub fn cells(&self) -> &DecisionGrid<V, S> {
+        &self.cells
+    }
+}
+
+impl <V: Value> RankingInfo<V, Unscored> {
+    pub fn cells_mut(&mut self) -> &mut DecisionGrid<V, Unscored> {
+        &mut self.cells
+    }
+
+    pub fn into_scored<F: Fn(&mut FeatureVec<FVMaybeNormed>) -> f64>(self, score_f: F) -> RankingInfo<V, Scored> {
+        RankingInfo { cells: self.cells.into_scored(score_f) }
+    }
+}
+
 
 /// This converts an extracted item from a container a Value, making use of the
 /// private API to do so.
@@ -968,7 +1023,7 @@ pub trait Overlay: Clone + Debug {
     fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
         indices.iter().all(|i| self.mutually_visible(indices[0], *i))
     }
-    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V>;
+    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Unscored>;
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error>;
     fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String;
 }
@@ -1121,7 +1176,7 @@ pub mod test_util {
             panic!("No region layers exist!")
         }
         fn mutually_visible(&self, _: Index, _: Index) -> bool { true }
-        fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V> {
+        fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Unscored> {
             DecisionGrid::full(1, N)
         }
         fn parse_state<V: Value>(&self, _: &str) -> Result<State<V, Self>, Error> {

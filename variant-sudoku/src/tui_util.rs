@@ -136,7 +136,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     let layer = match vb {
         // This case returns early.
         ViewBy::Cell => {
-            let vals = ranking.cells.get(cursor).0
+            let vals = ranking.cells().get(cursor).0
                 .iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
             let mut lines = vec![
                 Line::from(vec!["Possible values in cell ".into(), format!("{:?}:", state.grid_pos).blue()]).italic(),
@@ -145,7 +145,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
                 "Features:".italic().into(),
             ];
             lines.extend(
-                to_lines(&*format!("{}", ranking.cells.get(state.grid_pos).1))
+                to_lines(&*format!("{}", ranking.cells().get(state.grid_pos).1))
                     .into_iter().map(|l| l.cyan()),
             );
             return lines;
@@ -157,7 +157,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     match (at.val, at.region_index) {
         (Some(v), Some(p)) => {
             let info = state.solver.ranker().region_info(
-                &ranking.cells, state.solver.state(), layer, p,
+                ranking.cells(), state.solver.state(), layer, p,
             ).unwrap();
             let cells = info.cell_choices.get(&v).iter()
                 .map(|c| format!("{:?}", c))
@@ -329,7 +329,7 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                 if let Some(v) = state.solver.state().get([r, c]) {
                     vm[r][c] = Some(v);
                 } else if let Some(ranking) = &state.solver.ranking_info() {
-                    if ranking.cells.get([r, c]).0.contains(&v) {
+                    if ranking.cells().get([r, c]).0.contains(&v) {
                         vm[r][c] = Some(v)
                     }
                 }
@@ -391,7 +391,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             if let Some((ranking, overlay)) = state.solver.ranking_info().as_ref().zip(so.as_ref()) {
                 for r in 0..N {
                     for c in 0..M {
-                        if ranking.cells.get([r, c]).0.contains(&v) {
+                        if ranking.cells().get([r, c]).0.contains(&v) {
                             hm[r][c] = Some(if overlay.enclosing_region(layer, [r, c]).map_or(false, |ep| ep == p) {
                                 Color::Blue
                             } else {
@@ -410,7 +410,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                         if state.solver.state().get([r, c]).is_some() {
                             continue;
                         }
-                        hm[r][c] = Some(gen_heatmap_color::<P>(ranking.cells.get([r, c]).0.len()))
+                        hm[r][c] = Some(gen_heatmap_color::<P>(ranking.cells().get([r, c]).0.len()))
                     }
                 }
                 return hm;
@@ -426,7 +426,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             // Note: We are assuming that all rows have the same size (and same for cols, boxes).
             let mut infos = vec![];
             for p in 0..overlay.regions_in_layer(layer) {
-                infos.push(state.solver.ranker().region_info(&ranking.cells, state.solver.state(), layer, p).unwrap());
+                infos.push(state.solver.ranker().region_info(&ranking.cells(), state.solver.state(), layer, p).unwrap());
             }
             for r in 0..N {
                 for c in 0..M {

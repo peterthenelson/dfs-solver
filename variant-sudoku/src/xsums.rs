@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, RankingInfo, State, Stateful, VBitSet, VSetMut, WithId};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, RankingInfo, State, Stateful, Unscored, VBitSet, VSetMut, WithId};
 use crate::constraint::Constraint;
 use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdVal};
 
@@ -459,8 +459,8 @@ pub fn xsum_possibilities<const MIN: u8, const MAX: u8>(sum: u8) -> usize {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for XSumChecker<MIN, MAX, N, M> {
-    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        let grid = &mut ranking.cells;
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
+        let grid = ranking.cells_mut();
         for (i, xsum) in self.xsums.iter().enumerate() {
             if let Some(e) = self.xsums_empty[i] {
                 let r = self.xsums_remaining[i];

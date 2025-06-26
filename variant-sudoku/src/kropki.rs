@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VBitSetRef, VSet, VSetMut, Value, WithId};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::memo::{FnToCalc, MemoLock};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
@@ -367,11 +367,11 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
-    fn check(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+    fn check(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
-        let grid = &mut ranking.cells;
+        let grid = ranking.cells_mut();
         for b in &self.blacks {
             for cell in &b.cells {
                 let g = grid.get_mut(*cell);
