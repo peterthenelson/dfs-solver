@@ -913,6 +913,18 @@ impl<V: Value> DecisionGrid<V> {
     }
 }
 
+/// Constraints help the Ranker make decisions by providing information via
+/// RankingInfo. The available grids should be consistent with the regions
+/// visible in the Overlay.
+#[derive(Debug, Clone)]
+pub struct RankingInfo<V: Value> {
+    // The primary way to provide ranking-relevant information is to add
+    // features to or restrict available values in a DecisionGrid.
+    pub cells: DecisionGrid<V>,
+
+    // TODO: Add grids for RegionLayers in the Overlay.
+}
+
 /// This converts an extracted item from a container a Value, making use of the
 /// private API to do so.
 pub fn to_value<V: Value>(u: UVal<V::U, UVWrapped>) -> V {
@@ -956,7 +968,7 @@ pub trait Overlay: Clone + Debug {
     fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
         indices.iter().all(|i| self.mutually_visible(indices[0], *i))
     }
-    fn full_decision_grid<V: Value>(&self, s: &State<V, Self>) -> DecisionGrid<V>;
+    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V>;
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error>;
     fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String;
 }
@@ -1109,7 +1121,7 @@ pub mod test_util {
             panic!("No region layers exist!")
         }
         fn mutually_visible(&self, _: Index, _: Index) -> bool { true }
-        fn full_decision_grid<V: Value>(&self, _: &State<V, Self>) -> DecisionGrid<V> {
+        fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V> {
             DecisionGrid::full(1, N)
         }
         fn parse_state<V: Value>(&self, _: &str) -> Result<State<V, Self>, Error> {

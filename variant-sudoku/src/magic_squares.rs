@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, DecisionGrid, Feature, Index, Key, State, Stateful, VBitSet, VSet, VSetMut, WithId}, sudoku::{NineStdVal, StdOverlay}};
+use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut, WithId}, sudoku::{NineStdVal, StdOverlay}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -117,7 +117,7 @@ impl MagicSquareChecker {
         &self,
         triple: &[Index; 3], 
         puzzle: &State<NineStdVal, StdOverlay<N, M>>,
-        grid: &mut DecisionGrid<NineStdVal>,
+        ranking: &mut RankingInfo<NineStdVal>,
     ) -> Option<ConstraintResult<NineStdVal>> {
         let (sum, n_empty, first_empty) = sum_trip(triple, puzzle);
         if n_empty == 0 {
@@ -130,7 +130,7 @@ impl MagicSquareChecker {
             if sum < 15 {
                 let i = first_empty.unwrap();
                 let rem = NineStdVal::new(15 - sum);
-                if grid.get(i).0.contains(&rem) {
+                if ranking.cells.get(i).0.contains(&rem) {
                     Some(ConstraintResult::Certainty(
                         CertainDecision::new(i, rem),
                         self.ms_sum_exact_attr,
@@ -160,9 +160,10 @@ fn check_vals<const N: usize, const M: usize>(
     indices: &[Index; 4],
     values: &VBitSet<NineStdVal>,
     puzzle: &State<NineStdVal, StdOverlay<N, M>>,
-    grid: &mut DecisionGrid<NineStdVal>,
+    ranking: &mut RankingInfo<NineStdVal>,
     attribution: Key<Attribution, WithId>,
 ) -> Option<ConstraintResult<NineStdVal>> {
+    let grid = &mut ranking.cells;
     for i in indices {
         if let Some(v) = puzzle.get(*i) {
             if !values.contains(&v) {
@@ -195,7 +196,7 @@ fn sum_trip<const N: usize, const M: usize>(
 
 impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
-    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, grid: &mut DecisionGrid<NineStdVal>) -> ConstraintResult<NineStdVal> {
+    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal>) -> ConstraintResult<NineStdVal> {
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
                 if v.val() != 5 {
@@ -206,12 +207,12 @@ Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
             }
             let [ul, _, lr] = square.diag_0();
             let [ll, _, ur] = square.diag_1();
-            if let Some(cr) = check_vals(&[ul, lr, ll, ur], &self.evens, puzzle, grid, self.ms_corner_attr) {
+            if let Some(cr) = check_vals(&[ul, lr, ll, ur], &self.evens, puzzle, ranking, self.ms_corner_attr) {
                 return cr;
             }
             let [ml, _, mr] = square.row_1();
             let [mu, _, md] = square.col_1();
-            if let Some(cr) = check_vals(&[ml, mr, mu, md], &self.odds, puzzle, grid, self.ms_side_attr) {
+            if let Some(cr) = check_vals(&[ml, mr, mu, md], &self.odds, puzzle, ranking, self.ms_side_attr) {
                 return cr;
             }
             for triple in [
@@ -224,14 +225,14 @@ Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
                 square.diag_0(),
                 square.diag_1(),
             ] {
-                if let Some(cr) = self.sum15(&triple, puzzle, grid) {
+                if let Some(cr) = self.sum15(&triple, puzzle, ranking) {
                     return cr;
                 }
             }
             for r in 0..3 {
                 for c in 0..3 {
                     let i = [square.center[0] - 1 + r, square.center[1] - 1 + c];
-                    grid.get_mut(i).1.add(&self.ms_feature, 1.0);
+                    ranking.cells.get_mut(i).1.add(&self.ms_feature, 1.0);
                 }
             }
         }

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, VBitSet, Value, WithId};
+use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, RankingInfo, State, Stateful, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -50,7 +50,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn ranker(&self) -> &R;
     fn constraint(&self) -> &C;
     fn constraint_result(&self) -> ConstraintResult<V>;
-    fn decision_grid(&self) -> Option<DecisionGrid<V>>;
+    fn ranking_info(&self) -> &Option<RankingInfo<V>>;
     fn state(&self) -> &State<V, O>;
 }
 
@@ -79,7 +79,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     constraint: &'a mut C,
     givens: Vec<(Index, V)>,
     check_result: ConstraintResult<V>,
-    decision_grid: Option<DecisionGrid<V>>,
+    ranking_info: Option<RankingInfo<V>>,
     next_decision: Option<BranchPoint<V>>,
     stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
@@ -156,8 +156,8 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
         self.check_result.clone()
     }
 
-    fn decision_grid(&self) -> Option<DecisionGrid<V>> {
-        self.decision_grid.clone()
+    fn ranking_info(&self) -> &Option<RankingInfo<V>> {
+        &self.ranking_info
     }
 
     fn state(&self) -> &State<V, O> {
@@ -184,7 +184,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
             constraint,
             check_result: ConstraintResult::Ok,
             givens,
-            decision_grid: None,
+            ranking_info: None,
             next_decision: None,
             stack: Vec::new(),
             backtracked_steps: None,
@@ -195,19 +195,11 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     }
 
     fn check_and_rank(&mut self) {
-        let (n, m) = self.puzzle.overlay().grid_dims();
-        let mut grid = DecisionGrid::full(n, m);
-        for r in 0..n {
-            for c in 0..m {
-                if let Some(v) = self.puzzle.get([r, c]) {
-                    grid.get_mut([r, c]).0 = VBitSet::<V>::singleton(&v);
-                }
-            }
-        }
-        self.check_result = self.constraint.check(self.puzzle, &mut grid);
+        let mut ranking = self.ranker.init_ranking(&self.puzzle);
+        self.check_result = self.constraint.check(self.puzzle, &mut ranking);
         let early_exit = if let ConstraintResult::Ok = self.check_result {
-            self.check_result = self.ranker.to_constraint_result(&grid, self.puzzle);
-            self.ranker.annotate(&mut grid, self.puzzle);
+            self.check_result = self.ranker.to_constraint_result(&ranking, self.puzzle);
+            self.ranker.annotate(&mut ranking, self.puzzle);
             false
         } else {
             true
@@ -218,10 +210,10 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
                 Some(BranchPoint::unique(self.step+1, *a, d.index, d.value))
             },
             ConstraintResult::Ok => {
-                Some(self.ranker.top(self.step+1, &grid, self.puzzle))
+                Some(self.ranker.top(self.step+1, &ranking, self.puzzle))
             },
         };
-        self.decision_grid = if early_exit { None } else { Some(grid) };
+        self.ranking_info = if early_exit { None } else { Some(ranking) };
     }
 
     fn apply(&mut self, decision: BranchPoint<V>) -> Result<(), Error> {
@@ -346,8 +338,8 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
                         possibilities: 0,
                         step: self.step,
                     });
-                    if self.decision_grid.is_none() {
-                        self.decision_grid = Some(self.puzzle.overlay().full_decision_grid(&self.puzzle))
+                    if self.ranking_info.is_none() {
+                        self.ranking_info = Some(self.ranker.init_ranking(&self.puzzle))
                     }
                 }
                 Ok(())
@@ -394,7 +386,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
         self.puzzle.reset();
         self.constraint.reset();
         self.check_result = ConstraintResult::Ok;
-        self.decision_grid = None;
+        self.ranking_info = None;
         self.stack.clear();
         self.state = DfsSolverState::Initializing(InitializingState { last_filled: None, next_given_index: 0 });
         self.step = 0;
@@ -430,8 +422,8 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
     }
-    fn decision_grid(&self) -> Option<DecisionGrid<V>> {
-        self.solver.decision_grid()
+    fn ranking_info(&self) -> &Option<RankingInfo<V>> {
+        self.solver.ranking_info()
     }
     fn state(&self) -> &State<V, O> { self.solver.state() }
 }
@@ -498,8 +490,8 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
     }
-    fn decision_grid(&self) -> Option<DecisionGrid<V>> {
-        self.solver.decision_grid()
+    fn ranking_info(&self) -> &Option<RankingInfo<V>> {
+        self.solver.ranking_info()
     }
     fn state(&self) -> &State<V, O> { self.solver.state() }
 }
@@ -590,8 +582,8 @@ pub mod test_util {
         fn constraint_result(&self) -> ConstraintResult<V> {
             self.solver.constraint_result()
         }
-        fn decision_grid(&self) -> Option<DecisionGrid<V>> {
-            self.solver.decision_grid()
+        fn ranking_info(&self) -> &Option<RankingInfo<V>> {
+            self.solver.ranking_info()
         }
         fn state(&self) -> &State<V, O> { self.solver.state() }
     }
@@ -662,7 +654,7 @@ pub mod test_util {
 mod test {
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{Stateful, VSetMut};
+    use crate::core::{RankingInfo, Stateful, VSetMut};
     use crate::ranker::StdRanker;
     use super::*;
 
@@ -673,7 +665,7 @@ mod test {
     struct GwLineConstraint {}
     impl Stateful<TestVal> for GwLineConstraint {}
     impl Constraint<TestVal, GwOverlay> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, _: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
+        fn check(&self, puzzle: &GwLine, _: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             for i in 0..8 {
                 if puzzle.get([0, i]).is_none() {
                     continue;
@@ -702,7 +694,8 @@ mod test {
     struct GwSmartLineConstraint {}
     impl Stateful<TestVal> for GwSmartLineConstraint {}
     impl Constraint<TestVal, GwOverlay> for GwSmartLineConstraint {
-        fn check(&self, puzzle: &GwLine, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
+        fn check(&self, puzzle: &GwLine, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
+            let grid = &mut ranking.cells;
             for i in 0..8 {
                 if let Some(v) = puzzle.get([0, i]) {
                     (0..8).for_each(|j| { grid.get_mut([0, j]).0.remove(&v) });
@@ -728,23 +721,23 @@ mod test {
     fn test_german_whispers_constraint() {
         let mut puzzle = GwLine::new(GwOverlay {});
         let constraint = GwLineConstraint {};
-        let mut grid = puzzle.overlay().full_decision_grid(&puzzle);
-        let violation = constraint.check(&puzzle, &mut grid);
+        let mut ranking = StdRanker::default_negative().init_ranking(&puzzle);
+        let violation = constraint.check(&puzzle, &mut ranking);
         assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
         puzzle.apply([0, 3], TestVal(2)).unwrap();
-        let violation = constraint.check(&puzzle, &mut grid);
+        let violation = constraint.check(&puzzle, &mut ranking);
         assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 5], TestVal(1)).unwrap();
-        let violation = constraint.check(&puzzle, &mut grid);
+        let violation = constraint.check(&puzzle, &mut ranking);
         assert_contradiction(violation, "GW_DUPE");
         puzzle.undo([0, 5], TestVal(1)).unwrap();
         puzzle.apply([0, 1], TestVal(3)).unwrap();
-        let violation = constraint.check(&puzzle, &mut grid);
+        let violation = constraint.check(&puzzle, &mut ranking);
         assert_contradiction(violation, "GW_TOO_CLOSE");
         puzzle.undo([0, 1], TestVal(3)).unwrap();
         puzzle.apply([0, 1], TestVal(6)).unwrap();
-        let violation = constraint.check(&puzzle, &mut grid);
+        let violation = constraint.check(&puzzle, &mut ranking);
         assert_eq!(violation, ConstraintResult::Ok);
     }
 

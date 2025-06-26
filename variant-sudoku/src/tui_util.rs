@@ -128,15 +128,15 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>, so: &Option<StdOverlay<N, M>>,
 ) -> Vec<Line<'static>> {
-    if state.solver.decision_grid().is_none() {
-        return vec!["No Decision Grid Available".italic().into()];
+    if state.solver.ranking_info().is_none() {
+        return vec!["No RankingInfo Available".italic().into()];
     }
-    let grid = state.solver.decision_grid().unwrap();
+    let ranking = state.solver.ranking_info().as_ref().unwrap();
     let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
     let layer = match vb {
         // This case returns early.
         ViewBy::Cell => {
-            let vals = grid.get(cursor).0
+            let vals = ranking.cells.get(cursor).0
                 .iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
             let mut lines = vec![
                 Line::from(vec!["Possible values in cell ".into(), format!("{:?}:", state.grid_pos).blue()]).italic(),
@@ -145,7 +145,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
                 "Features:".italic().into(),
             ];
             lines.extend(
-                to_lines(&*format!("{}", grid.get(state.grid_pos).1))
+                to_lines(&*format!("{}", ranking.cells.get(state.grid_pos).1))
                     .into_iter().map(|l| l.cyan()),
             );
             return lines;
@@ -157,7 +157,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     match (at.val, at.region_index) {
         (Some(v), Some(p)) => {
             let info = state.solver.ranker().region_info(
-                &grid, state.solver.state(), layer, p,
+                &ranking.cells, state.solver.state(), layer, p,
             ).unwrap();
             let cells = info.cell_choices.get(&v).iter()
                 .map(|c| format!("{:?}", c))
@@ -328,8 +328,8 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             for c in 0..M {
                 if let Some(v) = state.solver.state().get([r, c]) {
                     vm[r][c] = Some(v);
-                } else if let Some(g) = &state.solver.decision_grid() {
-                    if g.get([r, c]).0.contains(&v) {
+                } else if let Some(ranking) = &state.solver.ranking_info() {
+                    if ranking.cells.get([r, c]).0.contains(&v) {
                         vm[r][c] = Some(v)
                     }
                 }
@@ -388,10 +388,10 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         // The remaining types return early.
         GridType::Puzzle => return hm,
         GridType::HighlightPossible(v, layer, p) => {
-            if let Some((grid, overlay)) = &state.solver.decision_grid().zip(*so) {
+            if let Some((ranking, overlay)) = state.solver.ranking_info().as_ref().zip(so.as_ref()) {
                 for r in 0..N {
                     for c in 0..M {
-                        if grid.get([r, c]).0.contains(&v) {
+                        if ranking.cells.get([r, c]).0.contains(&v) {
                             hm[r][c] = Some(if overlay.enclosing_region(layer, [r, c]).map_or(false, |ep| ep == p) {
                                 Color::Blue
                             } else {
@@ -404,13 +404,13 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             return hm;
         },
         GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities) => {
-            if let Some(grid) = state.solver.decision_grid() {
+            if let Some(ranking) = state.solver.ranking_info() {
                 for r in 0..N {
                     for c in 0..M {
                         if state.solver.state().get([r, c]).is_some() {
                             continue;
                         }
-                        hm[r][c] = Some(gen_heatmap_color::<P>(grid.get([r, c]).0.len()))
+                        hm[r][c] = Some(gen_heatmap_color::<P>(ranking.cells.get([r, c]).0.len()))
                     }
                 }
                 return hm;
@@ -422,11 +422,11 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         GridType::Heatmap(vb, ColorBy::Possibilities) => vb.region_layer().unwrap(),
     };
     if let Some(overlay) = so {
-        if let Some(grid) = state.solver.decision_grid() {
+        if let Some(ranking) = state.solver.ranking_info() {
             // Note: We are assuming that all rows have the same size (and same for cols, boxes).
             let mut infos = vec![];
             for p in 0..overlay.regions_in_layer(layer) {
-                infos.push(state.solver.ranker().region_info(&grid, state.solver.state(), layer, p).unwrap());
+                infos.push(state.solver.ranker().region_info(&ranking.cells, state.solver.state(), layer, p).unwrap());
             }
             for r in 0..N {
                 for c in 0..M {

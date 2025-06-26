@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VGrid, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VGrid, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -414,7 +414,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         b1 == b2
     }
 
-    fn full_decision_grid<V: Value>(&self, _: &State<V, Self>) -> DecisionGrid<V> {
+    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V> {
         DecisionGrid::full(N, M)
     }
 
@@ -578,7 +578,8 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
-    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+        let grid = &mut ranking.cells;
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
@@ -619,6 +620,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ranker::Ranker;
     use crate::{core::test_util::replay_givens, ranker::StdRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
     use crate::constraint::test_util::assert_contradiction;
@@ -773,13 +775,13 @@ mod test {
         let mut checker = StdChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [5, 3], StdVal(1));
         apply2(&mut sudoku, &mut checker, [5, 4], StdVal(3));
-        let mut grid = DecisionGrid::new(9, 9);
-        match checker.check(&sudoku, &mut grid) {
+        let mut ranking = StdRanker::default().init_ranking(&sudoku);
+        match checker.check(&sudoku, &mut ranking) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
         };
         apply2(&mut sudoku, &mut checker, [5, 8], StdVal(1));
-        assert_contradiction(checker.check(&sudoku, &mut grid), "ROW_CONFLICT");
+        assert_contradiction(checker.check(&sudoku, &mut ranking), "ROW_CONFLICT");
     }
 
     #[test]
@@ -788,13 +790,13 @@ mod test {
         let mut checker = StdChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [1, 3], StdVal(2));
         apply2(&mut sudoku, &mut checker, [3, 3], StdVal(7));
-        let mut grid = DecisionGrid::new(9, 9);
-        match checker.check(&sudoku, &mut grid) {
+        let mut ranking = StdRanker::default().init_ranking(&sudoku);
+        match checker.check(&sudoku, &mut ranking) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
         };
         apply2(&mut sudoku, &mut checker, [6, 3], StdVal(2));
-        assert_contradiction(checker.check(&sudoku, &mut grid), "COL_CONFLICT");
+        assert_contradiction(checker.check(&sudoku, &mut ranking), "COL_CONFLICT");
     }
 
     #[test]
@@ -803,13 +805,13 @@ mod test {
         let mut checker = StdChecker::new(&sudoku);
         apply2(&mut sudoku, &mut checker, [3, 0], StdVal(8));
         apply2(&mut sudoku, &mut checker, [4, 1], StdVal(2));
-        let mut grid = DecisionGrid::new(9, 9);
-        match checker.check(&sudoku, &mut grid) {
+        let mut ranking = StdRanker::default().init_ranking(&sudoku);
+        match checker.check(&sudoku, &mut ranking) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
         };
         apply2(&mut sudoku, &mut checker, [5, 2], StdVal(8));
-        assert_contradiction(checker.check(&sudoku, &mut grid), "BOX_CONFLICT");
+        assert_contradiction(checker.check(&sudoku, &mut ranking), "BOX_CONFLICT");
     }
 
     #[test]

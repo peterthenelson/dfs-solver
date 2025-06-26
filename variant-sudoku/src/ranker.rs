@@ -1,18 +1,20 @@
 use std::marker::PhantomData;
-use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RegionLayer, State, VBitSet, VDenseMap, VMap, VMapMut, VSet, Value, WithId};
+use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RankingInfo, RegionLayer, State, VBitSet, VDenseMap, VMap, VMapMut, VSet, Value, WithId};
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
 /// possible values that go in [0, 0]") or a value in a region ("here are the
 /// mutually exclusive and exhaustive possible cells where the 9 in row 3 can
 /// go"). In theory, the ranker can choose to order the values/cells in the
-/// branch point, but the StdRanker does not do so, and the DecisionGrid doesn't
-/// provide useful guidance to base such a decision on.
+/// branch point, but the StdRanker does not do so, and the RankingInfo doesn't
+/// currently provide useful guidance to base such a decision on.
 pub trait Ranker<V: Value, O: Overlay> {
-    fn annotate(&self, grid: &mut DecisionGrid<V>, puzzle: &State<V, O>);
+    fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V>;
+
+    fn annotate(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>);
 
     // Note: the ranker must not suggest already filled cells.
-    fn top(&self, step: usize, grid: &DecisionGrid<V>, puzzle: &State<V, O>) -> BranchPoint<V>;
+    fn top(&self, step: usize, ranking: &RankingInfo<V>, puzzle: &State<V, O>) -> BranchPoint<V>;
 
     // Score for a particular feature vec for a cell. Exposed for debugging reasons.
     fn cell_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
@@ -24,7 +26,7 @@ pub trait Ranker<V: Value, O: Overlay> {
     // or Contradiction that is present. This must be compatible with top() --
     // i.e., top() must always return something possible if no Contradiction is
     // found here.
-    fn to_constraint_result(&self, grid: &DecisionGrid<V>, puzzle: &State<V, O>) -> ConstraintResult<V>;
+    fn to_constraint_result(&self, grid: &RankingInfo<V>, puzzle: &State<V, O>) -> ConstraintResult<V>;
 
     /// Exposes how the ranker looks at the grid when calculating candidates
     /// in regions (i.e., those implied by positive_constraint). Useful for
@@ -149,7 +151,21 @@ enum SRChoice<V: Value> {
 }
 
 impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
-    fn annotate(&self, grid: &mut DecisionGrid<V>, puzzle: &State<V, O>) {
+    fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V> {
+        let mut cells = puzzle.overlay().full_decision_grid();
+        let (n, m) = puzzle.overlay().grid_dims();
+        for r in 0..n {
+            for c in 0..m {
+                if let Some(v) = puzzle.get([r, c]) {
+                    cells.get_mut([r, c]).0 = VBitSet::<V>::singleton(&v);
+                }
+            }
+        }
+        RankingInfo { cells }
+    }
+
+    fn annotate(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
+        let grid = &mut ranking.cells;
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_some() {
@@ -162,9 +178,10 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         }
     }
 
-    fn top(&self, step: usize, grid: &DecisionGrid<V>, puzzle: &State<V, O>) -> BranchPoint<V> {
+    fn top(&self, step: usize, ranking: &RankingInfo<V>, puzzle: &State<V, O>) -> BranchPoint<V> {
         let mut top_choice = None;
         let mut top_score: f64 = f64::MIN;
+        let grid = &ranking.cells;
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_some() {
@@ -181,8 +198,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         if top_choice.is_none() {
             return BranchPoint::empty(step, self.empty_attr);
         }
-        // TODO: Factor this into the DecisionGrid and the full_decision_grid
-        // method in the overlay.
+        // TODO: Factor this into the RankingInfo and the init_ranking method
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
@@ -225,7 +241,8 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         fv.normalize_and(self.combinator).dot_product(&self.val_weights)
     }
 
-    fn to_constraint_result(&self, grid: &DecisionGrid<V>, puzzle: &State<V, O>) -> ConstraintResult<V> {
+    fn to_constraint_result(&self, ranking: &RankingInfo<V>, puzzle: &State<V, O>) -> ConstraintResult<V> {
+        let grid = &ranking.cells;
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
                 if puzzle.get([r, c]).is_none() {

@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut, WithId}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
+use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VSetMut, WithId}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
 
 // TODO: Add support for slow thermos
 
@@ -191,10 +191,11 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for ThermoChecker
 
 impl <const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
-    fn check(&self, _: &State<StdVal<MIN, MAX>, O>, grid: &mut DecisionGrid<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
+    fn check(&self, _: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }
+        let grid = &mut ranking.cells;
         for t in &self.thermos {
             grid.get_mut(t.cells[0]).1.add(&self.thermo_bulb_feature, 1.0);
             let ranges_from_grid = t.cells.iter().map(|c| {
