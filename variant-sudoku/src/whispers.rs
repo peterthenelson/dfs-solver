@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::{LazyLock, Mutex}};
-use crate::{core::{empty_set, filled_map, UVMap, UVSet, Value}, sudoku::StdVal};
+use crate::{core::{empty_set, filled_map, UVMap, UVSet, Value}, memo::{FnToCalc, MemoLock}, sudoku::StdVal};
 
 /// Tables of useful sets for whisper-style constraints.
 static WHISPER_NEIGHBORS: LazyLock<Mutex<HashMap<(u8, u8, u8), UVMap<u8, UVSet<u8>>>>> = LazyLock::new(|| {
@@ -9,47 +9,76 @@ static WHISPER_POSSIBLE_VALS: LazyLock<Mutex<HashMap<(u8, u8, u8, bool), UVSet<u
     Mutex::new(HashMap::new())
 });
 
-pub fn whisper_neighbors<const MIN: u8, const MAX: u8>(dist: u8, val: StdVal<MIN, MAX>) -> UVSet<u8> {
-    let mut map = WHISPER_NEIGHBORS.lock().unwrap();
-    let inner_map = map.entry((MIN, MAX, dist)).or_insert_with(|| {
-        let mut neighbors = filled_map::<StdVal<MIN, MAX>, UVSet<u8>>(empty_set::<StdVal<MIN, MAX>>());
-        for v1 in StdVal::<MIN, MAX>::possibilities() {
-            for v2 in StdVal::<MIN, MAX>::possibilities() {
-                if v1 == v2 {
-                    continue;
-                }
-                let d = v1.val().abs_diff(v2.val());
-                if d >= dist {
-                    neighbors.get_mut(v1.to_uval()).insert(v2.to_uval());
-                }
+fn whisper_neighbors_raw<const MIN: u8, const MAX: u8>(args: &(u8,)) -> UVMap<u8, UVSet<u8>> {
+    let dist = args.0;
+    let mut neighbors = filled_map::<StdVal<MIN, MAX>, UVSet<u8>>(empty_set::<StdVal<MIN, MAX>>());
+    for v1 in StdVal::<MIN, MAX>::possibilities() {
+        for v2 in StdVal::<MIN, MAX>::possibilities() {
+            if v1 == v2 {
+                continue;
+            }
+            let d = v1.val().abs_diff(v2.val());
+            if d >= dist {
+                neighbors.get_mut(v1.to_uval()).insert(v2.to_uval());
             }
         }
-        neighbors
-    });
-    inner_map.get(val.to_uval()).clone()
+    }
+    neighbors
 }
 
-pub fn whisper_possible_values<const MIN: u8, const MAX: u8>(dist: u8, has_two_mutually_visible_neighbors: bool) -> UVSet<u8> {
-    let mut map = WHISPER_POSSIBLE_VALS.lock().unwrap();
-    map.entry((MIN, MAX, dist, has_two_mutually_visible_neighbors)).or_insert_with(|| {
-        let mut possible_vals = empty_set::<StdVal<MIN, MAX>>();
-        for v in StdVal::<MIN, MAX>::possibilities() {
-            let neighbors = whisper_neighbors::<MIN, MAX>(dist, v);
-            if neighbors.len() >= 2 || (!neighbors.is_empty() && !has_two_mutually_visible_neighbors) {
-                possible_vals.insert(v.to_uval());
-            }
+pub struct WhisperNeighbors<const MIN: u8, const MAX: u8>(MemoLock<(u8,), (u8, u8, u8), UVMap<u8, UVSet<u8>>, FnToCalc<(u8,), (u8, u8, u8), UVMap<u8, UVSet<u8>>>>);
+impl <const MIN: u8, const MAX: u8> WhisperNeighbors<MIN, MAX> {
+    pub fn get(&mut self, dist: u8, val: StdVal<MIN, MAX>) -> &UVSet<u8> {
+        self.0.get(&(dist,)).get(val.to_uval())
+    }
+}
+
+pub fn whisper_neighbors<const MIN: u8, const MAX: u8>() -> WhisperNeighbors<MIN, MAX> {
+    let guard = WHISPER_NEIGHBORS.lock().unwrap();
+    let calc = FnToCalc::<_, _, _>::new(
+        |&(dist,)| (MIN, MAX, dist),
+        whisper_neighbors_raw::<MIN, MAX>,
+    );
+    WhisperNeighbors(MemoLock::new(guard, calc))
+}
+
+fn whisper_possible_vals_raw<const MIN: u8, const MAX: u8>(args: &(u8, bool)) -> UVSet<u8> {
+    let dist = args.0;
+    let has_two_mutually_visible_neighbors = args.1;
+    let mut possible_vals = empty_set::<StdVal<MIN, MAX>>();
+    for v in StdVal::<MIN, MAX>::possibilities() {
+        let mut wn = whisper_neighbors::<MIN, MAX>();
+        let neighbors = wn.get(dist, v);
+        if neighbors.len() >= 2 || (!neighbors.is_empty() && !has_two_mutually_visible_neighbors) {
+            possible_vals.insert(v.to_uval());
         }
-        possible_vals
-    }).clone()
+    }
+    possible_vals
+}
+
+pub struct WhisperPossibleValues<const MIN: u8, const MAX: u8>(MemoLock<(u8, bool), (u8, u8, u8, bool), UVSet<u8>, FnToCalc<(u8, bool), (u8, u8, u8, bool), UVSet<u8>>>);
+impl <const MIN: u8, const MAX: u8> WhisperPossibleValues<MIN, MAX> {
+    pub fn get(&mut self, dist: u8, has_two_mutually_visible_neighbors: bool) -> &UVSet<u8> {
+        self.0.get(&(dist, has_two_mutually_visible_neighbors))
+    }
+}
+
+pub fn whisper_possible_values<const MIN: u8, const MAX: u8>() -> WhisperPossibleValues<MIN, MAX> {
+    let guard = WHISPER_POSSIBLE_VALS.lock().unwrap();
+    let calc = FnToCalc::<_, _, _>::new(
+        |&(dist, h2mvn)| (MIN, MAX, dist, h2mvn),
+        whisper_possible_vals_raw::<MIN, MAX>,
+    );
+    WhisperPossibleValues(MemoLock::new(guard, calc))
 }
 
 pub fn whisper_between<const MIN: u8, const MAX: u8>(dist: u8, left: &UVSet<u8>, right: &UVSet<u8>) -> UVSet<u8> {
     let mut result = empty_set::<StdVal<MIN, MAX>>();
+    let mut wn = whisper_neighbors::<MIN, MAX>();
     for v in StdVal::<MIN, MAX>::possibilities() {
-        let mut ln = whisper_neighbors(dist, v);
-        let mut rn = ln.clone();
-        ln.intersect_with(left);
-        rn.intersect_with(right);
+        let neighbors = wn.get(dist, v);
+        let ln = left.intersection(neighbors);
+        let rn = right.intersection(neighbors);
         if !ln.is_empty() && !rn.is_empty() {
             result.insert(v.to_uval());
         }
@@ -70,7 +99,7 @@ mod test {
     ) {
         let sval = StdVal::<MIN, MAX>::new(val);
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(&whisper_neighbors(DIST, sval)),
+            unpack_stdval_vals::<MIN, MAX>(whisper_neighbors().get(DIST, sval)),
             neighbors,
             "Neighbors for {} with distance {} should be {:?}",
             val, DIST, neighbors
@@ -114,7 +143,7 @@ mod test {
         has_two_mutually_visible_neighbors: bool, vals: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(&whisper_possible_values::<MIN, MAX>(DIST, has_two_mutually_visible_neighbors)),
+            unpack_stdval_vals::<MIN, MAX>(whisper_possible_values::<MIN, MAX>().get(DIST, has_two_mutually_visible_neighbors)),
             vals,
             "Possible vals for distance {} (has_two_mutually_visible_neighbors={}) should be {:?}",
             DIST, has_two_mutually_visible_neighbors, vals

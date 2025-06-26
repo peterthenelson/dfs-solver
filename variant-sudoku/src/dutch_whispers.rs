@@ -84,7 +84,7 @@ impl DutchWhisperChecker {
         for w in &whispers {
             for (cell, h2mvn) in &w.cells {
                 remaining.entry(*cell).or_insert_with(|| {
-                    whisper_possible_values::<1, 9>(4, *h2mvn)
+                    whisper_possible_values::<1, 9>().get(4, *h2mvn).clone()
                 });
             }
         }
@@ -123,14 +123,14 @@ fn recompute(remaining: &mut HashMap<Index, UVSet<u8>>, remaining_init: &HashMap
         let prev = w.cells[i - 1].0;
         let prev_rem = remaining.get(&prev).unwrap().clone();
         if let Some(v) = unpack_singleton::<NineStdVal>(&prev_rem) {
-            rem.intersect_with(&whisper_neighbors::<1, 9>(4, v));
+            rem.intersect_with(whisper_neighbors::<1, 9>().get(4, v));
         }
     }
     if i < w.cells.len() - 1 {
         let next = w.cells[i + 1].0;
         let next_rem = remaining.get(&next).unwrap().clone();
         if let Some(v) = unpack_singleton::<NineStdVal>(&next_rem) {
-            rem.intersect_with(&whisper_neighbors::<1, 9>(4, v));
+            rem.intersect_with(whisper_neighbors::<1, 9>().get(4, v));
         }
     }
     *remaining.get_mut(&w.cells[i].0).unwrap() = rem;
@@ -156,7 +156,8 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
                 if *cell != index {
                     continue;
                 }
-                let neighbors = whisper_neighbors::<1, 9>(4, value);
+                let mut wn = whisper_neighbors::<1, 9>();
+                let neighbors = wn.get(4, value);
                 let cur = self.remaining.get_mut(&index).unwrap();
                 if cur.contains(value.to_uval()) {
                     *cur = singleton_set::<NineStdVal>(value);
@@ -166,11 +167,11 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
                 }
                 if i > 0 {
                     let prev = w.cells[i - 1].0;
-                    self.remaining.get_mut(&prev).unwrap().intersect_with(&neighbors);
+                    self.remaining.get_mut(&prev).unwrap().intersect_with(neighbors);
                 }
                 if i < w.cells.len() - 1 {
                     let next = w.cells[i + 1].0;
-                    self.remaining.get_mut(&next).unwrap().intersect_with(&neighbors);
+                    self.remaining.get_mut(&next).unwrap().intersect_with(neighbors);
                 }
             }
         }

@@ -29,12 +29,12 @@ impl <const MIN: u8, const MAX: u8, const DIST: u8>
 WhisperBench for Whisper<MIN, MAX, DIST> {
     fn run_whisper_neighbors(&self, rng: &mut ChaCha20Rng) {
         let val = self.sample_val(rng);
-        touch_set::<MIN, MAX>(&whisper_neighbors::<MIN, MAX>(DIST, val));
+        touch_set::<MIN, MAX>(whisper_neighbors::<MIN, MAX>().get(DIST, val));
     }
 
     fn run_whisper_possible_values(&self, rng: &mut ChaCha20Rng) {
         let h2mvn = rng.random_bool(0.5);
-        touch_set::<MIN, MAX>(&whisper_possible_values::<MIN, MAX>(DIST, h2mvn));
+        touch_set::<MIN, MAX>(whisper_possible_values::<MIN, MAX>().get(DIST, h2mvn));
     }
 
     fn run_whisper_between(&self, rng: &mut ChaCha20Rng) {
