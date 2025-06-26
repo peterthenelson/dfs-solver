@@ -155,39 +155,125 @@ impl<V: Value> VGrid<V> {
     }
 }
 
-/// This is a mapping from values to some other type. It is densely represented
-/// as a slice of values, indexed by their unsigned representations.
-#[derive(Debug, Clone)]
-pub struct UVMap<U: UInt, V: Clone> {
-    vals: Box<[V]>,
-    _marker: PhantomData<U>,
+/// These exist in order to abstract over VDenseMaps and ref-storing versions of
+/// the same.
+pub trait DenseMapState<V: Clone> {
+    fn vals(&self) -> &Box<[V]>;
+}
+pub trait DenseMapStateMut<V: Clone>: DenseMapState<V> {
+    fn vals_mut(&mut self) -> &mut Box<[V]>;
 }
 
-pub fn empty_map<K: Value, V: Clone + Default>() -> UVMap<K::U, V> {
-    UVMap { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _marker: PhantomData }
-}
-
-pub fn filled_map<K: Value, V: Clone>(default: V) -> UVMap<K::U, V> {
-    UVMap { vals: vec![default; K::cardinality()].into_boxed_slice(), _marker: PhantomData }
-}
-
-impl <U: UInt, V: Clone> UVMap<U, V> {
-    pub fn get(&self, key: UVal<U, UVWrapped>) -> &V {
-        &self.vals[key.unwrap().value().as_usize()]
+/// This is the primary read-only functionality for manipulating maps from
+/// Values to some other type, backed by a Box<[V]> or a reference to one.
+pub trait VMap<K: Value, V: Clone>: DenseMapState<V> {
+    fn get(&self, key: &K) -> &V {
+        &self.vals()[key.to_uval().unwrap().value().as_usize()]
     }
 
-    pub fn get_mut(&mut self, key: UVal<U, UVWrapped>) -> &mut V {
-        &mut self.vals[key.unwrap().value().as_usize()]
-    }
-
-    pub fn iter<K: Value<U = U>>(&self) -> std::vec::IntoIter<(K, V)> {
-        self.vals.iter().enumerate().map(|(u, v)| {
-            let k: K = to_value::<K>(UVal::<U, UVWrapped>::new(U::from_usize(u)));
+    fn iter(&self) -> std::vec::IntoIter<(K, V)> {
+        self.vals().iter().enumerate().map(|(u, v)| {
+            let k: K = to_value::<K>(UVal::<K::U, UVWrapped>::new(K::U::from_usize(u)));
             let v: V = v.clone();
             (k, v)
         }).collect::<Vec<(K, V)>>().into_iter()
     }
 }
+
+/// This is the primary functionality to modify maps from Values to some other
+/// type, backed by a bitset or a reference to one.
+pub trait VMapMut<K: Value, V: Clone>: DenseMapStateMut<V> {
+    fn get_mut(&mut self, key: &K) -> &mut V {
+        &mut self.vals_mut()[key.to_uval().unwrap().value().as_usize()]
+    }
+}
+
+/// This is a mapping from values to some other type. It is densely represented
+/// as a slice of values, indexed by their unsigned representations.
+#[derive(Debug, Clone)]
+pub struct VDenseMap<K: Value, V: Clone> {
+    vals: Box<[V]>,
+    _marker: PhantomData<K>,
+}
+
+impl <K: Value, V: Clone + Default> VDenseMap<K, V> {
+    pub fn empty() -> Self {
+        Self { vals: vec![V::default(); K::cardinality()].into_boxed_slice(), _marker: PhantomData }
+    }
+}
+
+impl <K: Value, V: Clone> VDenseMap<K, V> {
+    pub fn filled(default: V) -> Self {
+        Self { vals: vec![default; K::cardinality()].into_boxed_slice(), _marker: PhantomData }
+    }
+
+    pub fn into_erased(self) -> Box<[V]> {
+        self.vals
+    }
+}
+
+impl <K: Value, V: Clone> DenseMapState<V> for VDenseMap<K, V> {
+    fn vals(&self) -> &Box<[V]> { &self.vals }
+}
+impl <K: Value, V: Clone> DenseMapStateMut<V> for VDenseMap<K, V> {
+    fn vals_mut(&mut self) -> &mut Box<[V]> { &mut self.vals }
+}
+impl <K: Value, V: Clone> VMap<K, V> for VDenseMap<K, V> {}
+impl <K: Value, V: Clone> VMapMut<K, V> for VDenseMap<K, V> {}
+
+#[derive(Debug)]
+pub struct VDenseMapRefMut<'a, K: Value, V: Clone> {
+    vals: &'a mut Box<[V]>,
+    _marker: PhantomData<K>,
+}
+
+impl <'a, K: Value, V: Clone> VDenseMapRefMut<'a, K, V> {
+    /// Warning: Strictly speaking, this is not "unsafe", but there's no
+    /// guarantees about the contents of the VMap you get if the K/V you assume
+    /// differs from the ones used to create it.
+    pub fn assume_typed(vals: &'a mut Box<[V]>) -> Self {
+        Self { vals, _marker: PhantomData }
+    }
+    pub fn get_into(self, key: &K) -> &'a mut V {
+        self.vals.get_mut(key.to_uval().unwrap().value().as_usize()).unwrap()
+    }
+    pub fn to_vdensemap(&self) -> VDenseMap<K, V> {
+        VDenseMap { vals: self.vals.clone(), _marker: PhantomData }
+    }
+}
+impl <'a, K: Value, V: Clone> DenseMapState<V> for VDenseMapRefMut<'a, K, V> {
+    fn vals(&self) -> &Box<[V]> { self.vals }
+}
+impl <'a, K: Value, V: Clone> DenseMapStateMut<V> for VDenseMapRefMut<'a, K, V> {
+    fn vals_mut(&mut self) -> &mut Box<[V]> { self.vals }
+}
+impl <'a, K: Value, V: Clone> VMap<K, V> for VDenseMapRefMut<'a, K, V> {}
+impl <'a, K: Value, V: Clone> VMapMut<K, V> for VDenseMapRefMut<'a, K, V> {}
+
+#[derive(Debug)]
+pub struct VDenseMapRef<'a, K: Value, V: Clone> {
+    vals: &'a Box<[V]>,
+    _marker: PhantomData<K>,
+}
+
+impl <'a, K: Value, V: Clone> VDenseMapRef<'a, K, V> {
+    /// Warning: Strictly speaking, this is not "unsafe", but there's no
+    /// guarantees about the contents of the VMap you get if the K/V you assume
+    /// differs from the ones used to create it.
+    pub fn assume_typed(vals: &'a Box<[V]>) -> Self {
+        Self { vals, _marker: PhantomData }
+    }
+    pub fn get_into(self, key: &K) -> &'a V {
+        &self.vals[key.to_uval().unwrap().value().as_usize()]
+    }
+    pub fn to_vdensemap(&self) -> VDenseMap<K, V> {
+        VDenseMap { vals: self.vals.clone(), _marker: PhantomData }
+    }
+}
+impl <'a, K: Value, V: Clone> DenseMapState<V> for VDenseMapRef<'a, K, V> {
+    fn vals(&self) -> &Box<[V]> { self.vals }
+}
+impl <'a, K: Value, V: Clone> VMap<K, V> for VDenseMapRef<'a, K, V> {}
 
 /// These exist in order to abstract over VBitSets and ref-storing versions of
 /// the same.
@@ -195,7 +281,7 @@ pub trait BitSetState<V: Value> {
     fn s(&self) -> &bit_set::BitSet;
 }
 pub trait BitSetStateMut<V: Value>: BitSetState<V> {
-    fn mut_s(&mut self) -> &mut bit_set::BitSet;
+    fn s_mut(&mut self) -> &mut bit_set::BitSet;
 }
 
 /// This is the primary read-only functionality for manipulating sets of Values,
@@ -246,17 +332,19 @@ pub trait VSet<V: Value>: BitSetState<V> {
     }
 }
 
+/// This is the primary functionality to modify sets of Values, backed by a
+/// bitset or a reference to one.
 pub trait VSetMut<V: Value>: BitSetStateMut<V> {
     fn remove(&mut self, value: &V) {
-        self.mut_s().remove(value.to_uval().unwrap().value().as_usize());
+        self.s_mut().remove(value.to_uval().unwrap().value().as_usize());
     }
 
     fn clear(&mut self) {
-        self.mut_s().clear();
+        self.s_mut().clear();
     }
 
     fn intersect_with<O: VSet<V>>(&mut self, other: &O) {
-        self.mut_s().intersect_with(other.s());
+        self.s_mut().intersect_with(other.s());
     }
 }
 
@@ -316,18 +404,18 @@ impl <V: Value> BitSetState<V> for VBitSet<V> {
     fn s(&self) -> &bit_set::BitSet { &self.s }
 }
 impl <V: Value> BitSetStateMut<V> for VBitSet<V> {
-    fn mut_s(&mut self) -> &mut bit_set::BitSet { &mut self.s }
+    fn s_mut(&mut self) -> &mut bit_set::BitSet { &mut self.s }
 }
 impl <V: Value> VSet<V> for VBitSet<V> {}
 impl <V: Value> VSetMut<V> for VBitSet<V> {}
 
 #[derive(Debug, PartialEq)]
-pub struct VBitSetRef<'a, V: Value> {
+pub struct VBitSetRefMut<'a, V: Value> {
     s: &'a mut bit_set::BitSet,
     _marker: PhantomData<V>,
 }
 
-impl <'a, V: Value> VBitSetRef<'a, V> {
+impl <'a, V: Value> VBitSetRefMut<'a, V> {
     /// Warning: Strictly speaking, this is not "unsafe", but there's no
     /// guarantees about the contents of the VSet you get if the V you assume
     /// differs from the one used to create it.
@@ -339,22 +427,22 @@ impl <'a, V: Value> VBitSetRef<'a, V> {
     }
 }
 
-impl <'a, V: Value> BitSetState<V> for VBitSetRef<'a, V> {
+impl <'a, V: Value> BitSetState<V> for VBitSetRefMut<'a, V> {
     fn s(&self) -> &bit_set::BitSet { self.s }
 }
-impl <'a, V: Value> BitSetStateMut<V> for VBitSetRef<'a, V> {
-    fn mut_s(&mut self) -> &mut bit_set::BitSet { self.s }
+impl <'a, V: Value> BitSetStateMut<V> for VBitSetRefMut<'a, V> {
+    fn s_mut(&mut self) -> &mut bit_set::BitSet { self.s }
 }
-impl <'a, V: Value> VSet<V> for VBitSetRef<'a, V> {}
-impl <'a, V: Value> VSetMut<V> for VBitSetRef<'a, V> {}
+impl <'a, V: Value> VSet<V> for VBitSetRefMut<'a, V> {}
+impl <'a, V: Value> VSetMut<V> for VBitSetRefMut<'a, V> {}
 
 #[derive(Debug, PartialEq)]
-pub struct VBitSetRefConst<'a, V: Value> {
+pub struct VBitSetRef<'a, V: Value> {
     s: &'a bit_set::BitSet,
     _marker: PhantomData<V>,
 }
 
-impl <'a, V: Value> VBitSetRefConst<'a, V> {
+impl <'a, V: Value> VBitSetRef<'a, V> {
     /// Warning: Strictly speaking, this is not "unsafe", but there's no
     /// guarantees about the contents of the VSet you get if the V you assume
     /// differs from the one used to create it.
@@ -366,10 +454,10 @@ impl <'a, V: Value> VBitSetRefConst<'a, V> {
     }
 }
 
-impl <'a, V: Value> BitSetState<V> for VBitSetRefConst<'a, V> {
+impl <'a, V: Value> BitSetState<V> for VBitSetRef<'a, V> {
     fn s(&self) -> &bit_set::BitSet { self.s }
 }
-impl <'a, V: Value> VSet<V> for VBitSetRefConst<'a, V> {}
+impl <'a, V: Value> VSet<V> for VBitSetRef<'a, V> {}
 
 fn leading_ones(n: usize) -> Vec<u8> {
     let full = n / 8;

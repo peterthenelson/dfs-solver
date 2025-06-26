@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VSet, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -159,8 +159,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
             let info = state.solver.ranker().region_info(
                 &grid, state.solver.state(), layer, p,
             ).unwrap();
-            let uv = v.to_uval();
-            let cells = info.cell_choices.get(uv).iter()
+            let cells = info.cell_choices.get(&v).iter()
                 .map(|c| format!("{:?}", c))
                 .collect::<Vec<_>>().join(", ");
             let mut lines = vec![
@@ -174,7 +173,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
                 "Features:".italic().into(),
             ];
             lines.extend(
-                to_lines(&*format!("{}", info.feature_vecs.get(uv)))
+                to_lines(&*format!("{}", info.feature_vecs.get(&v)))
                     .into_iter().map(|l| l.cyan()),
             );
             lines
@@ -433,11 +432,10 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                 for c in 0..M {
                     let p = overlay.enclosing_region(layer, [r, c]).unwrap();
                     let v = val_at_index(state, so, grid_type.view_by(), [r, c]).val.unwrap();
-                    let uv = v.to_uval();
                     if infos[p].filled.contains(&v) {
                         continue;
                     }
-                    hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(uv).len()));
+                    hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(&v).len()));
                 }
             }
         }

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRefConst, VSet, VSetMut, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value, WithId};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::memo::{FnToCalc, MemoLock};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
@@ -109,8 +109,8 @@ fn kb_possible_raw<const MIN: u8, const MAX: u8>(_: &()) -> bit_set::BitSet {
 
 pub struct KBPossible<const MIN: u8, const MAX: u8>(MemoLock<(), (u8, u8), bit_set::BitSet, FnToCalc<(), (u8, u8), bit_set::BitSet>>);
 impl <const MIN: u8, const MAX: u8> KBPossible<MIN, MAX> {
-    pub fn get(&mut self) -> VBitSetRefConst<StdVal<MIN, MAX>> {
-        VBitSetRefConst::assume_typed(self.0.get(&()))
+    pub fn get(&mut self) -> VBitSetRef<StdVal<MIN, MAX>> {
+        VBitSetRef::assume_typed(self.0.get(&()))
     }
 }
 
@@ -146,7 +146,7 @@ fn kb_possible_mv_raw<const MIN: u8, const MAX: u8>(args: &(usize,)) -> Vec<bit_
 
 pub struct KBPossibleChain<const MIN: u8, const MAX: u8>(MemoLock<(usize,), (u8, u8, usize), Vec<bit_set::BitSet>, FnToCalc<(usize,), (u8, u8, usize), Vec<bit_set::BitSet>>>);
 impl <const MIN: u8, const MAX: u8> KBPossibleChain<MIN, MAX> {
-    pub fn get(&mut self, n_mutually_visible: usize, mut len_from_end: usize) -> VBitSetRefConst<StdVal<MIN, MAX>> {
+    pub fn get(&mut self, n_mutually_visible: usize, mut len_from_end: usize) -> VBitSetRef<StdVal<MIN, MAX>> {
         if n_mutually_visible < 2 {
             panic!("kropki_black_possible_chain only makes sense when chain length \
                     is at least 2; got {}", n_mutually_visible);
@@ -158,7 +158,7 @@ impl <const MIN: u8, const MAX: u8> KBPossibleChain<MIN, MAX> {
             // Standardize to the smaller of two equiv values
             len_from_end = n_mutually_visible - 1 - len_from_end;
         }
-        VBitSetRefConst::<StdVal<MIN, MAX>>::assume_typed(
+        VBitSetRef::<StdVal<MIN, MAX>>::assume_typed(
             &self.0.get(&(n_mutually_visible,))[len_from_end],
         )
     }
