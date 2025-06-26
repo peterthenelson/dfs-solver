@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::{borrow::Cow, marker::PhantomData};
 use std::fmt::{Debug, Display};
-use bit_set::BitSet;
 use num::{PrimInt, Unsigned};
 
 /// Error type. This is used to indicate something wrong with either the
@@ -190,20 +189,187 @@ impl <U: UInt, V: Clone> UVMap<U, V> {
     }
 }
 
+/// These exist in order to abstract over VBitSets and ref-storing versions of
+/// the same.
+pub trait BitSetState<V: Value> {
+    fn s(&self) -> &bit_set::BitSet;
+}
+pub trait BitSetStateMut<V: Value>: BitSetState<V> {
+    fn mut_s(&mut self) -> &mut bit_set::BitSet;
+}
+
+/// This is the primary read-only functionality for manipulating sets of Values,
+/// backed by a bitset or a reference to one.
+pub trait VSet<V: Value>: BitSetState<V> {
+    fn contains(&self, value: &V) -> bool {
+        self.s().contains(value.to_uval().unwrap().value().as_usize())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.s().is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.s().len()
+    }
+
+    fn iter<'a>(&'a self) -> impl Iterator<Item = V> + 'a {
+        self.s().iter().map(|i| to_value::<V>(UVal::new(V::U::from_usize(i))))
+    }
+
+    fn intersection<O: VSet<V>>(&self, other: &O) -> VBitSet<V> {
+        let mut s = self.s().clone();
+        s.intersect_with(other.s());
+        VBitSet { s, _marker: PhantomData }
+    }
+
+    fn union<O: VSet<V>>(&self, other: &O) -> VBitSet<V> {
+        let mut s = self.s().clone();
+        s.union_with(other.s());
+        VBitSet { s, _marker: PhantomData }
+    }
+
+    fn first(&self) -> Option<V> {
+        self.iter().next()
+    }
+
+    fn last(&self) -> Option<V> {
+        self.iter().last()
+    }
+
+    fn as_singleton(&self) -> Option<V> {
+        if self.len() == 1 {
+            Some(self.iter().next().unwrap())
+        } else {
+            None
+        }
+    }
+}
+
+pub trait VSetMut<V: Value>: BitSetStateMut<V> {
+    fn remove(&mut self, value: &V) {
+        self.mut_s().remove(value.to_uval().unwrap().value().as_usize());
+    }
+
+    fn clear(&mut self) {
+        self.mut_s().clear();
+    }
+
+    fn intersect_with<O: VSet<V>>(&mut self, other: &O) {
+        self.mut_s().intersect_with(other.s());
+    }
+}
+
 /// This a set of values (e.g., that are possible, that have been seen, etc.).
 /// They are represented as a bitset of the possible values.
 #[derive(Debug, Clone, PartialEq)]
-pub struct UVSet<U: UInt> {
-    s: BitSet,
-    _marker: PhantomData<U>,
+pub struct VBitSet<V: Value> {
+    s: bit_set::BitSet,
+    _marker: PhantomData<V>,
 }
 
-pub fn empty_set<V: Value>() -> UVSet<V::U> {
-    UVSet {
-        s: BitSet::with_capacity(V::cardinality()),
-        _marker: PhantomData,
+/// Constructors are specific to VBitSet, all the other methods
+/// are general across VBitSet and VBitSetRef (thorugh the VSet trait).
+impl <V: Value> VBitSet<V> {
+    pub fn empty() -> Self {
+        Self {
+            s: bit_set::BitSet::with_capacity(V::cardinality()),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn full() -> Self {
+        let n = V::cardinality();
+        let mut s = VBitSet {
+            s: bit_set::BitSet::with_capacity(n),
+            _marker: PhantomData,
+        };
+        let ones = leading_ones(n);
+        s.s.union_with(&bit_set::BitSet::from_bytes(ones.as_slice()));
+        s
+    }
+
+    pub fn from_values(vals: &Vec<V>) -> Self {
+        let mut res = Self::empty();
+        for v in vals {
+            res.insert(v);
+        }
+        res
+    }
+
+    pub fn singleton(v: &V) -> Self {
+        let mut s = Self::empty();
+        s.insert(v);
+        s
+    }
+
+    pub fn insert(&mut self, value: &V) {
+        self.s.insert(value.to_uval().unwrap().value().as_usize());
+    }
+
+    pub fn into_erased(self) -> bit_set::BitSet {
+        self.s
     }
 }
+
+impl <V: Value> BitSetState<V> for VBitSet<V> {
+    fn s(&self) -> &bit_set::BitSet { &self.s }
+}
+impl <V: Value> BitSetStateMut<V> for VBitSet<V> {
+    fn mut_s(&mut self) -> &mut bit_set::BitSet { &mut self.s }
+}
+impl <V: Value> VSet<V> for VBitSet<V> {}
+impl <V: Value> VSetMut<V> for VBitSet<V> {}
+
+#[derive(Debug, PartialEq)]
+pub struct VBitSetRef<'a, V: Value> {
+    s: &'a mut bit_set::BitSet,
+    _marker: PhantomData<V>,
+}
+
+impl <'a, V: Value> VBitSetRef<'a, V> {
+    /// Warning: Strictly speaking, this is not "unsafe", but there's no
+    /// guarantees about the contents of the VSet you get if the V you assume
+    /// differs from the one used to create it.
+    pub fn assume_typed(s: &'a mut bit_set::BitSet) -> Self {
+        Self { s, _marker: PhantomData }
+    }
+    pub fn to_vbitset(&self) -> VBitSet<V> {
+        VBitSet { s: self.s.clone(), _marker: PhantomData }
+    }
+}
+
+impl <'a, V: Value> BitSetState<V> for VBitSetRef<'a, V> {
+    fn s(&self) -> &bit_set::BitSet { self.s }
+}
+impl <'a, V: Value> BitSetStateMut<V> for VBitSetRef<'a, V> {
+    fn mut_s(&mut self) -> &mut bit_set::BitSet { self.s }
+}
+impl <'a, V: Value> VSet<V> for VBitSetRef<'a, V> {}
+impl <'a, V: Value> VSetMut<V> for VBitSetRef<'a, V> {}
+
+#[derive(Debug, PartialEq)]
+pub struct VBitSetRefConst<'a, V: Value> {
+    s: &'a bit_set::BitSet,
+    _marker: PhantomData<V>,
+}
+
+impl <'a, V: Value> VBitSetRefConst<'a, V> {
+    /// Warning: Strictly speaking, this is not "unsafe", but there's no
+    /// guarantees about the contents of the VSet you get if the V you assume
+    /// differs from the one used to create it.
+    pub fn assume_typed(s: &'a bit_set::BitSet) -> Self {
+        Self { s, _marker: PhantomData }
+    }
+    pub fn to_vbitset(&self) -> VBitSet<V> {
+        VBitSet { s: self.s.clone(), _marker: PhantomData }
+    }
+}
+
+impl <'a, V: Value> BitSetState<V> for VBitSetRefConst<'a, V> {
+    fn s(&self) -> &bit_set::BitSet { self.s }
+}
+impl <'a, V: Value> VSet<V> for VBitSetRefConst<'a, V> {}
 
 fn leading_ones(n: usize) -> Vec<u8> {
     let full = n / 8;
@@ -213,98 +379,6 @@ fn leading_ones(n: usize) -> Vec<u8> {
         result.push(u8::MAX << (8 - remaining));
     }
     result
-}
-
-pub fn full_set<V: Value>() -> UVSet<V::U> {
-    let n = V::cardinality();
-    let mut s = UVSet {
-        s: BitSet::with_capacity(n),
-        _marker: PhantomData,
-    };
-    let ones = leading_ones(n);
-    s.s.union_with(&BitSet::from_bytes(ones.as_slice()));
-    s
-}
-
-pub fn pack_values<V: Value>(vals: &Vec<V>) -> UVSet<V::U> {
-    let mut res = empty_set::<V>();
-    for v in vals {
-        res.insert(v.to_uval());
-    }
-    res
-}
-
-pub fn singleton_set<V: Value>(v: V) -> UVSet<V::U> {
-    let mut s = empty_set::<V>();
-    s.insert(v.to_uval());
-    s
-}
-
-pub fn unpack_values<V: Value>(s: &UVSet<V::U>) -> Vec<V> {
-    s.iter().map(|u| { to_value::<V>(u) }).collect::<Vec<_>>()
-}
-
-pub fn unpack_singleton<V: Value>(s: &UVSet<V::U>) -> Option<V> {
-    if s.len() == 1 {
-        Some(to_value::<V>(s.iter().next().unwrap()))
-    } else {
-        None
-    }
-}
-
-pub fn unpack_first<V: Value>(s: &UVSet<V::U>) -> Option<V> {
-    s.iter().next().map(|uv| to_value::<V>(uv))
-}
-
-pub fn unpack_last<V: Value>(s: &UVSet<V::U>) -> Option<V> {
-    s.iter().last().map(|uv| to_value::<V>(uv))
-}
-
-impl <U: UInt> UVSet<U> {
-    pub fn insert(&mut self, value: UVal<U, UVWrapped>) {
-        self.s.insert(value.unwrap().value().as_usize());
-    }
-
-    pub fn remove(&mut self, value: UVal<U, UVWrapped>) {
-        self.s.remove(value.unwrap().value().as_usize());
-    }
-
-    pub fn contains(&self, value: UVal<U, UVWrapped>) -> bool {
-        self.s.contains(value.unwrap().value().as_usize())
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.s.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.s.len()
-    }
-
-    pub fn clear(&mut self) {
-        self.s.clear();
-    }
-
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = UVal<U, UVWrapped>> + 'a {
-        self.s.iter().map(|i| UVal::new(U::from_usize(i)))
-    }
-
-    pub fn intersect_with(&mut self, other: &UVSet<U>) {
-        self.s.intersect_with(&other.s);
-    }
-
-    pub fn intersection(&self, other: &UVSet<U>) -> UVSet<U> {
-        let mut i = self.clone();
-        i.s.intersect_with(&other.s);
-        i
-    }
-
-    pub fn union(&self, other: &UVSet<U>) -> UVSet<U> {
-        let mut u = self.clone();
-        u.s.union_with(&other.s);
-        u
-    }
-
 }
 
 struct ConstStringRegistry {
@@ -689,14 +763,14 @@ impl <V: Value> BranchPoint<V> {
     }
 }
 
-/// This is a grid of UVSets and FeatureVecs. It is used to represent the
+/// This is a grid of VBitSets and FeatureVecs. It is used to represent the
 /// not-yet-ruled-out values for each cell in the grid, along with features
 /// attached to each cell.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecisionGrid<V: Value> {
     rows: usize,
     cols: usize,
-    grid: Box<[(UVSet<V::U>, FeatureVec<FVMaybeNormed>)]>,
+    grid: Box<[(VBitSet<V>, FeatureVec<FVMaybeNormed>)]>,
     _marker: PhantomData<V>,
 }
 
@@ -705,7 +779,7 @@ impl<V: Value> DecisionGrid<V> {
         Self {
             rows,
             cols,
-            grid: vec![(empty_set::<V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            grid: vec![(VBitSet::<V>::empty(), FeatureVec::new()); rows * cols].into_boxed_slice(),
             _marker: PhantomData,
         }
     }
@@ -714,16 +788,16 @@ impl<V: Value> DecisionGrid<V> {
         Self {
             rows,
             cols,
-            grid: vec![(full_set::<V>(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            grid: vec![(VBitSet::<V>::full(), FeatureVec::new()); rows * cols].into_boxed_slice(),
             _marker: PhantomData,
         }
     }
 
-    pub fn get(&self, index: Index) -> &(UVSet<V::U>, FeatureVec<FVMaybeNormed>) {
+    pub fn get(&self, index: Index) -> &(VBitSet<V>, FeatureVec<FVMaybeNormed>) {
         &self.grid[index[0] * self.cols + index[1]]
     }
 
-    pub fn get_mut(&mut self, index: Index) -> &mut (UVSet<V::U>, FeatureVec<FVMaybeNormed>) {
+    pub fn get_mut(&mut self, index: Index) -> &mut (VBitSet<V>, FeatureVec<FVMaybeNormed>) {
         self.grid.get_mut(index[0] * self.cols + index[1]).unwrap()
     }
 

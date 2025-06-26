@@ -1,4 +1,4 @@
-use crate::{core::{empty_set, unpack_first, unpack_last, UVSet, Value}, sudoku::StdVal};
+use crate::{core::{VBitSet, VSet}, sudoku::StdVal};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Range<const MIN: u8, const MAX: u8> {
@@ -7,9 +7,9 @@ pub enum Range<const MIN: u8, const MAX: u8> {
 }
 
 impl <const MIN: u8, const MAX: u8> Range<MIN, MAX> {
-    pub fn from_set(set: &UVSet<u8>) -> Range<MIN, MAX> {
-        if let Some(min) = unpack_first::<StdVal<MIN, MAX>>(set) {
-            let max = unpack_last::<StdVal<MIN, MAX>>(set).unwrap();
+    pub fn from_set<VS: VSet<StdVal<MIN, MAX>>>(set: &VS) -> Range<MIN, MAX> {
+        if let Some(min) = set.first() {
+            let max = set.last().unwrap();
             Range::HalfOpen(min.val(), max.val()+1)
         } else {
             Range::Empty
@@ -60,13 +60,13 @@ impl <const MIN: u8, const MAX: u8> Range<MIN, MAX> {
 
     pub fn is_empty(&self) -> bool { if let Range::Empty = self { true } else { false } }
 
-    pub fn to_set(&self) -> UVSet<u8> {
-        let mut s = empty_set::<StdVal<MIN, MAX>>();
+    pub fn to_set(&self) -> VBitSet<StdVal<MIN, MAX>> {
+        let mut s = VBitSet::<StdVal<MIN, MAX>>::empty();
         match self {
             Range::Empty => {},
             Range::HalfOpen(min, max) => {
                 for v in *min..*max {
-                    s.insert(StdVal::<MIN, MAX>::new(v).to_uval());
+                    s.insert(&StdVal::<MIN, MAX>::new(v));
                 }
             }
         }
@@ -76,7 +76,7 @@ impl <const MIN: u8, const MAX: u8> Range<MIN, MAX> {
 
 #[cfg(test)]
 mod test {
-    use crate::{core::pack_values, sudoku::{unpack_stdval_vals, NineStdVal}};
+    use crate::sudoku::{unpack_stdval_vals, NineStdVal};
     use super::*;
 
     type NineRange = Range<1, 9>;
@@ -85,17 +85,17 @@ mod test {
     fn test_range() {
         assert!(NineRange::Empty.is_empty());
         assert!(!NineRange::HalfOpen(1, 5).is_empty());
-        assert_eq!(unpack_stdval_vals::<1, 9>(&NineRange::Empty.to_set()), Vec::<u8>::new());
+        assert_eq!(unpack_stdval_vals::<1, 9, _>(&NineRange::Empty.to_set()), Vec::<u8>::new());
         assert_eq!(
-            unpack_stdval_vals::<1, 9>(&NineRange::HalfOpen(2, 5).to_set()),
+            unpack_stdval_vals::<1, 9, _>(&NineRange::HalfOpen(2, 5).to_set()),
             vec![2, 3, 4],
         );
         assert_eq!(
-            NineRange::from_set(&empty_set::<NineStdVal>()),
+            NineRange::from_set(&VBitSet::<NineStdVal>::empty()),
             NineRange::Empty,
         );
         assert_eq!(
-            NineRange::from_set(&pack_values::<NineStdVal>(&vec![
+            NineRange::from_set(&VBitSet::<NineStdVal>::from_values(&vec![
                 NineStdVal::new(4), NineStdVal::new(5), NineStdVal::new(2),
             ])),
             NineRange::HalfOpen(2, 6),

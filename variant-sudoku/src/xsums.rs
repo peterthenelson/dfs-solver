@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::core::{empty_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, State, Stateful, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, State, Stateful, VBitSet, VSetMut, WithId};
 use crate::constraint::Constraint;
 use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdVal};
 
@@ -473,8 +473,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for XSumChecker<MIN, MAX, N, M> {
                 }
                 // We can constrain the empty digits based on the remaining target
                 if let Some((min, max)) = elem_in_sum_bound::<MIN, MAX>(r as u8, e as u8) {
-                    let mut set = empty_set::<StdVal<MIN, MAX>>();
-                    (min..=max).for_each(|v| set.insert(StdVal::<MIN, MAX>::new(v).to_uval()));
+                    let mut set = VBitSet::<StdVal<MIN, MAX>>::empty();
+                    (min..=max).for_each(|v| set.insert(&StdVal::<MIN, MAX>::new(v)));
                     let len = xsum.length(puzzle).unwrap().1;
                     for i2 in xsum.xrange(len.val()) {
                         let g = &mut grid.get_mut(i2);
@@ -492,8 +492,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for XSumChecker<MIN, MAX, N, M> {
                 if let Some((min, max)) = xsum_len_bound::<MIN, MAX>(xsum.target) {
                     let g = &mut grid.get_mut(len_cell);
                     if puzzle.get(len_cell).is_none() {
-                        let mut set = empty_set::<StdVal<MIN, MAX>>();
-                        (min..=max).for_each(|v| set.insert(StdVal::<MIN, MAX>::new(v).to_uval()));
+                        let mut set = VBitSet::<StdVal<MIN, MAX>>::empty();
+                        (min..=max).for_each(|v| set.insert(&StdVal::<MIN, MAX>::new(v)));
                         g.0.intersect_with(&set);
                     }
                     g.1.add(&self.xsum_head_feature, 1.0);

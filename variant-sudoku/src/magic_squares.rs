@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{empty_set, Attribution, CertainDecision, ConstraintResult, DecisionGrid, Feature, Key, Index, State, Stateful, UVSet, Value, WithId}, sudoku::{NineStdVal, StdOverlay}};
+use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, DecisionGrid, Feature, Index, Key, State, Stateful, VBitSet, VSet, VSetMut, WithId}, sudoku::{NineStdVal, StdOverlay}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -76,8 +76,8 @@ pub const MS_SUM_INFEASIBLE_ATTRIBUTION: &str = "MAGIC_SQUARE_SUM_INFEASIBLE";
 
 pub struct MagicSquareChecker {
     squares: Vec<MagicSquare>,
-    evens: UVSet<u8>,
-    odds: UVSet<u8>,
+    evens: VBitSet<NineStdVal>,
+    odds: VBitSet<NineStdVal>,
     ms_feature: Key<Feature, WithId>,
     ms_mid_attr: Key<Attribution, WithId>,
     ms_mid_5_attr: Key<Attribution, WithId>,
@@ -90,13 +90,13 @@ pub struct MagicSquareChecker {
 
 impl MagicSquareChecker {
     pub fn new(squares: Vec<MagicSquare>) -> Self {
-        let mut evens = empty_set::<NineStdVal>();
+        let mut evens = VBitSet::<NineStdVal>::empty();
         for v in [2, 4, 6, 8] {
-            evens.insert(NineStdVal::new(v).to_uval());
+            evens.insert(&NineStdVal::new(v));
         }
-        let mut odds = empty_set::<NineStdVal>();
+        let mut odds = VBitSet::<NineStdVal>::empty();
         for v in [1, 3, 7, 9] {
-            odds.insert(NineStdVal::new(v).to_uval());
+            odds.insert(&NineStdVal::new(v));
         }
         Self {
             squares,
@@ -130,7 +130,7 @@ impl MagicSquareChecker {
             if sum < 15 {
                 let i = first_empty.unwrap();
                 let rem = NineStdVal::new(15 - sum);
-                if grid.get(i).0.contains(rem.to_uval()) {
+                if grid.get(i).0.contains(&rem) {
                     Some(ConstraintResult::Certainty(
                         CertainDecision::new(i, rem),
                         self.ms_sum_exact_attr,
@@ -158,14 +158,14 @@ impl Stateful<NineStdVal> for MagicSquareChecker {}
 
 fn check_vals<const N: usize, const M: usize>(
     indices: &[Index; 4],
-    values: &UVSet<u8>,
+    values: &VBitSet<NineStdVal>,
     puzzle: &State<NineStdVal, StdOverlay<N, M>>,
     grid: &mut DecisionGrid<NineStdVal>,
     attribution: Key<Attribution, WithId>,
 ) -> Option<ConstraintResult<NineStdVal>> {
     for i in indices {
         if let Some(v) = puzzle.get(*i) {
-            if !values.contains(v.to_uval()) {
+            if !values.contains(&v) {
                 return Some(ConstraintResult::Contradiction(attribution))
             }
         } else {

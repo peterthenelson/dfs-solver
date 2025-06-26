@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::core::{empty_map, empty_set, readable_key, unpack_values, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RegionLayer, State, UVMap, UVSet, Value, WithId};
+use crate::core::{empty_map, readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RegionLayer, State, UVMap, VBitSet, VSet, Value, WithId};
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
@@ -38,7 +38,7 @@ pub trait Ranker<V: Value, O: Overlay> {
 
 pub struct RankerRegionInfo<V: Value> {
     // Values that have already been filled into the puzzle.
-    pub filled: UVSet<V::U>,
+    pub filled: VBitSet<V>,
     // Cells that a given value can go into.
     pub cell_choices: UVMap<V::U, Vec<Index>>,
     // Feature vectors for a given value.
@@ -80,7 +80,7 @@ pub struct StdRanker {
 impl <V: Value> RankerRegionInfo<V> {
     pub fn new() -> Self {
         Self {
-            filled: empty_set::<V>(),
+            filled: VBitSet::<V>::empty(),
             cell_choices: empty_map::<V, Vec<Index>>(),
             feature_vecs: empty_map::<V, FeatureVec<FVMaybeNormed>>(),
             p_v_: PhantomData,
@@ -189,7 +189,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
                 if let Some(mut info) = self.region_info(grid, puzzle, layer, p) {
                     for v in V::possibilities() {
                         let uv = v.to_uval();
-                        if info.filled.contains(uv) {
+                        if info.filled.contains(&v) {
                             continue;
                         }
                         let score = <Self as Ranker<V, O>>::val_score(
@@ -206,7 +206,10 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         }
         match top_choice {
             Some(SRChoice::Cell(index)) => {
-                BranchPoint::for_cell(step, self.top_cell_attr, index, unpack_values::<V>(&grid.get(index).0))
+                BranchPoint::for_cell(
+                    step, self.top_cell_attr, index,
+                    grid.get(index).0.iter().collect::<Vec<_>>(),
+                )
             },
             Some(SRChoice::ValueInRegion(val, alternatives)) => {
                 BranchPoint::for_value(step, self.top_val_attr, val, alternatives)
@@ -230,8 +233,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
                     let cell = &grid.get([r, c]).0;
                     if cell.len() == 0 {
                         return ConstraintResult::Contradiction(self.no_vals_attr)
-                    } else if cell.len() == 1 {
-                        let v = unpack_values::<V>(cell)[0];
+                    } else if let Some(v) = cell.as_singleton() {
                         return ConstraintResult::Certainty(
                             CertainDecision::new([r, c], v),
                             self.one_val_attr,
@@ -246,7 +248,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
                 if let Some(info) = self.region_info(grid, puzzle, layer, p) {
                     for v in V::possibilities() {
                         let uv = v.to_uval();
-                        if info.filled.contains(uv) {
+                        if info.filled.contains(&v) {
                             continue;
                         }
                         let choices = info.cell_choices.get(uv);
@@ -275,21 +277,21 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         for index in puzzle.overlay().region_iter(layer, p) {
             if let Some(val) = puzzle.get(index) {
                 let uv = val.to_uval();
-                info.filled.insert(uv);
+                info.filled.insert(&val);
                 let cc = info.cell_choices.get_mut(uv);
                 cc.clear();
                 cc.push(index);
                 continue;
             }
             let g = grid.get(index);
-            for uv in g.0.iter() {
-                info.cell_choices.get_mut(uv).push(index);
-                info.feature_vecs.get_mut(uv).extend(&g.1);
+            for v in g.0.iter() {
+                info.cell_choices.get_mut(v.to_uval()).push(index);
+                info.feature_vecs.get_mut(v.to_uval()).extend(&g.1);
             }
         }
         for v in V::possibilities() {
             let uv = v.to_uval();
-            if info.filled.contains(uv) {
+            if info.filled.contains(&v) {
                 continue;
             }
             // TODO: Should we normalize the other feature values by

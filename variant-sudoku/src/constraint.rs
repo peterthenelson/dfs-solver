@@ -216,7 +216,7 @@ mod test {
     use super::*;
     use super::test_util::*;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{singleton_set, unpack_values, DecisionGrid, Key, Stateful, Value};
+    use crate::core::{DecisionGrid, Key, Stateful, VBitSet, VSet, VSetMut};
 
     type ThreeVals = State<TestVal, OneDimOverlay<3>>;
 
@@ -229,7 +229,7 @@ mod test {
                 if puzzle.get([0, j]) == Some(TestVal(self.0)) {
                     return ConstraintResult::Contradiction(Key::new("BLACKLISTED").unwrap());
                 } else {
-                    grid.get_mut([0, j]).0.remove(TestVal(self.0).to_uval());
+                    grid.get_mut([0, j]).0.remove(&TestVal(self.0));
                 }
             }
             ConstraintResult::Ok
@@ -247,12 +247,12 @@ mod test {
                     if v.0 % self.0 != self.1 {
                         return ConstraintResult::Contradiction(Key::new("WRONG_MOD").unwrap());
                     }
-                    grid.get_mut([0, j]).0 = singleton_set(v);
+                    grid.get_mut([0, j]).0 = VBitSet::<TestVal>::singleton(&v);
                 } else {
                     let s = &mut grid.get_mut([0, j]).0;
                     for v in 1..=9 {
                         if v % self.0 != self.1 {
-                            s.remove(TestVal(v).to_uval());
+                            s.remove(&TestVal(v));
                         }
                     }
                 }
@@ -297,7 +297,7 @@ mod test {
     }
 
     fn unpack_set(g: &DecisionGrid<TestVal>, index: Index) -> Vec<u8> {
-        unpack_values::<TestVal>(&g.get(index).0).iter().map(|v| v.0).collect::<Vec<u8>>()
+        g.get(index).0.iter().map(|v| v.0).collect::<Vec<u8>>()
     }
 
     #[test]

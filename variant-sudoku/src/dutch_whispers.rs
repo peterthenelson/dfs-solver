@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{full_set, singleton_set, unpack_singleton, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut, WithId};
 use crate::index_util::{check_adjacent, expand_polyline};
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
@@ -71,8 +71,8 @@ pub const DW_TOO_CLOSE_ATTRIBUTION: &str = "DW_TOO_CLOSE";
 
 pub struct DutchWhisperChecker {
     whispers: Vec<DutchWhisper>,
-    remaining_init: HashMap<Index, UVSet<u8>>,
-    remaining: HashMap<Index, UVSet<u8>>,
+    remaining_init: HashMap<Index, VBitSet<NineStdVal>>,
+    remaining: HashMap<Index, VBitSet<NineStdVal>>,
     dw_feature: Key<Feature, WithId>,
     dw_too_close_attr: Key<Attribution, WithId>,
     illegal: Option<(Index, NineStdVal, Key<Attribution, WithId>)>,
@@ -84,7 +84,7 @@ impl DutchWhisperChecker {
         for w in &whispers {
             for (cell, h2mvn) in &w.cells {
                 remaining.entry(*cell).or_insert_with(|| {
-                    whisper_possible_values::<1, 9>().get(4, *h2mvn).clone()
+                    whisper_possible_values::<1, 9>().get(4, *h2mvn).to_vbitset()
                 });
             }
         }
@@ -109,7 +109,7 @@ impl Debug for DutchWhisperChecker {
             for (cell, _) in &w.cells {
                 let rem = self.remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                write!(f, "{:?}=>{:?} ", cell, unpack_stdval_vals::<1, 9>(rem))?;
+                write!(f, "{:?}=>{:?} ", cell, unpack_stdval_vals::<1, 9, _>(rem))?;
             }
             write!(f, "\n")?;
         }
@@ -117,20 +117,20 @@ impl Debug for DutchWhisperChecker {
     }
 }
 
-fn recompute(remaining: &mut HashMap<Index, UVSet<u8>>, remaining_init: &HashMap<Index, UVSet<u8>>, w: &DutchWhisper, i: usize) {
+fn recompute(remaining: &mut HashMap<Index, VBitSet<NineStdVal>>, remaining_init: &HashMap<Index, VBitSet<NineStdVal>>, w: &DutchWhisper, i: usize) {
     let mut rem = remaining_init.get(&w.cells[i].0).unwrap().clone();
     if i > 0 {
         let prev = w.cells[i - 1].0;
         let prev_rem = remaining.get(&prev).unwrap().clone();
-        if let Some(v) = unpack_singleton::<NineStdVal>(&prev_rem) {
-            rem.intersect_with(whisper_neighbors::<1, 9>().get(4, v));
+        if let Some(v) = prev_rem.as_singleton() {
+            rem.intersect_with(&whisper_neighbors::<1, 9>().get(4, v));
         }
     }
     if i < w.cells.len() - 1 {
         let next = w.cells[i + 1].0;
         let next_rem = remaining.get(&next).unwrap().clone();
-        if let Some(v) = unpack_singleton::<NineStdVal>(&next_rem) {
-            rem.intersect_with(whisper_neighbors::<1, 9>().get(4, v));
+        if let Some(v) = next_rem.as_singleton() {
+            rem.intersect_with(&whisper_neighbors::<1, 9>().get(4, v));
         }
     }
     *remaining.get_mut(&w.cells[i].0).unwrap() = rem;
@@ -159,19 +159,19 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
                 let mut wn = whisper_neighbors::<1, 9>();
                 let neighbors = wn.get(4, value);
                 let cur = self.remaining.get_mut(&index).unwrap();
-                if cur.contains(value.to_uval()) {
-                    *cur = singleton_set::<NineStdVal>(value);
+                if cur.contains(&value) {
+                    *cur = VBitSet::<NineStdVal>::singleton(&value);
                 } else {
                     self.illegal = Some((index, value, self.dw_too_close_attr));
                     return Ok(());
                 }
                 if i > 0 {
                     let prev = w.cells[i - 1].0;
-                    self.remaining.get_mut(&prev).unwrap().intersect_with(neighbors);
+                    self.remaining.get_mut(&prev).unwrap().intersect_with(&neighbors);
                 }
                 if i < w.cells.len() - 1 {
                     let next = w.cells[i + 1].0;
-                    self.remaining.get_mut(&next).unwrap().intersect_with(neighbors);
+                    self.remaining.get_mut(&next).unwrap().intersect_with(&neighbors);
                 }
             }
         }
@@ -214,7 +214,7 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                     continue;
                 }
                 let g = grid.get_mut(*cell);
-                g.0.intersect_with(&self.remaining.get(cell).unwrap());
+                g.0.intersect_with(self.remaining.get(cell).unwrap());
                 g.1.add(&self.dw_feature, 1.0);
             }
         }
@@ -231,7 +231,7 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                     }
                     prev_set
                 } else {
-                    full_set::<NineStdVal>()
+                    VBitSet::<NineStdVal>::full()
                 };
                 let right = if i < w.cells.len() - 1 {
                     let next = w.cells[i + 1].0;
@@ -241,10 +241,10 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                     }
                     next_set
                 } else {
-                    full_set::<NineStdVal>()
+                    VBitSet::<NineStdVal>::full()
                 };
                 grid.get_mut(*cell).0.intersect_with(
-                    &whisper_between::<1, 9>(4, &left, &right),
+                    &whisper_between::<1, 9, _>(4, &left, &right),
                 );
             }
         }
@@ -265,7 +265,7 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                 }
                 let rem = self.remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                lines.push(format!("  - remaining vals: {:?}", unpack_stdval_vals::<1, 9>(rem)));
+                lines.push(format!("  - remaining vals: {:?}", unpack_stdval_vals::<1, 9, _>(rem)));
             }
         }
         if lines.is_empty() {

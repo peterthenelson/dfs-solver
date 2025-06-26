@@ -1,17 +1,19 @@
 use std::{collections::HashMap, sync::{LazyLock, Mutex}};
-use crate::{core::{empty_set, filled_map, UVMap, UVSet, Value}, memo::{FnToCalc, MemoLock}, sudoku::StdVal};
+use crate::{core::{empty_map, filled_map, UVMap, VBitSet, VBitSetRefConst, VSet, Value}, memo::{FnToCalc, MemoLock}, sudoku::StdVal};
 
 /// Tables of useful sets for whisper-style constraints.
-static WHISPER_NEIGHBORS: LazyLock<Mutex<HashMap<(u8, u8, u8), UVMap<u8, UVSet<u8>>>>> = LazyLock::new(|| {
+static WHISPER_NEIGHBORS: LazyLock<Mutex<HashMap<(u8, u8, u8), UVMap<u8, bit_set::BitSet>>>> = LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
-static WHISPER_POSSIBLE_VALS: LazyLock<Mutex<HashMap<(u8, u8, u8, bool), UVSet<u8>>>> = LazyLock::new(|| {
+static WHISPER_POSSIBLE_VALS: LazyLock<Mutex<HashMap<(u8, u8, u8, bool), bit_set::BitSet>>> = LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
 
-fn whisper_neighbors_raw<const MIN: u8, const MAX: u8>(args: &(u8,)) -> UVMap<u8, UVSet<u8>> {
+fn whisper_neighbors_raw<const MIN: u8, const MAX: u8>(args: &(u8,)) -> UVMap<u8, bit_set::BitSet> {
     let dist = args.0;
-    let mut neighbors = filled_map::<StdVal<MIN, MAX>, UVSet<u8>>(empty_set::<StdVal<MIN, MAX>>());
+    let mut neighbors = filled_map::<StdVal<MIN, MAX>, VBitSet<StdVal<MIN, MAX>>>(
+        VBitSet::<StdVal<MIN, MAX>>::empty()
+    );
     for v1 in StdVal::<MIN, MAX>::possibilities() {
         for v2 in StdVal::<MIN, MAX>::possibilities() {
             if v1 == v2 {
@@ -19,17 +21,21 @@ fn whisper_neighbors_raw<const MIN: u8, const MAX: u8>(args: &(u8,)) -> UVMap<u8
             }
             let d = v1.val().abs_diff(v2.val());
             if d >= dist {
-                neighbors.get_mut(v1.to_uval()).insert(v2.to_uval());
+                neighbors.get_mut(v1.to_uval()).insert(&v2);
             }
         }
     }
-    neighbors
+    let mut erased = empty_map::<StdVal<MIN, MAX>, bit_set::BitSet>();
+    for (k, v) in neighbors.iter::<StdVal<MIN, MAX>>() {
+        *erased.get_mut(k.to_uval()) = v.into_erased();
+    }
+    erased
 }
 
-pub struct WhisperNeighbors<const MIN: u8, const MAX: u8>(MemoLock<(u8,), (u8, u8, u8), UVMap<u8, UVSet<u8>>, FnToCalc<(u8,), (u8, u8, u8), UVMap<u8, UVSet<u8>>>>);
+pub struct WhisperNeighbors<const MIN: u8, const MAX: u8>(MemoLock<(u8,), (u8, u8, u8), UVMap<u8, bit_set::BitSet>, FnToCalc<(u8,), (u8, u8, u8), UVMap<u8, bit_set::BitSet>>>);
 impl <const MIN: u8, const MAX: u8> WhisperNeighbors<MIN, MAX> {
-    pub fn get(&mut self, dist: u8, val: StdVal<MIN, MAX>) -> &UVSet<u8> {
-        self.0.get(&(dist,)).get(val.to_uval())
+    pub fn get(&mut self, dist: u8, val: StdVal<MIN, MAX>) -> VBitSetRefConst<StdVal<MIN, MAX>> {
+        VBitSetRefConst::<StdVal<MIN, MAX>>::assume_typed(self.0.get(&(dist,)).get(val.to_uval()))
     }
 }
 
@@ -42,24 +48,26 @@ pub fn whisper_neighbors<const MIN: u8, const MAX: u8>() -> WhisperNeighbors<MIN
     WhisperNeighbors(MemoLock::new(guard, calc))
 }
 
-fn whisper_possible_vals_raw<const MIN: u8, const MAX: u8>(args: &(u8, bool)) -> UVSet<u8> {
+fn whisper_possible_vals_raw<const MIN: u8, const MAX: u8>(args: &(u8, bool)) -> bit_set::BitSet {
     let dist = args.0;
     let has_two_mutually_visible_neighbors = args.1;
-    let mut possible_vals = empty_set::<StdVal<MIN, MAX>>();
+    let mut possible_vals = VBitSet::<StdVal<MIN, MAX>>::empty();
     for v in StdVal::<MIN, MAX>::possibilities() {
         let mut wn = whisper_neighbors::<MIN, MAX>();
         let neighbors = wn.get(dist, v);
         if neighbors.len() >= 2 || (!neighbors.is_empty() && !has_two_mutually_visible_neighbors) {
-            possible_vals.insert(v.to_uval());
+            possible_vals.insert(&v);
         }
     }
-    possible_vals
+    possible_vals.into_erased()
 }
 
-pub struct WhisperPossibleValues<const MIN: u8, const MAX: u8>(MemoLock<(u8, bool), (u8, u8, u8, bool), UVSet<u8>, FnToCalc<(u8, bool), (u8, u8, u8, bool), UVSet<u8>>>);
+pub struct WhisperPossibleValues<const MIN: u8, const MAX: u8>(MemoLock<(u8, bool), (u8, u8, u8, bool), bit_set::BitSet, FnToCalc<(u8, bool), (u8, u8, u8, bool), bit_set::BitSet>>);
 impl <const MIN: u8, const MAX: u8> WhisperPossibleValues<MIN, MAX> {
-    pub fn get(&mut self, dist: u8, has_two_mutually_visible_neighbors: bool) -> &UVSet<u8> {
-        self.0.get(&(dist, has_two_mutually_visible_neighbors))
+    pub fn get(&mut self, dist: u8, has_two_mutually_visible_neighbors: bool) -> VBitSetRefConst<StdVal<MIN, MAX>> {
+        VBitSetRefConst::<StdVal<MIN, MAX>>::assume_typed(
+            self.0.get(&(dist, has_two_mutually_visible_neighbors)),
+        )
     }
 }
 
@@ -72,15 +80,15 @@ pub fn whisper_possible_values<const MIN: u8, const MAX: u8>() -> WhisperPossibl
     WhisperPossibleValues(MemoLock::new(guard, calc))
 }
 
-pub fn whisper_between<const MIN: u8, const MAX: u8>(dist: u8, left: &UVSet<u8>, right: &UVSet<u8>) -> UVSet<u8> {
-    let mut result = empty_set::<StdVal<MIN, MAX>>();
+pub fn whisper_between<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>>(dist: u8, left: &VS, right: &VS) -> VBitSet<StdVal<MIN, MAX>> {
+    let mut result = VBitSet::<StdVal<MIN, MAX>>::empty();
     let mut wn = whisper_neighbors::<MIN, MAX>();
     for v in StdVal::<MIN, MAX>::possibilities() {
         let neighbors = wn.get(dist, v);
-        let ln = left.intersection(neighbors);
-        let rn = right.intersection(neighbors);
+        let ln = left.intersection(&neighbors);
+        let rn = right.intersection(&neighbors);
         if !ln.is_empty() && !rn.is_empty() {
-            result.insert(v.to_uval());
+            result.insert(&v);
         }
     }
     result
@@ -99,7 +107,7 @@ mod test {
     ) {
         let sval = StdVal::<MIN, MAX>::new(val);
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(whisper_neighbors().get(DIST, sval)),
+            unpack_stdval_vals::<MIN, MAX, _>(&whisper_neighbors().get(DIST, sval)),
             neighbors,
             "Neighbors for {} with distance {} should be {:?}",
             val, DIST, neighbors
@@ -143,7 +151,7 @@ mod test {
         has_two_mutually_visible_neighbors: bool, vals: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(whisper_possible_values::<MIN, MAX>().get(DIST, has_two_mutually_visible_neighbors)),
+            unpack_stdval_vals::<MIN, MAX, _>(&whisper_possible_values::<MIN, MAX>().get(DIST, has_two_mutually_visible_neighbors)),
             vals,
             "Possible vals for distance {} (has_two_mutually_visible_neighbors={}) should be {:?}",
             DIST, has_two_mutually_visible_neighbors, vals
@@ -177,17 +185,17 @@ mod test {
     fn assert_between<const MIN: u8, const MAX: u8, const DIST: u8>(
         left: Vec<u8>, right: Vec<u8>, expected: Vec<u8>,
     ) {
-        let mut left_set = empty_set::<StdVal<MIN, MAX>>();
+        let mut left_set = VBitSet::<StdVal<MIN, MAX>>::empty();
         for v in &left {
-            left_set.insert(StdVal::<MIN, MAX>::new(*v).to_uval());
+            left_set.insert(&StdVal::<MIN, MAX>::new(*v));
         }
-        let mut right_set = empty_set::<StdVal<MIN, MAX>>();
+        let mut right_set = VBitSet::<StdVal<MIN, MAX>>::empty();
         for v in &right {
-            right_set.insert(StdVal::<MIN, MAX>::new(*v).to_uval());
+            right_set.insert(&StdVal::<MIN, MAX>::new(*v));
         }
-        let result = whisper_between::<MIN, MAX>(DIST, &left_set, &right_set);
+        let result = whisper_between::<MIN, MAX, _>(DIST, &left_set, &right_set);
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(&result),
+            unpack_stdval_vals::<MIN, MAX, _>(&result),
             expected,
             "Values that fit between {:?} and {:?} with distance {} should be {:?}",
             left, right, DIST, expected

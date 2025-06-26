@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{singleton_set, Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, Value, WithId};
+use crate::core::{Attribution, BranchPoint, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, State, Stateful, VBitSet, Value, WithId};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -200,7 +200,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
         for r in 0..n {
             for c in 0..m {
                 if let Some(v) = self.puzzle.get([r, c]) {
-                    grid.get_mut([r, c]).0 = singleton_set::<V>(v);
+                    grid.get_mut([r, c]).0 = VBitSet::<V>::singleton(&v);
                 }
             }
         }
@@ -662,7 +662,7 @@ pub mod test_util {
 mod test {
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{Stateful, Value};
+    use crate::core::{Stateful, VSetMut};
     use crate::ranker::StdRanker;
     use super::*;
 
@@ -705,16 +705,16 @@ mod test {
         fn check(&self, puzzle: &GwLine, grid: &mut DecisionGrid<TestVal>) -> ConstraintResult<TestVal> {
             for i in 0..8 {
                 if let Some(v) = puzzle.get([0, i]) {
-                    (0..8).for_each(|j| { grid.get_mut([0, j]).0.remove(v.to_uval()) });
+                    (0..8).for_each(|j| { grid.get_mut([0, j]).0.remove(&v) });
                     (1..=9).for_each(|w| {
                         if (w < v.0 && v.0-w >= 5) || (w > v.0 && w-v.0 >= 5) {
                             return;
                         }
                         if i > 0 {
-                            grid.get_mut([0, i-1]).0.remove(TestVal(w).to_uval());
+                            grid.get_mut([0, i-1]).0.remove(&TestVal(w));
                         }
                         if i < 7 {
-                            grid.get_mut([0, i+1]).0.remove(TestVal(w).to_uval());
+                            grid.get_mut([0, i+1]).0.remove(&TestVal(w));
                         }
                     });
                 }

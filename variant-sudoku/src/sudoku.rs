@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{full_set, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RegionLayer, State, Stateful, VGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VGrid, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -61,8 +61,8 @@ impl <const MIN: u8, const MAX: u8> Value for StdVal<MIN, MAX> {
     }
 }
 
-pub fn unpack_stdval_vals<const MIN: u8, const MAX: u8>(s: &UVSet<u8>) -> Vec<u8> {
-    unpack_values::<StdVal<MIN, MAX>>(&s).iter().map(|v| v.val()).collect::<Vec<u8>>()
+pub fn unpack_stdval_vals<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>>(s: &VS) -> Vec<u8> {
+    s.iter().map(|v| v.val()).collect::<Vec<u8>>()
 }
 
 /// Tables of useful sums in Sudoku.
@@ -478,9 +478,9 @@ pub const BOX_CONFLICT_ATTRIBUTION: &str = "BOX_CONFLICT";
 
 pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: u8> {
     overlay: StdOverlay<N, M>,
-    row: [UVSet<u8>; N],
-    col: [UVSet<u8>; M],
-    boxes: Box<[UVSet<u8>]>,
+    row: [VBitSet<StdVal<MIN, MAX>>; N],
+    col: [VBitSet<StdVal<MIN, MAX>>; M],
+    boxes: Box<[VBitSet<StdVal<MIN, MAX>>]>,
     row_attr: Key<Attribution, WithId>,
     col_attr: Key<Attribution, WithId>,
     box_attr: Key<Attribution, WithId>,
@@ -491,9 +491,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N
     pub fn new(state: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>) -> Self {
         return Self {
             overlay: state.overlay().clone(),
-            row: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
-            col: std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>()),
-            boxes: vec![full_set::<StdVal<MIN, MAX>>(); state.overlay().boxes()].into_boxed_slice(),
+            row: std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full()),
+            col: std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full()),
+            boxes: vec![VBitSet::<StdVal<MIN, MAX>>::full(); state.overlay().boxes()].into_boxed_slice(),
             row_attr: Key::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
             col_attr: Key::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
             box_attr: Key::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
@@ -510,17 +510,17 @@ Debug for StdChecker<N, M, MIN, MAX> {
         }
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
-            let vals = unpack_stdval_vals::<MIN, MAX>(&self.row[r]);
+            let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.row[r]);
             write!(f, " {}: {:?}\n", r, vals)?;
         }
         write!(f, "Unused vals by col:\n")?;
         for c in 0..M {
-            let vals = unpack_stdval_vals::<MIN, MAX>(&self.col[c]);
+            let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.col[c]);
             write!(f, " {}: {:?}\n", c, vals)?;
         }
         write!(f, "Unused vals by box:\n")?;
         for b in 0..self.overlay.boxes() {
-            let vals = unpack_stdval_vals::<MIN, MAX>(&self.boxes[b]);
+            let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.boxes[b]);
             write!(f, " {}: {:?}\n", b, vals)?;
         }
         Ok(())
@@ -530,33 +530,32 @@ Debug for StdChecker<N, M, MIN, MAX> {
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
     fn reset(&mut self) {
-        self.row = std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>());
-        self.col = std::array::from_fn(|_| full_set::<StdVal<MIN, MAX>>());
-        self.boxes = vec![full_set::<StdVal<MIN, MAX>>(); self.overlay.boxes()].into_boxed_slice();
+        self.row = std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full());
+        self.col = std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full());
+        self.boxes = vec![VBitSet::<StdVal<MIN, MAX>>::full(); self.overlay.boxes()].into_boxed_slice();
         self.illegal = None;
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        let uv = value.to_uval();
         // In theory we could be allow multiple illegal moves and just
         // invalidate and recalculate the grid or something, but it seems hard.
         if self.illegal.is_some() {
             return Err(ILLEGAL_ACTION_RC);
         }
         let (b, _) = self.overlay.to_box_coords(index);
-        if !self.row[index[0]].contains(uv) {
+        if !self.row[index[0]].contains(&value) {
             self.illegal = Some((index, value, self.row_attr));
             return Ok(());
-        } else if !self.col[index[1]].contains(uv) {
+        } else if !self.col[index[1]].contains(&value) {
             self.illegal = Some((index, value, self.col_attr));
             return Ok(());
-        } else if !self.boxes[b].contains(uv){
+        } else if !self.boxes[b].contains(&value){
             self.illegal = Some((index, value, self.box_attr));
             return Ok(());
         }
-        self.row[index[0]].remove(uv);
-        self.col[index[1]].remove(uv);
-        self.boxes[b].remove(uv);
+        self.row[index[0]].remove(&value);
+        self.col[index[1]].remove(&value);
+        self.boxes[b].remove(&value);
         Ok(())
     }
 
@@ -569,11 +568,10 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
                 return Ok(());
             }
         }
-        let uv = value.to_uval();
         let (b, _) = self.overlay.to_box_coords(index);
-        self.row[index[0]].insert(uv);
-        self.col[index[1]].insert(uv);
-        self.boxes[b].insert(uv);
+        self.row[index[0]].insert(&value);
+        self.col[index[1]].insert(&value);
+        self.boxes[b].insert(&value);
         Ok(())
     }
 }
@@ -611,9 +609,9 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
         Some(format!(
             "{}  Unused vals in this row: {:?}\n  Unused vals in this col: {:?}\n  Unused vals in this box: {:?}",
             header,
-            unpack_stdval_vals::<MIN, MAX>(&self.row[r]),
-            unpack_stdval_vals::<MIN, MAX>(&self.col[c]),
-            unpack_stdval_vals::<MIN, MAX>(&self.boxes[b]),
+            unpack_stdval_vals::<MIN, MAX, _>(&self.row[r]),
+            unpack_stdval_vals::<MIN, MAX, _>(&self.col[c]),
+            unpack_stdval_vals::<MIN, MAX, _>(&self.boxes[b]),
         ))
     }
 }
@@ -621,7 +619,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{core::{empty_set, test_util::replay_givens}, ranker::StdRanker, solver::FindFirstSolution};
+    use crate::{core::test_util::replay_givens, ranker::StdRanker, solver::FindFirstSolution};
     use crate::core::test_util::round_trip_value;
     use crate::constraint::test_util::assert_contradiction;
 
@@ -664,18 +662,18 @@ mod test {
 
     #[test]
     fn test_stdval_set() {
-        let mut mostly_empty = empty_set::<StdVal<3, 9>>();
-        assert_eq!(unpack_stdval_vals::<3, 9>(&mostly_empty), Vec::<u8>::new());
-        mostly_empty.insert(StdVal::<3, 9>::new(4).to_uval());
-        assert_eq!(unpack_stdval_vals::<3, 9>(&mostly_empty), vec![4]);
-        let mut mostly_full = full_set::<StdVal<3, 9>>();
+        let mut mostly_empty = VBitSet::<StdVal<3, 9>>::empty();
+        assert_eq!(unpack_stdval_vals::<3, 9, _>(&mostly_empty), Vec::<u8>::new());
+        mostly_empty.insert(&StdVal::<3, 9>::new(4));
+        assert_eq!(unpack_stdval_vals::<3, 9, _>(&mostly_empty), vec![4]);
+        let mut mostly_full = VBitSet::<StdVal<3, 9>>::full();
         assert_eq!(
-            unpack_stdval_vals::<3, 9>(&mostly_full),
+            unpack_stdval_vals::<3, 9, _>(&mostly_full),
             vec![3, 4, 5, 6, 7, 8, 9],
         );
-        mostly_full.remove(StdVal::<3, 9>::new(4).to_uval());
+        mostly_full.remove(&StdVal::<3, 9>::new(4));
         assert_eq!(
-            unpack_stdval_vals::<3, 9>(&mostly_full),
+            unpack_stdval_vals::<3, 9, _>(&mostly_full),
             vec![3, 5, 6, 7, 8, 9],
         );
     }

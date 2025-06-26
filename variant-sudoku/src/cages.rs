@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{full_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Key, Index, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut, WithId};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
@@ -99,7 +99,7 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     cages: Vec<Cage>,
     remaining: Vec<Option<u8>>,
     empty: Vec<usize>,
-    cage_sets: Vec<UVSet<u8>>,
+    cage_sets: Vec<VBitSet<StdVal<MIN, MAX>>>,
     cage_feature: Key<Feature, WithId>,
     cage_dupe_attr: Key<Attribution, WithId>,
     cage_over_attr: Key<Attribution, WithId>,
@@ -121,7 +121,7 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         }
         let remaining = cages.iter().map(|c| c.target).collect();
         let empty = cages.iter().map(|c| c.cells.len()).collect();
-        let cage_sets = vec![full_set::<StdVal<MIN, MAX>>(); cages.len()];
+        let cage_sets = vec![VBitSet::<StdVal<MIN, MAX>>::full(); cages.len()];
         CageChecker {
             cages, remaining, empty, cage_sets, illegal: None,
             cage_feature: Key::new(CAGE_FEATURE).unwrap(),
@@ -141,7 +141,7 @@ impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
             write!(f, " Cage{:?}\n", c.cells)?;
             write!(f, " - {:?} remaining to target; {} cells empty\n", self.remaining[i], self.empty[i])?;
             if c.exclusive {
-                let vals = unpack_stdval_vals::<MIN, MAX>(&self.cage_sets[i]);
+                let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.cage_sets[i]);
                 write!(f, " - Unused vals: {:?}\n", vals)?;
             }
         }
@@ -153,12 +153,11 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
     fn reset(&mut self) {
         self.remaining = self.cages.iter().map(|c| c.target).collect();
         self.empty = self.cages.iter().map(|c| c.cells.len()).collect();
-        self.cage_sets = vec![full_set::<StdVal<MIN, MAX>>(); self.cages.len()];
+        self.cage_sets = vec![VBitSet::<StdVal<MIN, MAX>>::full(); self.cages.len()];
         self.illegal = None;
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        let uv = value.to_uval();
         // In theory we could be allow multiple illegal moves and just
         // invalidate and recalculate the grid or something, but it seems hard.
         if self.illegal.is_some() {
@@ -172,14 +171,14 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
                 if value.val() > r {
                     self.illegal = Some((index, value, self.cage_over_attr));
                     break;
-                } else if c.exclusive && !self.cage_sets[i].contains(uv) {
+                } else if c.exclusive && !self.cage_sets[i].contains(&value) {
                     self.illegal = Some((index, value, self.cage_dupe_attr));
                     break;
                 }
             }
             self.remaining[i].as_mut().map(|i| *i -= value.val());
             self.empty[i] -= 1;
-            self.cage_sets[i].remove(uv);
+            self.cage_sets[i].remove(&value);
             break;
         }
         Ok(())
@@ -200,7 +199,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
             }
             self.remaining[i].as_mut().map(|i| *i += value.val());
             self.empty[i] += 1;
-            self.cage_sets[i].insert(value.to_uval());
+            self.cage_sets[i].insert(&value);
             break;
         }
         Ok(())
@@ -226,13 +225,13 @@ fn subset_sum(vals: &Vec<u8>, i: usize, remaining: u8, empty: usize) -> bool {
     }
 }
 
-fn cage_feasible<const MIN: u8, const MAX: u8>(set: &UVSet<u8>, remaining: u8, empty: usize) -> bool {
+fn cage_feasible<const MIN: u8, const MAX: u8>(set: &VBitSet<StdVal<MIN, MAX>>, remaining: u8, empty: usize) -> bool {
     if empty == 0 {
         return remaining == 0;
     } else if set.len() < empty {
         return false;
     }
-    let vals = unpack_stdval_vals::<MIN, MAX>(set);
+    let vals = unpack_stdval_vals::<MIN, MAX, _>(set);
     let mut min = 0;
     let mut max = 0;
     for i in 0..empty {
@@ -259,14 +258,14 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for CageChecker<MIN, MAX> {
             let mut set = if c.exclusive {
                 self.cage_sets[i].clone()
             } else {
-                full_set::<StdVal<MIN, MAX>>()
+                VBitSet::<StdVal<MIN, MAX>>::full()
             };
             if let Some(r) = self.remaining[i] {
                 if !cage_feasible::<MIN, MAX>(&set, r, self.empty[i]) {
                     return ConstraintResult::Contradiction(self.cage_if_attr);
                 }
                 for v in (r+1)..=MAX {
-                    set.remove(StdVal::<MIN, MAX>::new(v).to_uval());
+                    set.remove(&StdVal::<MIN, MAX>::new(v));
                 }
             }
             for cell in &c.cells {
@@ -298,7 +297,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for CageChecker<MIN, MAX> {
             }
             lines.push(format!("  - {} cells empty", self.empty[i]));
             if c.exclusive {
-                let vals = unpack_stdval_vals::<MIN, MAX>(&self.cage_sets[i]);
+                let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.cage_sets[i]);
                 lines.push(format!("  - Unused vals: {:?}", vals));
             }
         }

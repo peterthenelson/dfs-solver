@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{empty_set, singleton_set, Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, UVSet, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRefConst, VSet, VSetMut, Value, WithId};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::memo::{FnToCalc, MemoLock};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
@@ -79,38 +79,38 @@ impl <'a, O: Overlay> KropkiBuilder<'a, O> {
 }
 
 /// Tables of useful sets for kropki black dot constraints.
-static KB_POSSIBLE: LazyLock<Mutex<HashMap<(u8, u8), UVSet<u8>>>> = LazyLock::new(|| {
+static KB_POSSIBLE: LazyLock<Mutex<HashMap<(u8, u8), bit_set::BitSet>>> = LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
-static KB_POSSIBLE_MV: LazyLock<Mutex<HashMap<(u8, u8, usize), Vec<UVSet<u8>>>>> = LazyLock::new(|| {
+static KB_POSSIBLE_MV: LazyLock<Mutex<HashMap<(u8, u8, usize), Vec<bit_set::BitSet>>>> = LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
 
-fn kb_possible_raw<const MIN: u8, const MAX: u8>(_: &()) -> UVSet<u8> {
-    let mut set = empty_set::<StdVal<MIN, MAX>>();
+fn kb_possible_raw<const MIN: u8, const MAX: u8>(_: &()) -> bit_set::BitSet {
+    let mut set = VBitSet::<StdVal<MIN, MAX>>::empty();
     for v in StdVal::<MIN, MAX>::possibilities() {
         if v.val() % 2 == 0 {
             let half = v.val() / 2;
             if MIN <= half {
-                set.insert(v.to_uval());
+                set.insert(&v);
                 continue;
             }
         }
         if v.val() < 128 {
             let double = v.val() * 2;
             if double <= MAX {
-                set.insert(v.to_uval());
+                set.insert(&v);
                 continue;
             }
         }
     }
-    set
+    set.into_erased()
 }
 
-pub struct KBPossible<const MIN: u8, const MAX: u8>(MemoLock<(), (u8, u8), UVSet<u8>, FnToCalc<(), (u8, u8), UVSet<u8>>>);
+pub struct KBPossible<const MIN: u8, const MAX: u8>(MemoLock<(), (u8, u8), bit_set::BitSet, FnToCalc<(), (u8, u8), bit_set::BitSet>>);
 impl <const MIN: u8, const MAX: u8> KBPossible<MIN, MAX> {
-    pub fn get(&mut self) -> &UVSet<u8> {
-        self.0.get(&())
+    pub fn get(&mut self) -> VBitSetRefConst<StdVal<MIN, MAX>> {
+        VBitSetRefConst::assume_typed(self.0.get(&()))
     }
 }
 
@@ -123,9 +123,9 @@ pub fn kropki_black_possible<const MIN: u8, const MAX: u8>() -> KBPossible<MIN, 
     KBPossible(MemoLock::new(guard, calc))
 }
 
-fn kb_possible_mv_raw<const MIN: u8, const MAX: u8>(args: &(usize,)) -> Vec<UVSet<u8>> {
+fn kb_possible_mv_raw<const MIN: u8, const MAX: u8>(args: &(usize,)) -> Vec<bit_set::BitSet> {
     let n_mutually_visible = args.0;
-    let mut possible = vec![empty_set::<StdVal<MIN, MAX>>(); n_mutually_visible/2 + n_mutually_visible % 2];
+    let mut possible = vec![VBitSet::<StdVal<MIN, MAX>>::empty(); n_mutually_visible/2 + n_mutually_visible % 2];
     for v in StdVal::<MIN, MAX>::possibilities() {
         let mut chain: Vec<StdVal<MIN, MAX>> = vec![];
         let mut cur = v.val() as u16;
@@ -137,16 +137,16 @@ fn kb_possible_mv_raw<const MIN: u8, const MAX: u8>(args: &(usize,)) -> Vec<UVSe
             continue;
         }
         for i in 0..possible.len() {
-            possible[i].insert(chain[i].to_uval());
-            possible[i].insert(chain[chain.len()-1-i].to_uval());
+            possible[i].insert(&chain[i]);
+            possible[i].insert(&chain[chain.len()-1-i]);
         }
     }
-    possible
+    possible.into_iter().map(|v| v.into_erased()).collect()
 }
 
-pub struct KBPossibleChain<const MIN: u8, const MAX: u8>(MemoLock<(usize,), (u8, u8, usize), Vec<UVSet<u8>>, FnToCalc<(usize,), (u8, u8, usize), Vec<UVSet<u8>>>>);
+pub struct KBPossibleChain<const MIN: u8, const MAX: u8>(MemoLock<(usize,), (u8, u8, usize), Vec<bit_set::BitSet>, FnToCalc<(usize,), (u8, u8, usize), Vec<bit_set::BitSet>>>);
 impl <const MIN: u8, const MAX: u8> KBPossibleChain<MIN, MAX> {
-    pub fn get(&mut self, n_mutually_visible: usize, mut len_from_end: usize) -> &UVSet<u8> {
+    pub fn get(&mut self, n_mutually_visible: usize, mut len_from_end: usize) -> VBitSetRefConst<StdVal<MIN, MAX>> {
         if n_mutually_visible < 2 {
             panic!("kropki_black_possible_chain only makes sense when chain length \
                     is at least 2; got {}", n_mutually_visible);
@@ -158,7 +158,9 @@ impl <const MIN: u8, const MAX: u8> KBPossibleChain<MIN, MAX> {
             // Standardize to the smaller of two equiv values
             len_from_end = n_mutually_visible - 1 - len_from_end;
         }
-        &self.0.get(&(n_mutually_visible,))[len_from_end]
+        VBitSetRefConst::<StdVal<MIN, MAX>>::assume_typed(
+            &self.0.get(&(n_mutually_visible,))[len_from_end],
+        )
     }
 }
 
@@ -171,9 +173,9 @@ pub fn kropki_black_possible_chain<const MIN: u8, const MAX: u8>() -> KBPossible
     KBPossibleChain(MemoLock::new(guard, calc))
 }
 
-fn kropki_black_adj_ok<const MIN: u8, const MAX: u8>(a: &UVSet<u8>, b: &UVSet<u8>) -> bool {
-    for v1 in unpack_stdval_vals::<MIN, MAX>(a) {
-        for v2 in unpack_stdval_vals::<MIN, MAX>(b) {
+fn kropki_black_adj_ok<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>>(a: &VS, b: &VS) -> bool {
+    for v1 in unpack_stdval_vals::<MIN, MAX, _>(a) {
+        for v2 in unpack_stdval_vals::<MIN, MAX, _>(b) {
             if (v1 < v2 && v1 < 128 && v1*2 == v2) ||
                (v2 < v1 && v2 < 128 && v2*2 == v1) {
                 return true;
@@ -199,8 +201,10 @@ fn get_upper<const MIN: u8, const MAX: u8>(v: StdVal<MIN, MAX>) -> Option<StdVal
     }
 }
 
-fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &UVSet<u8>, mutually_visible: bool) -> UVSet<u8> {
-    let mut possible = empty_set::<StdVal<MIN, MAX>>();
+fn kropki_black_between<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>>(
+    left: &VS, right: &VS, mutually_visible: bool,
+) -> VBitSet<StdVal<MIN, MAX>> {
+    let mut possible = VBitSet::<StdVal<MIN, MAX>>::empty();
     for v in StdVal::<MIN, MAX>::possibilities() {
         let (lower, upper) = (get_lower::<MIN, MAX>(v), get_upper::<MIN, MAX>(v));
         if mutually_visible {
@@ -208,23 +212,23 @@ fn kropki_black_between<const MIN: u8, const MAX: u8>(left: &UVSet<u8>, right: &
                 continue;
             }
             let (l, u) = (lower.unwrap(), upper.unwrap());
-            if (left.contains(l.to_uval()) && right.contains(u.to_uval())) ||
-               (left.contains(u.to_uval()) && right.contains(l.to_uval())) {
-                possible.insert(v.to_uval());
+            if (left.contains(&l) && right.contains(&u)) ||
+               (left.contains(&u) && right.contains(&l)) {
+                possible.insert(&v);
             }
         } else if lower.is_some() && upper.is_some() {
             let (l, u) = (lower.unwrap(), upper.unwrap());
-            if (left.contains(l.to_uval()) || left.contains(u.to_uval())) &&
-               (right.contains(l.to_uval()) || right.contains(u.to_uval())) {
-                possible.insert(v.to_uval());
+            if (left.contains(&l) || left.contains(&u)) &&
+               (right.contains(&l) || right.contains(&u)) {
+                possible.insert(&v);
             }
         } else if let Some(l) = lower {
-            if left.contains(l.to_uval()) && right.contains(l.to_uval()) {
-                possible.insert(v.to_uval());
+            if left.contains(&l) && right.contains(&l) {
+                possible.insert(&v);
             }
         } else if let Some(u) = upper {
-            if left.contains(u.to_uval()) && right.contains(u.to_uval()) {
-                possible.insert(v.to_uval());
+            if left.contains(&u) && right.contains(&u) {
+                possible.insert(&v);
             }
         }
     }
@@ -242,7 +246,7 @@ pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 // TODO: Add support for white kropki dots
 pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
-    black_remaining: HashMap<Index, UVSet<u8>>,
+    black_remaining: HashMap<Index, VBitSet<StdVal<MIN, MAX>>>,
     kb_feature: Key<Feature, WithId>,
     kb_conflict_attr: Key<Attribution, WithId>,
     kb_if_attr: Key<Attribution, WithId>,
@@ -286,7 +290,7 @@ impl <const MIN: u8, const MAX: u8> Debug for KropkiChecker<MIN, MAX> {
             for cell in &b.cells {
                 let rem = self.black_remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                write!(f, "{:?}=>{:?} ", cell, unpack_stdval_vals::<MIN, MAX>(rem))?;
+                write!(f, "{:?}=>{:?} ", cell, unpack_stdval_vals::<MIN, MAX, _>(rem))?;
             }
             write!(f, "\n")?;
         }
@@ -301,14 +305,14 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
                 for (i, cell) in b.cells.iter().enumerate() {
                     self.black_remaining.insert(
                         *cell,
-                        kropki_black_possible_chain::<MIN, MAX>().get(b.cells.len(), i).clone(),
+                        kropki_black_possible_chain::<MIN, MAX>().get(b.cells.len(), i).to_vbitset(),
                     );
                 }
             } else {
                 for cell in &b.cells {
                     self.black_remaining.insert(
                         *cell, 
-                        kropki_black_possible::<MIN, MAX>().get().clone()
+                        kropki_black_possible::<MIN, MAX>().get().to_vbitset()
                     );
                 }
             }
@@ -323,8 +327,8 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
             return Err(KROPKI_ILLEGAL_ACTION);
         }
         if let Some(r) = self.black_remaining.get_mut(&index) {
-            if r.contains(value.to_uval()) {
-                *r = singleton_set::<StdVal<MIN, MAX>>(value);
+            if r.contains(&value) {
+                *r = VBitSet::<StdVal<MIN, MAX>>::singleton(&value);
             } else {
                 self.illegal = Some((index, value, self.kb_conflict_attr));
             }
@@ -350,9 +354,9 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
                     continue;
                 }
                 *self.black_remaining.get_mut(cell).unwrap() = if b.mutually_visible {
-                    kropki_black_possible_chain::<MIN, MAX>().get(b.cells.len(), i).clone()
+                    kropki_black_possible_chain::<MIN, MAX>().get(b.cells.len(), i).to_vbitset()
                 } else {
-                    kropki_black_possible::<MIN, MAX>().get().clone()
+                    kropki_black_possible::<MIN, MAX>().get().to_vbitset()
                 };
                 break;
             }
@@ -371,7 +375,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
             for cell in &b.cells {
                 let g = grid.get_mut(*cell);
                 g.1.add(&self.kb_feature, 1.0);
-                g.0.intersect_with(&self.black_remaining.get(cell).unwrap());
+                g.0.intersect_with(self.black_remaining.get(cell).unwrap());
             }
         }
         for b in &self.blacks {
@@ -381,10 +385,10 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
                     if i < b.cells.len() - 1 {
                         let next = grid.get(b.cells[i+1]).0.clone();
                         grid.get_mut(*cell).0.intersect_with(
-                            &kropki_black_between::<MIN, MAX>(&prev, &next, b.mutually_visible)
+                            &kropki_black_between::<MIN, MAX, _>(&prev, &next, b.mutually_visible)
                         );
                     }
-                    if !kropki_black_adj_ok::<MIN, MAX>(&prev, &grid.get(*cell).0) {
+                    if !kropki_black_adj_ok::<MIN, MAX, _>(&prev, &grid.get(*cell).0) {
                         return ConstraintResult::Contradiction(self.kb_if_attr.clone());
                     }
                 }
@@ -407,7 +411,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
                 }
                 let rem = self.black_remaining.get(cell)
                     .expect(format!("remaining[{:?}] not found!", cell).as_str());
-                lines.push(format!("  - remaining vals: {:?}", unpack_stdval_vals::<MIN, MAX>(rem)));
+                lines.push(format!("  - remaining vals: {:?}", unpack_stdval_vals::<MIN, MAX, _>(rem)));
             }
         }
         if lines.is_empty() {
@@ -420,14 +424,14 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
 
 #[cfg(test)]
 mod test {
-    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, core::pack_values, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{six_standard_parse, unpack_stdval_vals, StdChecker}};
+    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{six_standard_parse, unpack_stdval_vals, StdChecker}};
     use super::*;
 
     fn assert_black_possible<const MIN: u8, const MAX: u8>(
         expected: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(kropki_black_possible::<MIN, MAX>().get()),
+            unpack_stdval_vals::<MIN, MAX, _>(&kropki_black_possible::<MIN, MAX>().get()),
             expected,
             "Possible vals for black kropkis w/{}..={} should be {:?}",
             MIN, MAX, expected,
@@ -453,7 +457,7 @@ mod test {
         expected: Vec<u8>,
     ) {
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(kropki_black_possible_chain::<MIN, MAX>().get(
+            unpack_stdval_vals::<MIN, MAX, _>(&kropki_black_possible_chain::<MIN, MAX>().get(
                 chain_len,
                 len_from_chain_end,
             )),
@@ -540,21 +544,21 @@ mod test {
     fn assert_black_adj_ok<const MIN: u8, const MAX: u8>(
         a: Vec<u8>, b: Vec<u8>, expected: bool,
     ) {
-        let a_set = pack_values::<StdVal<MIN, MAX>>(
+        let a_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
             &a.iter().map(|v| StdVal::new(*v)).collect()
         );
-        let b_set = pack_values::<StdVal<MIN, MAX>>(
+        let b_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
             &b.iter().map(|v| StdVal::new(*v)).collect()
         );
         if expected {
             assert!(
-                kropki_black_adj_ok::<MIN, MAX>(&a_set, &b_set),
+                kropki_black_adj_ok::<MIN, MAX, _>(&a_set, &b_set),
                 "Expected {:?} and {:?} to be ok adjacent on a black kropki",
                 a, b
             );
         } else {
             assert!(
-                !kropki_black_adj_ok::<MIN, MAX>(&a_set, &b_set),
+                !kropki_black_adj_ok::<MIN, MAX, _>(&a_set, &b_set),
                 "Expected {:?} and {:?} not to be ok adjacent on a black kropki",
                 a, b
             );
@@ -588,14 +592,14 @@ mod test {
     fn assert_black_between<const MIN: u8, const MAX: u8>(
         left: Vec<u8>, right: Vec<u8>, mutually_visible: bool, expected: Vec<u8>,
     ) {
-        let left_set = pack_values::<StdVal<MIN, MAX>>(
+        let left_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
             &left.iter().map(|v| StdVal::new(*v)).collect()
         );
-        let right_set = pack_values::<StdVal<MIN, MAX>>(
+        let right_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
             &right.iter().map(|v| StdVal::new(*v)).collect()
         );
         assert_eq!(
-            unpack_stdval_vals::<MIN, MAX>(&kropki_black_between::<MIN, MAX>(
+            unpack_stdval_vals::<MIN, MAX, _>(&kropki_black_between::<MIN, MAX, _>(
                 &left_set, &right_set, mutually_visible,
             )),
             expected,

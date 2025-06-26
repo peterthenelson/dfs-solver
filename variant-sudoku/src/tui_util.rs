@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{unpack_values, BranchOver, Index, Key, Overlay, RegionLayer, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VSet, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -136,8 +136,8 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     let layer = match vb {
         // This case returns early.
         ViewBy::Cell => {
-            let vals = unpack_values::<P::Value>(&grid.get(cursor).0)
-                .into_iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
+            let vals = grid.get(cursor).0
+                .iter().map(|v| v.to_string()).collect::<Vec<String>>().join(", ");
             let mut lines = vec![
                 Line::from(vec!["Possible values in cell ".into(), format!("{:?}:", state.grid_pos).blue()]).italic(),
                 format!("{{{}}}", vals).green().into(),
@@ -325,13 +325,12 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 ) -> [[Option<P::Value>; M]; N] {
     let mut vm = [[None; M]; N];
     if let GridType::HighlightPossible(v, _, _) = grid_type {
-        let uv = v.to_uval();
         for r in 0..N {
             for c in 0..M {
                 if let Some(v) = state.solver.state().get([r, c]) {
                     vm[r][c] = Some(v);
                 } else if let Some(g) = &state.solver.decision_grid() {
-                    if g.get([r, c]).0.contains(uv) {
+                    if g.get([r, c]).0.contains(&v) {
                         vm[r][c] = Some(v)
                     }
                 }
@@ -390,11 +389,10 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         // The remaining types return early.
         GridType::Puzzle => return hm,
         GridType::HighlightPossible(v, layer, p) => {
-            let uv = v.to_uval();
             if let Some((grid, overlay)) = &state.solver.decision_grid().zip(*so) {
                 for r in 0..N {
                     for c in 0..M {
-                        if grid.get([r, c]).0.contains(uv) {
+                        if grid.get([r, c]).0.contains(&v) {
                             hm[r][c] = Some(if overlay.enclosing_region(layer, [r, c]).map_or(false, |ep| ep == p) {
                                 Color::Blue
                             } else {
@@ -436,7 +434,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                     let p = overlay.enclosing_region(layer, [r, c]).unwrap();
                     let v = val_at_index(state, so, grid_type.view_by(), [r, c]).val.unwrap();
                     let uv = v.to_uval();
-                    if infos[p].filled.contains(uv) {
+                    if infos[p].filled.contains(&v) {
                         continue;
                     }
                     hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(uv).len()));
