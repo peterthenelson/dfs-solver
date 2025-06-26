@@ -101,20 +101,21 @@ pub trait Value: Copy + Clone + Display + Debug + PartialEq + Eq {
 
 /// This is the underlying grid structure for a puzzle.
 #[derive(Clone)]
-pub struct UVGrid<U: UInt> {
+pub struct VGrid<V: Value> {
     rows: usize,
     cols: usize,
-    grid: Box<[Option<U>]>,
+    grid: Box<[Option<V::U>]>,
+    _marker: PhantomData<V>,
 }
 
-impl <U: UInt> Debug for UVGrid<U> {
+impl <V: Value> Debug for VGrid<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}x{}: ", self.rows, self.cols)?;
         for r in 0..self.rows {
             write!(f, "[")?;
             for c in 0..self.cols {
                 if let Some(u) = self.grid[r * self.cols + c] {
-                    write!(f, "u{:?}", u)?;
+                    write!(f, "{}", to_value::<V>(UVal::new(u)))?;
                 } else {
                     write!(f, "_")?;
                 }
@@ -128,21 +129,22 @@ impl <U: UInt> Debug for UVGrid<U> {
     }
 }
 
-impl<U: UInt> UVGrid<U> {
+impl<V: Value> VGrid<V> {
     pub fn new(rows: usize, cols: usize) -> Self {
         Self {
             rows,
             cols,
             grid: vec![None; rows * cols].into_boxed_slice(),
+            _marker: PhantomData,
         }
     }
 
-    pub fn get(&self, index: Index) -> Option<UVal<U, UVWrapped>> {
-        self.grid[index[0] * self.cols + index[1]].map(|v| UVal::new(v))
+    pub fn get(&self, index: Index) -> Option<V> {
+        self.grid[index[0] * self.cols + index[1]].map(|v| to_value::<V>(UVal::new(v)))
     }
 
-    pub fn set(&mut self, index: Index, value: Option<UVal<U, UVWrapped>>) {
-        self.grid[index[0] * self.cols + index[1]] = value.map(|v| v.unwrap().value());
+    pub fn set(&mut self, index: Index, value: Option<V>) {
+        self.grid[index[0] * self.cols + index[1]] = value.map(|v| v.to_uval().unwrap().value());
     }
 
     pub fn rows(&self) -> usize {
@@ -805,8 +807,8 @@ pub trait Overlay: Clone + Debug {
 pub struct State<V: Value, O: Overlay> {
     n: usize,
     m: usize,
-    grid: UVGrid<V::U>,
-    given: UVGrid<V::U>,
+    grid: VGrid<V>,
+    given: VGrid<V>,
     overlay: O,
 }
 
@@ -821,20 +823,20 @@ impl <V: Value, O: Overlay> State<V, O> {
         let (n, m) = overlay.grid_dims();
         Self {
             n, m,
-            grid: UVGrid::new(n, m),
-            given: UVGrid::new(n, m),
+            grid: VGrid::new(n, m),
+            given: VGrid::new(n, m),
             overlay,
         }
     }
 
-    pub fn with_givens(overlay: O, given: UVGrid<V::U>) -> Result<Self, Error> {
+    pub fn with_givens(overlay: O, given: VGrid<V>) -> Result<Self, Error> {
         let (n, m) = overlay.grid_dims();
         if given.rows() != n || given.cols() != m {
             return Err(DIMENSION_MISMATCH_ERROR);
         }
         Ok(Self {
             n, m,
-            grid: UVGrid::new(n, m),
+            grid: VGrid::new(n, m),
             given,
             overlay,
         })
@@ -844,7 +846,7 @@ impl <V: Value, O: Overlay> State<V, O> {
         if index[0] >= self.n || index[1] >= self.m {
             return None;
         }
-        self.grid.get(index).map(to_value::<V>)
+        self.grid.get(index)
     }
 
     pub fn overlay(&self) -> &O { &self.overlay }
@@ -853,7 +855,7 @@ impl <V: Value, O: Overlay> State<V, O> {
         (0..self.n).flat_map(|r| {
             (0..self.m).filter_map(move |c| {
                 self.given.get([r, c]).map(|v| {
-                    ([r, c], to_value::<V>(v))
+                    ([r, c], v)
                 })
             })
         }).collect()
@@ -868,7 +870,7 @@ impl <V: Value, O: Overlay> Debug for State<V, O> {
 
 impl <V: Value, O: Overlay> Stateful<V> for State<V, O> {
     fn reset(&mut self) {
-        self.grid = UVGrid::new(self.n, self.m);
+        self.grid = VGrid::new(self.n, self.m);
     }
 
     fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
@@ -878,7 +880,7 @@ impl <V: Value, O: Overlay> Stateful<V> for State<V, O> {
         if self.grid.get(index).is_some() {
             return Err(ALREADY_FILLED_ERROR);
         }
-        self.grid.set(index, Some(value.to_uval()));
+        self.grid.set(index, Some(value));
         Ok(())
     }
 
@@ -889,7 +891,7 @@ impl <V: Value, O: Overlay> Stateful<V> for State<V, O> {
         match self.grid.get(index) {
             None => return Err(NO_SUCH_ACTION_ERROR),
             Some(v) => {
-                if v != value.to_uval() {
+                if v != value {
                     return Err(UNDO_MISMATCH_ERROR);
                 }
             }

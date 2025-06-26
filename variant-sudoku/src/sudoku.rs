@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{full_set, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{full_set, unpack_values, Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RegionLayer, State, Stateful, VGrid, UVSet, UVUnwrapped, UVWrapped, UVal, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
@@ -419,7 +419,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
     }
 
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {
-        let mut grid = UVGrid::new(N, M);
+        let mut grid = VGrid::<V>::new(N, M);
         let lines: Vec<&str> = s.lines().collect();
         if lines.len() != N {
             return Err(Error::new("Invalid number of rows".to_string()));
@@ -436,7 +436,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
                 } else {
                     let s = c.to_string();
                     let v = V::parse(s.as_str())?;
-                    grid.set([i, j], Some(v.to_uval()));
+                    grid.set([i, j], Some(v));
                 }
             }
         }
