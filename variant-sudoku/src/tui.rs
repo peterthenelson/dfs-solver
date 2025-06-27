@@ -202,6 +202,8 @@ enum TuiStateEvent {
     PaneSwitch,
     ModeUpdate,
     Step,
+    Jump,
+    PlayPause,
     Reset,
     Undo,
     Delegate(KeyEvent),
@@ -214,6 +216,7 @@ pub struct TuiState<'a, P: PuzzleSetter> {
     pub grid_dims: [usize; 2],
     pub scroll_pos: usize,
     pub scroll_lines: Vec<Line<'a>>,
+    pub paused: bool,
     pub mode: Mode,
     pub active: Pane,
     pub exit: Option<Status>,
@@ -242,6 +245,7 @@ impl <'a, P: PuzzleSetter> TuiState<'a, P> {
             grid_dims: [n, m],
             scroll_pos: 0,
             scroll_lines: Vec::new(),
+            paused: true,
             mode: Mode::Readme,
             active: Pane::Grid,
             exit: None,
@@ -282,12 +286,15 @@ fn tui_run<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>, terminal
             T::draw_text_area(state, frame, ta);
         })?;
         match tui_handle_events::<P, T>(state)? {
-            TuiStateEvent::ModeUpdate => T::on_mode_change(state),
-            TuiStateEvent::Delegate(ke) => match state.active.clone() {
+            Some(TuiStateEvent::ModeUpdate) => T::on_mode_change(state),
+            Some(TuiStateEvent::Delegate(ke)) => match state.active.clone() {
                 Pane::Grid => T::on_grid_event(state, ke),
                 Pane::TextArea => T::on_text_area_event(state, ke),
             },
             _ => {},
+        }
+        if !state.solver.is_done() && !state.paused {
+            state.step()
         }
         T::update(state);
     }
@@ -387,8 +394,12 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
     (grid_area, text_area)
 }
 
-fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>) -> io::Result<TuiStateEvent> {
-    Ok(match event::read()? {
+fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>) -> io::Result<Option<TuiStateEvent>> {
+    let has_event = event::poll(Duration::from_secs(0))?;
+    if !has_event {
+        return Ok(None);
+    }
+    Ok(Some(match event::read()? {
         Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match key_event.code {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 state.exit(Status::Ok);
@@ -418,13 +429,27 @@ fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>
                 state.step();
                 TuiStateEvent::Step
             },
-            KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                state.reset();
-                TuiStateEvent::Reset
-            },
             KeyCode::Char('z') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 state.undo();
                 TuiStateEvent::Undo
+            },
+            KeyCode::Char('j') => {
+                state.step();
+                while !state.solver.is_done() {
+                    if let ConstraintResult::Ok = state.solver.constraint_result() {
+                        break;
+                    }
+                    state.step();
+                }
+                TuiStateEvent::Jump
+            },
+            KeyCode::Char('p') => {
+                state.paused = !state.paused;
+                TuiStateEvent::PlayPause
+            },
+            KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                state.reset();
+                TuiStateEvent::Reset
             },
             KeyCode::Char(' ') => {
                 state.active = match state.active {
@@ -436,5 +461,5 @@ fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>
             _ => { TuiStateEvent::Delegate(key_event) },
         },
         _ => TuiStateEvent::Ignore,
-    })
+    }))
 }

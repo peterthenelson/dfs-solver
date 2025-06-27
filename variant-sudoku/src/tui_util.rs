@@ -49,11 +49,13 @@ pub fn to_lines(s: &str) -> Vec<Line<'static>> {
 
 pub fn readme_lines() -> Vec<Line<'static>> {
     vec![
+        Line::from(vec!["Ctrl+C".blue(), " -- Exit the debugger".into()]),
         Line::from(vec!["[N]".blue(), "ext -- Move forward one step".into()]),
         Line::from(vec!["Ctrl+Z".blue(), " -- Undo and/or pop decision".into()]),
+        Line::from(vec!["[J]".blue(), "ump -- Move forward to next non-trivial decision".into()]),
         Line::from(vec!["Ctrl+R".blue(), " -- Reset puzzle".into()]),
-        // TODO: "[P]lay -- Move forward until no longer certain".into(),
-        // TODO: Manual step, force backtrack
+        Line::from(vec!["[P]".blue(), "lay/Pause -- Move forward until pressed again".into()]),
+        // TODO: Manual step, force backtrack, breakpoints.
     ]
 }
 
