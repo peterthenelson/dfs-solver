@@ -126,7 +126,7 @@ pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, so: &Option<StdOverlay<N, M>>,
+    state: &TuiState<'a, P>
 ) -> Vec<Line<'static>> {
     if state.solver.ranking_info().is_none() {
         return vec!["No RankingInfo Available".italic().into()];
@@ -153,7 +153,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
         // These 3 cases are all handled the same, indexed by layer.
         vb => vb.region_layer().unwrap(),
     };
-    let at = val_at_index(state, so, vb, cursor);
+    let at = val_at_index::<P, N, M>(state, vb, cursor);
     match (at.val, at.region_index) {
         (Some(v), Some(p)) => {
             let info = state.solver.ranker().region_info(
@@ -183,12 +183,12 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
 }
 
 pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>, so: &Option<StdOverlay<N, M>>,
+    state: &TuiState<'a, P>,
 ) -> Vec<Line<'static>> {
     match state.mode {
         Mode::Readme => readme_lines(),
         Mode::Stack => stack_lines(state),
-        Mode::PossibilityHeatmap => possible_value_lines(state, so),
+        Mode::PossibilityHeatmap => possible_value_lines::<P, N, M>(state),
         Mode::Constraints => constraint_lines::<P>(state),
         Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
     }
@@ -289,27 +289,33 @@ pub struct AtIndex<V: Value> {
 
 fn val_at_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
     view_by: ViewBy,
     index: Index,
 ) -> AtIndex<P::Value> {
     let [r, c] = index;
     let empty = AtIndex { val: None, region_index: None };
+    let overlay = state.solver.state().overlay();
     match view_by {
-        // The three ViewBy::{region} types only make sense with a proper layout.
-        ViewBy::Row => so.map(|_| AtIndex {
-            val: Some(P::Value::nth(c)),
-            region_index: Some(r),
-        }).unwrap_or(empty),
-        ViewBy::Col => so.map(|_| AtIndex {
-            val: Some(P::Value::nth(r)),
-            region_index: Some(c),
-        }).unwrap_or(empty),
-        ViewBy::Box => so.map(|overlay| {
-            let (b, [br, bc]) = overlay.to_box_coords([r, c]);
-            let nth = br*overlay.box_width() + bc;
-            AtIndex { val: Some(P::Value::nth(nth)), region_index: Some(b) }
-        }).unwrap_or(empty),
+        // We don't actually need a StdOverlay per se, so long as the overlay
+        // has the relevant ROWS/COLS/BOXES layer.
+        ViewBy::Row => overlay.enclosing_region_and_offset(ROWS_LAYER, index).map(|(ri, ro)|
+            AtIndex {
+                val: Some(P::Value::nth(ro)),
+                region_index: Some(ri),
+            }
+        ).unwrap_or(empty),
+        ViewBy::Col => overlay.enclosing_region_and_offset(COLS_LAYER, index).map(|(ci, co)|
+            AtIndex {
+                val: Some(P::Value::nth(co)),
+                region_index: Some(ci),
+            }
+        ).unwrap_or(empty),
+        ViewBy::Box => overlay.enclosing_region_and_offset(BOXES_LAYER, index).map(|(bi, bo)|
+            AtIndex {
+                val: Some(P::Value::nth(bo)),
+                region_index: Some(bi),
+            }
+        ).unwrap_or(empty),
         ViewBy::Cell => AtIndex {
             val: state.solver.state().get([r, c]),
             region_index: None,
@@ -319,7 +325,6 @@ fn val_at_index<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<P::Value>; M]; N] {
     let mut vm = [[None; M]; N];
@@ -338,7 +343,7 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     } else {
         for r in 0..N {
             for c in 0..M {
-                vm[r][c] = val_at_index(state, so, grid_type.view_by(), [r, c]).val;
+                vm[r][c] = val_at_index::<P, N, M>(state, grid_type.view_by(), [r, c]).val;
             }
         }
     }
@@ -355,21 +360,24 @@ fn gen_heatmap_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
 
 fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
+    let overlay = state.solver.state().overlay();
     if let Some((i, v)) = state.solver.most_recent_action() {
         let ord = v.ordinal();
         if let Some([r, c]) = match grid_type {
-            // The three ViewBy::{region} types only make sense with a proper layout.
-            GridType::Heatmap(ViewBy::Row, _) => so.map(|_| [i[0], ord]),
-            GridType::Heatmap(ViewBy::Col, _) => so.map(|_| [ord, i[1]]),
-            GridType::Heatmap(ViewBy::Box, _) => so.map(|overlay| {
-                let (b, _) = overlay.to_box_coords(i);
-                let bw = overlay.box_width();
-                overlay.from_box_coords(b, [ord/bw, ord%bw])
-            }),
+            // We don't actually need a StdOverlay per se, so long as the overlay
+            // has the relevant ROWS/COLS/BOXES layer.
+            GridType::Heatmap(ViewBy::Row, _) => overlay.enclosing_region_and_offset(ROWS_LAYER, i).and_then(|(ri, _)|
+                overlay.nth_in_region(ROWS_LAYER, ri, ord)
+            ),
+            GridType::Heatmap(ViewBy::Col, _) => overlay.enclosing_region_and_offset(COLS_LAYER, i).and_then(|(ci, _)|
+                overlay.nth_in_region(COLS_LAYER, ci, ord)
+            ),
+            GridType::Heatmap(ViewBy::Box, _) => overlay.enclosing_region_and_offset(BOXES_LAYER, i).and_then(|(bi, _)|
+                overlay.nth_in_region(BOXES_LAYER, bi, ord)
+            ),
             _ => Some(i),
         } {
             hm[r][c] = Some(if state.solver.is_valid() { Color::Green } else { Color::Red });
@@ -380,23 +388,26 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
+    let overlay = state.solver.state().overlay();
     let layer = match grid_type {
         // The remaining types return early.
         GridType::Puzzle => return hm,
         GridType::HighlightPossible(v, layer, p) => {
-            if let Some((ranking, overlay)) = state.solver.ranking_info().as_ref().zip(so.as_ref()) {
+            if let Some(ranking) = state.solver.ranking_info().as_ref() {
                 for r in 0..N {
                     for c in 0..M {
                         if ranking.cells().get([r, c]).0.contains(&v) {
-                            hm[r][c] = Some(if overlay.enclosing_region(layer, [r, c]).map_or(false, |ep| ep == p) {
-                                Color::Blue
-                            } else {
-                                Color::Cyan
-                            });
+                            hm[r][c] = Some(
+                                if overlay.enclosing_region_and_offset(layer, [r, c])
+                                    .map_or(false, |(ep, _)| ep == p) {
+                                    Color::Blue
+                                } else {
+                                    Color::Cyan
+                                }
+                            );
                         }
                     }
                 }
@@ -421,22 +432,20 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         // These 3 cases are all handled the same, indexed by layer.
         GridType::Heatmap(vb, ColorBy::Possibilities) => vb.region_layer().unwrap(),
     };
-    if let Some(overlay) = so {
-        if let Some(ranking) = state.solver.ranking_info() {
-            // Note: We are assuming that all rows have the same size (and same for cols, boxes).
-            let mut infos = vec![];
-            for p in 0..overlay.regions_in_layer(layer) {
-                infos.push(state.solver.ranker().region_info(&ranking.cells(), state.solver.state(), layer, p).unwrap());
-            }
-            for r in 0..N {
-                for c in 0..M {
-                    let p = overlay.enclosing_region(layer, [r, c]).unwrap();
-                    let v = val_at_index(state, so, grid_type.view_by(), [r, c]).val.unwrap();
-                    if infos[p].filled.contains(&v) {
-                        continue;
-                    }
-                    hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(&v).len()));
+    if let Some(ranking) = state.solver.ranking_info() {
+        // Note: We are assuming that all rows have the same size (and same for cols, boxes).
+        let mut infos = vec![];
+        for p in 0..overlay.regions_in_layer(layer) {
+            infos.push(state.solver.ranker().region_info(&ranking.cells(), state.solver.state(), layer, p).unwrap());
+        }
+        for r in 0..N {
+            for c in 0..M {
+                let (p, _) = overlay.enclosing_region_and_offset(layer, [r, c]).unwrap();
+                let v = val_at_index::<P, N, M>(state, grid_type.view_by(), [r, c]).val.unwrap();
+                if infos[p].filled.contains(&v) {
+                    continue;
                 }
+                hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(&v).len()));
             }
         }
     }
@@ -445,7 +454,6 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 
 pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> GridStyledValues<P, N, M> {
     GridStyledValues::<P, N, M> {
@@ -461,9 +469,9 @@ pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
             GridType::HighlightPossible(_, _, _) => None,
             GridType::Puzzle => Some(state.grid_pos),
         },
-        vals: gen_val(state, so, grid_type),
-        fg: gen_fg(state, so, grid_type),
-        bg: gen_bg(state, so, grid_type),
+        vals: gen_val(state, grid_type),
+        fg: gen_fg(state, grid_type),
+        bg: gen_bg(state, grid_type),
     }
 }
 
@@ -582,7 +590,7 @@ pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> Text<'static> {
-    let svals = grid_styled_values(state, so, grid_type);
+    let svals = grid_styled_values(state, grid_type);
     let mut lines = vec![];
     lines.push(grid_top::<P, N, M>(so));
     if let Some(overlay) = so {
@@ -604,9 +612,21 @@ pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     Text::from(lines)
 }
 
+pub fn grid_dims<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>,
+) -> [usize; 2] {
+    let overlay = state.solver.state().overlay();
+    let (rows, cols) = overlay.grid_dims();
+    let layers = overlay.region_layers();
+    let supports_rcb = layers.contains(&ROWS_LAYER) && layers.contains(&COLS_LAYER) && layers.contains(&BOXES_LAYER);
+    match state.mode {
+        Mode::PossibilityHeatmap if supports_rcb => [rows*2, cols*2],
+        _ => [rows, cols],
+    }
+}
+
 fn upper_left_type<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
-    so: &Option<StdOverlay<N, M>>,
 ) -> GridType<P> {
     let fallback = GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities);
     let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
@@ -614,7 +634,7 @@ fn upper_left_type<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         return fallback;
     }
     vb.region_layer().and_then(|layer| {
-        let at = val_at_index(state, so, vb, cursor);
+        let at = val_at_index::<P, N, M>(state, vb, cursor);
         at.val.and_then(|v|
             at.region_index.and_then(|p|
                 Some(GridType::HighlightPossible(v, layer, p))
@@ -657,7 +677,7 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (ul, ur, ll, lr) = (
-        grid_text(state, so, upper_left_type(state, so)),
+        grid_text(state, so, upper_left_type::<P, N, M>(state)),
         grid_text(state, so, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
         grid_text(state, so, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
         grid_text(state, so, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),

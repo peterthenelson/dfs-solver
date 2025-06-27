@@ -9,6 +9,7 @@ pub mod ranker;
 pub mod solver;
 pub mod debug;
 pub mod cages;
+pub mod irregular;
 pub mod kropki;
 pub mod magic_squares;
 pub mod thermos;

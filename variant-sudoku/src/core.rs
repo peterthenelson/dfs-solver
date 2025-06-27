@@ -330,6 +330,19 @@ pub trait VSet<V: Value>: BitSetState<V> {
             None
         }
     }
+
+    fn to_string(&self) -> String {
+        let mut s = "[".to_string();
+        let len = self.len();
+        for (i, v) in self.iter().enumerate() {
+            s.push_str(format!("{}", v).as_str());
+            if i+1 < len {
+                s.push_str(", ");
+            }
+        }
+        s.push(']');
+        s
+    }
 }
 
 /// This is the primary functionality to modify sets of Values, backed by a
@@ -1010,12 +1023,20 @@ pub trait Overlay: Clone + Debug {
     fn grid_dims(&self) -> (usize, usize);
     fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>>;
     fn regions_in_layer(&self, layer: Key<RegionLayer, WithId>) -> usize;
-    fn enclosing_region(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<usize>;
+    fn cells_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize) -> usize;
+    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<(usize, usize)>;
+    fn nth_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize, offset: usize) -> Option<Index>;
     fn region_iter(&self, layer: Key<RegionLayer, WithId>, index: usize) -> Self::Iter<'_>;
     fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
         for layer in self.region_layers() {
-            if self.enclosing_region(layer, i1) == self.enclosing_region(layer, i2) {
-                return true;
+            if let Some((r1, _)) = self.enclosing_region_and_offset(layer, i1) {
+                if let Some((r2, _)) = self.enclosing_region_and_offset(layer, i2) {
+                    return r1 == r2
+                } else {
+                    return false
+                }
+            } else {
+                return self.enclosing_region_and_offset(layer, i2).is_none();
             }
         }
         false
@@ -1169,10 +1190,16 @@ pub mod test_util {
         fn regions_in_layer(&self, _: Key<RegionLayer, WithId>) -> usize {
             panic!("No region layers exist!")
         }
+        fn cells_in_region(&self, _: Key<RegionLayer, WithId>, _: usize) -> usize {
+            panic!("No region layers exist!")
+        }
         fn region_iter(&self, _: Key<RegionLayer, WithId>, _: usize) -> Self::Iter<'_> {
             panic!("No region layers exist!")
         }
-        fn enclosing_region(&self, _: Key<RegionLayer, WithId>, _: Index) -> Option<usize> {
+        fn enclosing_region_and_offset(&self, _: Key<RegionLayer, WithId>, _: Index) -> Option<(usize, usize)> {
+            panic!("No region layers exist!")
+        }
+        fn nth_in_region(&self, _: Key<RegionLayer, WithId>, _: usize, _: usize) -> Option<Index> {
             panic!("No region layers exist!")
         }
         fn mutually_visible(&self, _: Index, _: Index) -> bool { true }

@@ -21,14 +21,14 @@ impl PuzzleSetter for DutchClover {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(nine_standard_parse(
             "..5.6.7..\n\
-            .........\n\
-            ....3.4.5\n\
-            .........\n\
-            .........\n\
-            .........\n\
-            2.3.4....\n\
-            .........\n\
-            ..6.7.8..\n"
+             .........\n\
+             ....3.4.5\n\
+             .........\n\
+             .........\n\
+             .........\n\
+             2.3.4....\n\
+             .........\n\
+             ..6.7.8..\n"
         ).unwrap())
     }
 

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, Unscored, VBitSet, VGrid, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, Unscored, VBitSet, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
+use crate::index_util::parse_val_grid;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -378,15 +379,53 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         }
     }
 
-    fn enclosing_region(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<usize> {
+    fn cells_in_region(&self, layer: Key<RegionLayer, WithId>, _: usize) -> usize {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
-            Some(index[0])
+            self.cols()
         } else if id == COLS_LAYER.id() {
-            Some(index[1])
+            self.rows()
         } else if id == BOXES_LAYER.id() {
-            let (b, _) = self.to_box_coords(index);
-            Some(b)
+            self.bh*self.bw
+        } else {
+            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+        }
+    }
+
+    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<(usize, usize)> {
+        let id = layer.id();
+        if id == ROWS_LAYER.id() {
+            Some((index[0], index[1]))
+        } else if id == COLS_LAYER.id() {
+            Some((index[1], index[0]))
+        } else if id == BOXES_LAYER.id() {
+            let (b, [br, bc]) = self.to_box_coords(index);
+            Some((b, br*self.bw+bc))
+        } else {
+            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+        }
+    }
+
+    fn nth_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize, offset: usize) -> Option<Index> {
+        let id = layer.id();
+        if id == ROWS_LAYER.id() {
+            if index < self.rows() && offset < self.cols() {
+                Some([index, offset])
+            } else {
+                None
+            }
+        } else if id == COLS_LAYER.id() {
+            if index < self.cols() && offset < self.rows() {
+                Some([offset, index])
+            } else {
+                None
+            }
+        } else if id == BOXES_LAYER.id() {
+            if index < self.boxes() && offset < self.bh*self.bw {
+                Some(self.from_box_coords(index, [offset / self.bw, offset % self.bw]))
+            } else {
+                None
+            }
         } else {
             panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
@@ -419,28 +458,8 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
     }
 
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {
-        let mut grid = VGrid::<V>::new(N, M);
-        let lines: Vec<&str> = s.lines().collect();
-        if lines.len() != N {
-            return Err(Error::new("Invalid number of rows".to_string()));
-        }
-        for i in 0..N {
-            let line = lines[i].trim();
-            if line.len() != M {
-                return Err(Error::new("Invalid number of columns".to_string()));
-            }
-            for j in 0..M {
-                let c = line.chars().nth(j).unwrap();
-                if c == '.' {
-                    // Already None
-                } else {
-                    let s = c.to_string();
-                    let v = V::parse(s.as_str())?;
-                    grid.set([i, j], Some(v));
-                }
-            }
-        }
-        State::<V, Self>::with_givens(self.clone(), grid)
+        let parsed = parse_val_grid::<V>(s, N, M)?;
+        State::<V, Self>::with_givens(self.clone(), parsed)
     }
 
     fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String {
@@ -510,18 +529,15 @@ Debug for StdChecker<N, M, MIN, MAX> {
         }
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
-            let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.row[r]);
-            write!(f, " {}: {:?}\n", r, vals)?;
+            write!(f, " {}: {}\n", r, self.row[r].to_string())?;
         }
         write!(f, "Unused vals by col:\n")?;
         for c in 0..M {
-            let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.col[c]);
-            write!(f, " {}: {:?}\n", c, vals)?;
+            write!(f, " {}: {}\n", c, self.col[c].to_string())?;
         }
         write!(f, "Unused vals by box:\n")?;
         for b in 0..self.overlay.boxes() {
-            let vals = unpack_stdval_vals::<MIN, MAX, _>(&self.boxes[b]);
-            write!(f, " {}: {:?}\n", b, vals)?;
+            write!(f, " {}: {}\n", b, self.boxes[b].to_string())?;
         }
         Ok(())
     }

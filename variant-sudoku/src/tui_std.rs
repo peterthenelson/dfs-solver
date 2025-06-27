@@ -26,7 +26,7 @@ use crate::{
     },
     tui::{Tui, TuiState},
     tui_util::{
-        draw_grid, draw_text_area, grid_wasd, scroll_lines, text_area_ws,
+        draw_grid, draw_text_area, grid_dims, grid_wasd, scroll_lines, text_area_ws
     },
 };
 
@@ -106,11 +106,9 @@ Tui<P> for DefaultTui<P, N, M, OS> {
     }
 
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        let so = OS::to_std(state.solver.state().overlay());
-        state.scroll_lines = scroll_lines(state, &so);
+        state.scroll_lines = scroll_lines::<P, N, M>(state);
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
-        let (n, m) = state.solver.state().overlay().grid_dims();
-        state.grid_dims = [n, m];
+        state.grid_dims = grid_dims::<P, N, M>(state);
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
     }
 

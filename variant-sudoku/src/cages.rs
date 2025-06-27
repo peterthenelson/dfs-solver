@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut, WithId};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
-use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
+use crate::sudoku::{unpack_stdval_vals, StdVal};
 
 #[derive(Debug, Clone)]
 pub struct Cage {
@@ -248,9 +248,9 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &VBitSet<StdVal<MIN, MAX>>, 
     subset_sum(&vals, 0, remaining, empty)
 }
 
-impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
-Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for CageChecker<MIN, MAX> {
-    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
+impl <const MIN: u8, const MAX: u8, O: Overlay>
+Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
+    fn check(&self, puzzle: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
         let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
@@ -280,7 +280,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for CageChecker<MIN, MAX> {
         ConstraintResult::Ok
     }
 
-    fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
+    fn debug_at(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<String> {
         let header = "CageChecker:\n";
         let mut lines = vec![];
         if let Some((i, v, a)) = &self.illegal {

@@ -1,6 +1,5 @@
-
 use std::{collections::hash_map::HashMap, hash::Hash};
-use crate::core::Index;
+use crate::core::{Error, Index, VGrid, Value};
 
 struct DisjointSet<T: Eq + Clone + Hash> {
     parents: HashMap<T, T>,
@@ -162,6 +161,58 @@ pub fn expand_polyline(vertices: Vec<Index>) -> Result<Vec<Index>, String> {
     }
     cells.push(*vertices.last().unwrap());
     Ok(cells)
+}
+
+pub fn parse_grid(s: &str, rows: usize, cols: usize) -> Result<Vec<Vec<char>>, Error> {
+    let mut grid = vec![vec!['@'; cols]; rows];
+    let lines: Vec<&str> = s.lines().collect();
+    if lines.len() != rows {
+        return Err(Error::new(format!(
+            "Invalid number of rows: {} (expected {})", lines.len(), rows,
+        )));
+    }
+    for r in 0..rows {
+        let line = lines[r].trim();
+        if line.len() != cols {
+            return Err(Error::new(format!(
+                "Invalid number of cols: {} (expected {})", line.len(), cols,
+            )));
+        }
+        for c in 0..cols {
+            grid[r][c] = line.chars().nth(c).unwrap();
+        }
+    }
+    Ok(grid)
+}
+
+pub fn parse_val_grid<V: Value>(s: &str, rows: usize, cols: usize) -> Result<VGrid<V>, Error> {
+    let parsed = parse_grid(s, rows, cols)?;
+    let mut grid = VGrid::<V>::new(rows, cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            match parsed[r][c] {
+                // Represents None, which already is present in the grid.
+                '.' => {},
+                ch => {
+                    let s = ch.to_string();
+                    let v = V::parse(s.as_str())?;
+                    grid.set([r, c], Some(v));
+                },
+            }
+        }
+    }
+    Ok(grid)
+}
+
+pub fn parse_region_grid(s: &str, rows: usize, cols: usize) -> Result<HashMap<char, Vec<Index>>, Error> {
+    let grid = parse_grid(s, rows, cols)?;
+    let mut sym_to_indices: HashMap<char, Vec<Index>> = HashMap::new();
+    for r in 0..rows {
+        for c in 0..cols {
+            sym_to_indices.entry(grid[r][c]).or_default().push([r, c]);
+        }
+    }
+    Ok(sym_to_indices)
 }
 
 #[cfg(test)]
