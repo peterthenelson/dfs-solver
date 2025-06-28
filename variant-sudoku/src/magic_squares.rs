@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut}, sudoku::{NineStdVal, StdOverlay}};
+use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, State, Stateful, VBitSet, VSet, VSetMut}, ranker::RankingInfo, sudoku::{NineStdVal, StdOverlay}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,

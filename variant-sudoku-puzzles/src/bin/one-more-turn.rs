@@ -1,6 +1,6 @@
-use variant_sudoku::core::{Error, FeatureVec, Overlay, State};
+use variant_sudoku::core::{Error, Overlay, State};
 use variant_sudoku::irregular::{IrregularChecker, IrregularOverlay};
-use variant_sudoku::ranker::StdRanker;
+use variant_sudoku::ranker::{FeatureVec, StdRanker};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::NineStdVal;

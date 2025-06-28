@@ -1,5 +1,8 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, Raw, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, index_util::{parse_region_grid, parse_val_grid}};
+use crate::constraint::Constraint;
+use crate::core::{Attribution, ConstraintResult, Error, Index, Key, Overlay, RegionLayer, State, Stateful, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::index_util::{parse_region_grid, parse_val_grid};
+use crate::ranker::RankingInfo;
 
 #[derive(Debug, Clone)]
 pub struct IrregularOverlay<const N: usize, const M: usize> {
@@ -110,10 +113,6 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
     type Iter<'a> = IrregularOverlayIterator<'a, N, M> where Self: 'a;
 
     fn grid_dims(&self) -> (usize, usize) { (N, M) }
-
-    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Raw> {
-        DecisionGrid::full(N, M)
-    }
 
     fn region_layers(&self) -> Vec<Key<RegionLayer>> {
         vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]

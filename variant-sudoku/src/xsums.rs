@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, RankingInfo, State, Stateful, VBitSet, VSetMut};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, State, Stateful, VBitSet, VSetMut};
 use crate::constraint::Constraint;
+use crate::ranker::RankingInfo;
 use crate::sudoku::{stdval_len_bound, stdval_sum_bound, StdOverlay, StdVal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]

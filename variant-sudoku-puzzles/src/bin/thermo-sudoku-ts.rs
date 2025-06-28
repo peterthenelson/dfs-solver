@@ -1,5 +1,4 @@
-use variant_sudoku::core::FeatureVec;
-use variant_sudoku::ranker::StdRanker;
+use variant_sudoku::ranker::{FeatureVec, StdRanker};
 use variant_sudoku::constraint::MultiConstraint;
 use variant_sudoku::solver::PuzzleSetter;
 use variant_sudoku::sudoku::{nine_standard_parse, NineStd, NineStdOverlay, NineStdVal, StdChecker};

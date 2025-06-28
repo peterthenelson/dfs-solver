@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
+use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
 
 // TODO: Add support for slow thermos
 

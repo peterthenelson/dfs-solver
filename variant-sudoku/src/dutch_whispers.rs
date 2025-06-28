@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::index_util::{check_adjacent, expand_polyline};
+use crate::ranker::RankingInfo;
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay};
 use crate::whispers::{whisper_between, whisper_neighbors, whisper_possible_values};
 

@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, RankingInfo, State, Stateful, Value};
+use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, State, Stateful, Value};
 use crate::constraint::Constraint;
-use crate::ranker::Ranker;
+use crate::ranker::{Ranker, RankingInfo};
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub struct InitializingState {
@@ -658,8 +658,8 @@ pub mod test_util {
 mod test {
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{RankingInfo, Stateful, VSetMut};
-    use crate::ranker::StdRanker;
+    use crate::core::{Stateful, VSetMut};
+    use crate::ranker::{RankingInfo, StdRanker};
     use super::*;
 
     type GwOverlay = OneDimOverlay<8>;

@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::memo::{FnToCalc, MemoLock};
+use crate::ranker::RankingInfo;
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

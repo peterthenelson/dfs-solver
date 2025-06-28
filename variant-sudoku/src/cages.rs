@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
+use crate::ranker::RankingInfo;
 use crate::sudoku::{unpack_stdval_vals, StdVal};
 
 #[derive(Debug, Clone)]

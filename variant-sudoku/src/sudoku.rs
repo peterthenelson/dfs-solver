@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, Raw, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 use crate::index_util::parse_val_grid;
+use crate::ranker::RankingInfo;
 
 impl <const MIN: u8, const MAX: u8> Display for StdVal<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -451,10 +452,6 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         let (b1, _) = self.to_box_coords(i1);
         let (b2, _) = self.to_box_coords(i2);
         b1 == b2
-    }
-
-    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Raw> {
-        DecisionGrid::full(N, M)
     }
 
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {

@@ -1,5 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
-use crate::core::{ConstraintResult, Error, Index, Overlay, RankingInfo, State, Stateful, Value};
+use crate::{core::{ConstraintResult, Error, Index, Overlay, State, Stateful, Value}, ranker::RankingInfo};
 
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
@@ -216,8 +216,8 @@ mod test {
     use super::*;
     use super::test_util::*;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{DecisionGrid, Key, Raw, Stateful, VBitSet, VSet, VSetMut};
-    use crate::ranker::{Ranker, StdRanker};
+    use crate::core::{Key, Stateful, VBitSet, VSet, VSetMut};
+    use crate::ranker::{DecisionGrid, Ranker, Raw, StdRanker};
 
     type ThreeVals = State<TestVal, OneDimOverlay<3>>;
 
