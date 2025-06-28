@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -211,7 +211,7 @@ pub struct GridStyledValues<P: PuzzleSetter, const N: usize, const M: usize> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewBy { Cell, Row, Col, Box }
 impl ViewBy {
-    pub fn region_layer(&self) -> Option<Key<RegionLayer, WithId>> {
+    pub fn region_layer(&self) -> Option<Key<RegionLayer>> {
         match self {
             ViewBy::Row => Some(ROWS_LAYER),
             ViewBy::Col => Some(COLS_LAYER),
@@ -243,7 +243,7 @@ pub enum GridType<P: PuzzleSetter> {
     Puzzle,
     // Highlight cells which could be a particular value.
     // Note: The usize is the index in the relevant region layer
-    HighlightPossible(P::Value, Key<RegionLayer, WithId>, usize),
+    HighlightPossible(P::Value, Key<RegionLayer>, usize),
     // Heatmap of possibilities.
     Heatmap(ViewBy, ColorBy),
 }

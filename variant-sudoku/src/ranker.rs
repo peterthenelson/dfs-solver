@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RankingInfo, RegionLayer, Scored, State, Unscored, VBitSet, VDenseMap, VMap, VMapMut, VSet, Value, WithId};
+use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RankingInfo, RegionLayer, Scored, State, Unscored, VBitSet, VDenseMap, VMap, VMapMut, VSet, Value};
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
@@ -26,7 +26,7 @@ pub trait Ranker<V: Value, O: Overlay> {
     /// Implementations may return None if they don't generate candidates in
     /// this way.
     fn region_info<S: DGGetter<V>>(
-        &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer, WithId>, p: usize,
+        &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
     ) -> Option<RankerRegionInfo<V>>;
 }
 
@@ -78,16 +78,16 @@ pub struct StdRanker {
     positive_constraint: bool,
     cell_weights: FeatureVec<FVNormed>,
     val_weights: FeatureVec<FVNormed>,
-    cell_possible: Key<Feature, WithId>,
-    val_possible: Key<Feature, WithId>,
+    cell_possible: Key<Feature>,
+    val_possible: Key<Feature>,
     combinator: fn (usize, f64, f64) -> f64,
-    empty_attr: Key<Attribution, WithId>,
-    top_cell_attr: Key<Attribution, WithId>,
-    top_val_attr: Key<Attribution, WithId>,
-    no_vals_attr: Key<Attribution, WithId>,
-    one_val_attr: Key<Attribution, WithId>,
-    no_cells_attr: Key<Attribution, WithId>,
-    one_cell_attr: Key<Attribution, WithId>,
+    empty_attr: Key<Attribution>,
+    top_cell_attr: Key<Attribution>,
+    top_val_attr: Key<Attribution>,
+    no_vals_attr: Key<Attribution>,
+    one_val_attr: Key<Attribution>,
+    no_cells_attr: Key<Attribution>,
+    one_cell_attr: Key<Attribution>,
 }
 
 impl <V: Value> RankerRegionInfo<V> {
@@ -111,26 +111,26 @@ impl StdRanker {
             positive_constraint,
             cell_weights: cell_weights.try_normalized().unwrap().clone(),
             val_weights: val_weights.try_normalized().unwrap().clone(),
-            cell_possible: Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(),
-            val_possible: Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(),
+            cell_possible: Key::register(DG_CELL_POSSIBLE_FEATURE),
+            val_possible: Key::register(DG_VAL_POSSIBLE_FEATURE),
             combinator: combine_features,
-            empty_attr: Key::new(DG_EMPTY_ATTRIBUTION).unwrap(),
-            top_cell_attr: Key::new(DG_TOP_CELL_ATTRIBUTION).unwrap(),
-            top_val_attr: Key::new(DG_TOP_VAL_ATTRIBUTION).unwrap(),
-            no_vals_attr: Key::new(DG_NO_VALS_ATTRIBUTION).unwrap(),
-            one_val_attr: Key::new(DG_ONE_VAL_ATTRIBUTION).unwrap(),
-            no_cells_attr: Key::new(DG_NO_CELLS_ATTRIBUTION).unwrap(),
-            one_cell_attr: Key::new(DG_ONE_CELL_ATTRIBUTION).unwrap(),
+            empty_attr: Key::register(DG_EMPTY_ATTRIBUTION),
+            top_cell_attr: Key::register(DG_TOP_CELL_ATTRIBUTION),
+            top_val_attr: Key::register(DG_TOP_VAL_ATTRIBUTION),
+            no_vals_attr: Key::register(DG_NO_VALS_ATTRIBUTION),
+            one_val_attr: Key::register(DG_ONE_VAL_ATTRIBUTION),
+            no_cells_attr: Key::register(DG_NO_CELLS_ATTRIBUTION),
+            one_cell_attr: Key::register(DG_ONE_CELL_ATTRIBUTION),
         }
     }
 
     // Like the default but extended with additional weights.
     pub fn with_additional_weights(weights: FeatureVec<FVMaybeNormed>) -> Self {
         let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
         cell_weights.extend(&weights);
         let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
         val_weights.extend(&weights);
         Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
@@ -140,18 +140,18 @@ impl StdRanker {
     // combining features in feature vectors is to take the maximum.
     pub fn default() -> Self {
         let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
         let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
         Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
     // Same as default but with no positive constraint.
     pub fn default_negative() -> Self {
         let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::new(DG_CELL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
         let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::new(DG_VAL_POSSIBLE_FEATURE).unwrap(), -10.0);
+        val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
         Self::new(false, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
@@ -306,7 +306,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
     }
 
     fn region_info<S: DGGetter<V>>(
-        &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer, WithId>, p: usize,
+        &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
     ) -> Option<RankerRegionInfo<V>> {
         if !self.positive_constraint {
             return None;

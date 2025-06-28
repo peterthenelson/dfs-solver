@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
-use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, Unscored, VBitSet, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, Unscored, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 use crate::index_util::parse_val_grid;
 
@@ -362,11 +362,11 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
 
     fn grid_dims(&self) -> (usize, usize) { (N, M) }
 
-    fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>> {
+    fn region_layers(&self) -> Vec<Key<RegionLayer>> {
         vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]
     }
 
-    fn regions_in_layer(&self, layer: Key<RegionLayer, WithId>) -> usize {
+    fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             self.rows()
@@ -379,7 +379,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         }
     }
 
-    fn cells_in_region(&self, layer: Key<RegionLayer, WithId>, _: usize) -> usize {
+    fn cells_in_region(&self, layer: Key<RegionLayer>, _: usize) -> usize {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             self.cols()
@@ -392,7 +392,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         }
     }
 
-    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<(usize, usize)> {
+    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)> {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             Some((index[0], index[1]))
@@ -406,7 +406,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         }
     }
 
-    fn nth_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize, offset: usize) -> Option<Index> {
+    fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index> {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             if index < self.rows() && offset < self.cols() {
@@ -431,7 +431,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         }
     }
 
-    fn region_iter(&self, layer: Key<RegionLayer, WithId>, index: usize) -> Self::Iter<'_> {
+    fn region_iter(&self, layer: Key<RegionLayer>, index: usize) -> Self::Iter<'_> {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             self.row_iter(index)
@@ -500,10 +500,10 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
     row: [VBitSet<StdVal<MIN, MAX>>; N],
     col: [VBitSet<StdVal<MIN, MAX>>; M],
     boxes: Box<[VBitSet<StdVal<MIN, MAX>>]>,
-    row_attr: Key<Attribution, WithId>,
-    col_attr: Key<Attribution, WithId>,
-    box_attr: Key<Attribution, WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution, WithId>)>,
+    row_attr: Key<Attribution>,
+    col_attr: Key<Attribution>,
+    box_attr: Key<Attribution>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N, M, MIN, MAX> {
@@ -513,9 +513,9 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N
             row: std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full()),
             col: std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full()),
             boxes: vec![VBitSet::<StdVal<MIN, MAX>>::full(); state.overlay().boxes()].into_boxed_slice(),
-            row_attr: Key::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
-            col_attr: Key::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
-            box_attr: Key::new(BOX_CONFLICT_ATTRIBUTION).unwrap(),
+            row_attr: Key::register(ROW_CONFLICT_ATTRIBUTION),
+            col_attr: Key::register(COL_CONFLICT_ATTRIBUTION),
+            box_attr: Key::register(BOX_CONFLICT_ATTRIBUTION),
             illegal: None,
         }
     }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut, WithId};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
 use crate::sudoku::{unpack_stdval_vals, StdVal};
@@ -100,11 +100,11 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     remaining: Vec<Option<u8>>,
     empty: Vec<usize>,
     cage_sets: Vec<VBitSet<StdVal<MIN, MAX>>>,
-    cage_feature: Key<Feature, WithId>,
-    cage_dupe_attr: Key<Attribution, WithId>,
-    cage_over_attr: Key<Attribution, WithId>,
-    cage_if_attr: Key<Attribution, WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution, WithId>)>,
+    cage_feature: Key<Feature>,
+    cage_dupe_attr: Key<Attribution>,
+    cage_over_attr: Key<Attribution>,
+    cage_if_attr: Key<Attribution>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
 }
 
 impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
@@ -124,10 +124,10 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         let cage_sets = vec![VBitSet::<StdVal<MIN, MAX>>::full(); cages.len()];
         CageChecker {
             cages, remaining, empty, cage_sets, illegal: None,
-            cage_feature: Key::new(CAGE_FEATURE).unwrap(),
-            cage_dupe_attr: Key::new(CAGE_DUPE_ATTRIBUTION).unwrap(),
-            cage_over_attr: Key::new(CAGE_OVER_ATTRIBUTION).unwrap(),
-            cage_if_attr: Key::new(CAGE_INFEASIBLE_ATTRIBUTION).unwrap(),
+            cage_feature: Key::register(CAGE_FEATURE),
+            cage_dupe_attr: Key::register(CAGE_DUPE_ATTRIBUTION),
+            cage_over_attr: Key::register(CAGE_OVER_ATTRIBUTION),
+            cage_if_attr: Key::register(CAGE_INFEASIBLE_ATTRIBUTION),
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, RankingInfo, Scored, State, Stateful, Value, WithId};
+use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, RankingInfo, Scored, State, Stateful, Value};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -83,7 +83,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     next_decision: Option<BranchPoint<V>>,
     stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
-    manual_attr: Key<Attribution, WithId>,
+    manual_attr: Key<Attribution>,
     state: DfsSolverState,
     _marker: PhantomData<O>,
 }
@@ -188,7 +188,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
             next_decision: None,
             stack: Vec::new(),
             backtracked_steps: None,
-            manual_attr: Key::new(MANUAL_ATTRIBUTION).unwrap(),
+            manual_attr: Key::register(MANUAL_ATTRIBUTION),
             state: DfsSolverState::Initializing(InitializingState { last_filled: None, next_given_index: 0 }),
             _marker: PhantomData,
         }
@@ -682,11 +682,11 @@ mod test {
                     }
                     let j_val = puzzle.get([0, j]).unwrap().0;
                     if i_val == j_val {
-                        return ConstraintResult::Contradiction(Key::new("GW_DUPE").unwrap())
+                        return ConstraintResult::Contradiction(Key::register("GW_DUPE"))
                     }
                     let diff: i16 = (i_val as i16) - (j_val as i16);
                     if j == i+1 && diff.abs() < 5 {
-                        return ConstraintResult::Contradiction(Key::new("GW_TOO_CLOSE").unwrap());
+                        return ConstraintResult::Contradiction(Key::register("GW_TOO_CLOSE"));
                     }
                 }
             }

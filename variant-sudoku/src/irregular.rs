@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, Unscored, VBitSet, VSet, VSetMut, Value, WithId, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, index_util::{parse_region_grid, parse_val_grid}};
+use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, Unscored, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, index_util::{parse_region_grid, parse_val_grid}};
 
 #[derive(Debug, Clone)]
 pub struct IrregularOverlay<const N: usize, const M: usize> {
@@ -115,11 +115,11 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         DecisionGrid::full(N, M)
     }
 
-    fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>> {
+    fn region_layers(&self) -> Vec<Key<RegionLayer>> {
         vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]
     }
     
-    fn regions_in_layer(&self, layer: Key<RegionLayer, WithId>) -> usize {
+    fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             N
@@ -132,7 +132,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         }
     }
 
-    fn cells_in_region(&self, layer: Key<RegionLayer, WithId>, _: usize) -> usize {
+    fn cells_in_region(&self, layer: Key<RegionLayer>, _: usize) -> usize {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             M
@@ -145,7 +145,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         }
     }
 
-    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<(usize, usize)> {
+    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)> {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             Some((index[0], index[1]))
@@ -158,7 +158,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         }
     }
     
-    fn region_iter(&self, layer: Key<RegionLayer, WithId>, index: usize) -> Self::Iter<'_> {
+    fn region_iter(&self, layer: Key<RegionLayer>, index: usize) -> Self::Iter<'_> {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             IrregularOverlayIterator {
@@ -180,7 +180,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         }
     }
 
-    fn nth_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize, offset: usize) -> Option<Index> {
+    fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index> {
         let id = layer.id();
         if id == ROWS_LAYER.id() {
             if index < N && offset < M {
@@ -245,10 +245,10 @@ pub struct IrregularChecker<const N: usize, const M: usize, V: Value> {
     row: [VBitSet<V>; N],
     col: [VBitSet<V>; M],
     region: Box<[VBitSet<V>]>,
-    row_attr: Key<Attribution, WithId>,
-    col_attr: Key<Attribution, WithId>,
-    region_attr: Key<Attribution, WithId>,
-    illegal: Option<(Index, V, Key<Attribution, WithId>)>,
+    row_attr: Key<Attribution>,
+    col_attr: Key<Attribution>,
+    region_attr: Key<Attribution>,
+    illegal: Option<(Index, V, Key<Attribution>)>,
 }
 
 impl <const N: usize, const M: usize, V: Value> IrregularChecker<N, M, V> {
@@ -258,9 +258,9 @@ impl <const N: usize, const M: usize, V: Value> IrregularChecker<N, M, V> {
             row: std::array::from_fn(|_| VBitSet::<V>::full()),
             col: std::array::from_fn(|_| VBitSet::<V>::full()),
             region: vec![VBitSet::<V>::full(); state.overlay().regions_in_layer(BOXES_LAYER)].into_boxed_slice(),
-            row_attr: Key::new(ROW_CONFLICT_ATTRIBUTION).unwrap(),
-            col_attr: Key::new(COL_CONFLICT_ATTRIBUTION).unwrap(),
-            region_attr: Key::new(REGION_CONFLICT_ATTRIBUTION).unwrap(),
+            row_attr: Key::register(ROW_CONFLICT_ATTRIBUTION),
+            col_attr: Key::register(COL_CONFLICT_ATTRIBUTION),
+            region_attr: Key::register(REGION_CONFLICT_ATTRIBUTION),
             illegal: None,
         }
     }

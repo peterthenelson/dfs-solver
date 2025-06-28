@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VBitSetRef, VSet, VSetMut, Value, WithId};
+use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VBitSet, VBitSetRef, VSet, VSetMut, Value};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
 use crate::memo::{FnToCalc, MemoLock};
 use crate::sudoku::{unpack_stdval_vals, StdOverlay, StdVal};
@@ -247,10 +247,10 @@ pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, VBitSet<StdVal<MIN, MAX>>>,
-    kb_feature: Key<Feature, WithId>,
-    kb_conflict_attr: Key<Attribution, WithId>,
-    kb_if_attr: Key<Attribution, WithId>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution, WithId>)>,
+    kb_feature: Key<Feature>,
+    kb_conflict_attr: Key<Attribution>,
+    kb_if_attr: Key<Attribution>,
+    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
 }
 
 impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
@@ -270,9 +270,9 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
         let mut kc = Self {
             blacks: chains,
             black_remaining: HashMap::new(),
-            kb_feature: Key::new(KROPKI_BLACK_FEATURE).unwrap(),
-            kb_conflict_attr: Key::new(KROPKI_BLACK_CONFLICT_ATTRIBUTION).unwrap(),
-            kb_if_attr: Key::new(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION).unwrap(),
+            kb_feature: Key::register(KROPKI_BLACK_FEATURE),
+            kb_conflict_attr: Key::register(KROPKI_BLACK_CONFLICT_ATTRIBUTION),
+            kb_if_attr: Key::register(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION),
             illegal: None,
         };
         kc.reset();

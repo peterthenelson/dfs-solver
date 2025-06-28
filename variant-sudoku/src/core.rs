@@ -509,13 +509,6 @@ impl ConstStringRegistry {
     }
 }
 
-/// Marker structs to indicate whether a compile-time string has already been
-/// interned (or normalized to its usize representation).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MaybeId;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WithId;
-
 /// Types of Keys
 pub trait KeyType: 'static + Debug + Clone + Copy + PartialEq + Eq {
     fn type_id() -> u8;
@@ -530,14 +523,14 @@ impl KeyType for Feature { fn type_id() -> u8 { 2 } }
 pub struct RegionLayer;
 impl KeyType for RegionLayer { fn type_id() -> u8 { 3 } }
 
-pub const ROWS_LAYER: Key<RegionLayer, WithId> = Key {
-    name: "ROWS", id: Some(0), _state: PhantomData,
+pub const ROWS_LAYER: Key<RegionLayer> = Key {
+    name: "ROWS", id: 0, _state: PhantomData,
 };
-pub const COLS_LAYER: Key<RegionLayer, WithId> = Key {
-    name: "COLS", id: Some(1), _state: PhantomData,
+pub const COLS_LAYER: Key<RegionLayer> = Key {
+    name: "COLS", id: 1, _state: PhantomData,
 };
-pub const BOXES_LAYER: Key<RegionLayer, WithId> = Key {
-    name: "BOXES", id: Some(2), _state: PhantomData,
+pub const BOXES_LAYER: Key<RegionLayer> = Key {
+    name: "BOXES", id: 2, _state: PhantomData,
 };
 
 lazy_static::lazy_static! {
@@ -558,44 +551,29 @@ lazy_static::lazy_static! {
 
 // NOTE: This is an expensive operation, so only use it for human-interface
 // purposes (e.g., debugging, logging, etc.) and not during the solving process.
-pub fn readable_key<KT: KeyType>(id: usize) -> Option<Key<KT, WithId>> {
+pub fn readable_key<KT: KeyType>(id: usize) -> Option<Key<KT>> {
     let registry = KEY_REGISTRY.lock().unwrap();
     registry.get(&KT::type_id()).unwrap().name(id).map(|name| {
-        Key { name, id: Some(id), _state: PhantomData}
+        Key { name, id, _state: PhantomData}
     })
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Key<KT: KeyType, S>{
+pub struct Key<KT: KeyType>{
     name: &'static str,
-    id: Option<usize>,
-    _state: PhantomData<(KT, S)>,
+    id: usize,
+    _state: PhantomData<KT>,
 }
 
-impl <KT: KeyType, S> Key<KT, S> {
+impl <KT: KeyType> Key<KT> {
+    pub fn register(name: &'static str) -> Self {
+        let type_id = KT::type_id();
+        let mut kr = KEY_REGISTRY.lock().unwrap();
+        let id = kr.get_mut(&type_id).unwrap().register(name);
+        return Key { name, id, _state: PhantomData };
+    }
     pub fn name(&self) -> &'static str { self.name }
-}
-
-impl <KT: KeyType> Key<KT, MaybeId> {
-    // Features are lazily initialized; the id is set when it is first used.
-    pub fn new(name: &'static str) -> Self {
-        Key { name, id: None, _state: PhantomData }
-    }
-
-    pub fn unwrap(&mut self) -> Key<KT, WithId> {
-        if let Some(id) = self.id {
-            return Key { name: self.name, id: Some(id), _state: PhantomData };
-        } else {
-            let type_id = KT::type_id();
-            let mut kr = KEY_REGISTRY.lock().unwrap();
-            self.id = Some(kr.get_mut(&type_id).unwrap().register(self.name));
-            return Key { name: self.name, id: self.id, _state: PhantomData };
-        }
-    }
-}
-
-impl <KT: KeyType> Key<KT, WithId> {
-    pub fn id(&self) -> usize { self.id.unwrap() }
+    pub fn id(&self) -> usize { self.id }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -620,12 +598,12 @@ impl FeatureVec<FVMaybeNormed> {
     pub fn from_pairs(weights: Vec<(&'static str, f64)>) -> Self {
         let mut fv = FeatureVec::new();
         for (k, v) in weights {
-            fv.add(&Key::<Feature, _>::new(k).unwrap(), v);
+            fv.add(&Key::<Feature>::register(k), v);
         }
         fv
     }
 
-    pub fn add(&mut self, key: &Key<Feature, WithId>, value: f64) {
+    pub fn add(&mut self, key: &Key<Feature>, value: f64) {
         let id = key.id();
         self.features.push((id, value));
         self.normalized = false;
@@ -698,7 +676,7 @@ impl <S> Display for FeatureVec<S> {
 }
 
 impl FeatureVec<FVNormed> {
-    pub fn get(&self, key: &Key<Feature, WithId>) -> Option<f64> {
+    pub fn get(&self, key: &Key<Feature>) -> Option<f64> {
         let id = key.id();
         for (k, v) in &self.features {
             if *k == id {
@@ -748,8 +726,8 @@ impl <V: Value> CertainDecision<V> {
 /// short-circuiting.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstraintResult<V: Value> {
-    Contradiction(Key<Attribution, WithId>),
-    Certainty(CertainDecision<V>, Key<Attribution, WithId>),
+    Contradiction(Key<Attribution>),
+    Certainty(CertainDecision<V>, Key<Attribution>),
     Ok,
 }
 
@@ -768,20 +746,20 @@ pub enum BranchOver<V: Value> {
 #[derive(Debug, Clone)]
 pub struct BranchPoint<V: Value> {
     pub branch_step: usize,
-    pub branch_attribution: Key<Attribution, WithId>,
+    pub branch_attribution: Key<Attribution>,
     pub choices: BranchOver<V>,
 }
 
 impl <V: Value> BranchPoint<V> {
-    pub fn unique(step: usize, attribution: Key<Attribution, WithId>, index: Index, value: V) -> Self {
+    pub fn unique(step: usize, attribution: Key<Attribution>, index: Index, value: V) -> Self {
         Self::for_cell(step, attribution, index, vec![value])
     }
 
-    pub fn empty(step: usize, attribution: Key<Attribution, WithId>) -> Self {
+    pub fn empty(step: usize, attribution: Key<Attribution>) -> Self {
         BranchPoint { branch_step: step, branch_attribution: attribution, choices: BranchOver::Empty }
     }
 
-    pub fn for_cell(step: usize, attribution: Key<Attribution, WithId>, index: Index, values: Vec<V>) -> Self {
+    pub fn for_cell(step: usize, attribution: Key<Attribution>, index: Index, values: Vec<V>) -> Self {
         if values.len() > 0 {
             BranchPoint {
                 branch_step: step,
@@ -793,7 +771,7 @@ impl <V: Value> BranchPoint<V> {
         }
     }
 
-    pub fn for_value(step: usize, attribution: Key<Attribution, WithId>, val: V, cells: Vec<Index>) -> Self {
+    pub fn for_value(step: usize, attribution: Key<Attribution>, val: V, cells: Vec<Index>) -> Self {
         if cells.len() > 0 {
             BranchPoint {
                 branch_step: step,
@@ -1021,12 +999,12 @@ pub trait Stateful<V: Value>: {
 pub trait Overlay: Clone + Debug {
     type Iter<'a>: Iterator<Item = Index> where Self: 'a;
     fn grid_dims(&self) -> (usize, usize);
-    fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>>;
-    fn regions_in_layer(&self, layer: Key<RegionLayer, WithId>) -> usize;
-    fn cells_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize) -> usize;
-    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer, WithId>, index: Index) -> Option<(usize, usize)>;
-    fn nth_in_region(&self, layer: Key<RegionLayer, WithId>, index: usize, offset: usize) -> Option<Index>;
-    fn region_iter(&self, layer: Key<RegionLayer, WithId>, index: usize) -> Self::Iter<'_>;
+    fn region_layers(&self) -> Vec<Key<RegionLayer>>;
+    fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize;
+    fn cells_in_region(&self, layer: Key<RegionLayer>, index: usize) -> usize;
+    fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)>;
+    fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index>;
+    fn region_iter(&self, layer: Key<RegionLayer>, index: usize) -> Self::Iter<'_>;
     fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
         for layer in self.region_layers() {
             if let Some((r1, _)) = self.enclosing_region_and_offset(layer, i1) {
@@ -1186,20 +1164,20 @@ pub mod test_util {
     impl <const N: usize> Overlay for OneDimOverlay<N> {
         type Iter<'a> = std::vec::IntoIter<Index>;
         fn grid_dims(&self) -> (usize, usize) { (1, N) }
-        fn region_layers(&self) -> Vec<Key<RegionLayer, WithId>> { vec![] }
-        fn regions_in_layer(&self, _: Key<RegionLayer, WithId>) -> usize {
+        fn region_layers(&self) -> Vec<Key<RegionLayer>> { vec![] }
+        fn regions_in_layer(&self, _: Key<RegionLayer>) -> usize {
             panic!("No region layers exist!")
         }
-        fn cells_in_region(&self, _: Key<RegionLayer, WithId>, _: usize) -> usize {
+        fn cells_in_region(&self, _: Key<RegionLayer>, _: usize) -> usize {
             panic!("No region layers exist!")
         }
-        fn region_iter(&self, _: Key<RegionLayer, WithId>, _: usize) -> Self::Iter<'_> {
+        fn region_iter(&self, _: Key<RegionLayer>, _: usize) -> Self::Iter<'_> {
             panic!("No region layers exist!")
         }
-        fn enclosing_region_and_offset(&self, _: Key<RegionLayer, WithId>, _: Index) -> Option<(usize, usize)> {
+        fn enclosing_region_and_offset(&self, _: Key<RegionLayer>, _: Index) -> Option<(usize, usize)> {
             panic!("No region layers exist!")
         }
-        fn nth_in_region(&self, _: Key<RegionLayer, WithId>, _: usize, _: usize) -> Option<Index> {
+        fn nth_in_region(&self, _: Key<RegionLayer>, _: usize, _: usize) -> Option<Index> {
             panic!("No region layers exist!")
         }
         fn mutually_visible(&self, _: Index, _: Index) -> bool { true }

@@ -229,7 +229,7 @@ mod test {
             let grid = ranking.cells_mut();
             for j in 0..3 {
                 if puzzle.get([0, j]) == Some(TestVal(self.0)) {
-                    return ConstraintResult::Contradiction(Key::new("BLACKLISTED").unwrap());
+                    return ConstraintResult::Contradiction(Key::register("BLACKLISTED"));
                 } else {
                     grid.get_mut([0, j]).0.remove(&TestVal(self.0));
                 }
@@ -248,7 +248,7 @@ mod test {
             for j in 0..3 {
                 if let Some(v) = puzzle.get([0, j]) {
                     if v.0 % self.0 != self.1 {
-                        return ConstraintResult::Contradiction(Key::new("WRONG_MOD").unwrap());
+                        return ConstraintResult::Contradiction(Key::register("WRONG_MOD"));
                     }
                     *grid.get_mut([0, j]).0 = VBitSet::<TestVal>::singleton(&v);
                 } else {

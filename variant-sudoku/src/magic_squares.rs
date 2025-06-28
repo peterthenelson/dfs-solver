@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut, WithId}, sudoku::{NineStdVal, StdOverlay}};
+use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut}, sudoku::{NineStdVal, StdOverlay}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -78,14 +78,14 @@ pub struct MagicSquareChecker {
     squares: Vec<MagicSquare>,
     evens: VBitSet<NineStdVal>,
     odds: VBitSet<NineStdVal>,
-    ms_feature: Key<Feature, WithId>,
-    ms_mid_attr: Key<Attribution, WithId>,
-    ms_mid_5_attr: Key<Attribution, WithId>,
-    ms_corner_attr: Key<Attribution, WithId>,
-    ms_side_attr: Key<Attribution, WithId>,
-    ms_sum_attr: Key<Attribution, WithId>,
-    ms_sum_exact_attr: Key<Attribution, WithId>,
-    ms_sum_if_attr: Key<Attribution, WithId>,
+    ms_feature: Key<Feature>,
+    ms_mid_attr: Key<Attribution>,
+    ms_mid_5_attr: Key<Attribution>,
+    ms_corner_attr: Key<Attribution>,
+    ms_side_attr: Key<Attribution>,
+    ms_sum_attr: Key<Attribution>,
+    ms_sum_exact_attr: Key<Attribution>,
+    ms_sum_if_attr: Key<Attribution>,
 }
 
 impl MagicSquareChecker {
@@ -102,14 +102,14 @@ impl MagicSquareChecker {
             squares,
             evens,
             odds,
-            ms_feature: Key::new(MS_FEATURE).unwrap(),
-            ms_mid_attr: Key::new(MS_MID_ATTRIBUTION).unwrap(),
-            ms_mid_5_attr: Key::new(MS_MID_5_ATTRIBUTION).unwrap(),
-            ms_corner_attr: Key::new(MS_CORNER_ATTRIBUTION).unwrap(),
-            ms_side_attr: Key::new(MS_SIDE_ATTRIBUTION).unwrap(),
-            ms_sum_attr: Key::new(MS_SUM_ATTRIBUTION).unwrap(),
-            ms_sum_exact_attr: Key::new(MS_SUM_EXACT_ATTRIBUTION).unwrap(),
-            ms_sum_if_attr: Key::new(MS_SUM_INFEASIBLE_ATTRIBUTION).unwrap(),
+            ms_feature: Key::register(MS_FEATURE),
+            ms_mid_attr: Key::register(MS_MID_ATTRIBUTION),
+            ms_mid_5_attr: Key::register(MS_MID_5_ATTRIBUTION),
+            ms_corner_attr: Key::register(MS_CORNER_ATTRIBUTION),
+            ms_side_attr: Key::register(MS_SIDE_ATTRIBUTION),
+            ms_sum_attr: Key::register(MS_SUM_ATTRIBUTION),
+            ms_sum_exact_attr: Key::register(MS_SUM_EXACT_ATTRIBUTION),
+            ms_sum_if_attr: Key::register(MS_SUM_INFEASIBLE_ATTRIBUTION),
         }
     }
 
@@ -161,7 +161,7 @@ fn check_vals<const N: usize, const M: usize>(
     values: &VBitSet<NineStdVal>,
     puzzle: &State<NineStdVal, StdOverlay<N, M>>,
     ranking: &mut RankingInfo<NineStdVal, Unscored>,
-    attribution: Key<Attribution, WithId>,
+    attribution: Key<Attribution>,
 ) -> Option<ConstraintResult<NineStdVal>> {
     let grid = ranking.cells_mut();
     for i in indices {
