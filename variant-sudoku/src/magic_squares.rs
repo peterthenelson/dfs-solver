@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, RankingInfo, State, Stateful, Unscored, VBitSet, VSet, VSetMut}, sudoku::{NineStdVal, StdOverlay}};
+use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Feature, Index, Key, RankingInfo, State, Stateful, VBitSet, VSet, VSetMut}, sudoku::{NineStdVal, StdOverlay}};
 
 /// This is _standard, exclusive_ magic square. These are extremely limiting--
 /// 5 must go in the middle, odds go on the sides, and evens go in the corners,
@@ -117,7 +117,7 @@ impl MagicSquareChecker {
         &self,
         triple: &[Index; 3], 
         puzzle: &State<NineStdVal, StdOverlay<N, M>>,
-        ranking: &RankingInfo<NineStdVal, Unscored>,
+        ranking: &RankingInfo<NineStdVal>,
     ) -> Option<ConstraintResult<NineStdVal>> {
         let (sum, n_empty, first_empty) = sum_trip(triple, puzzle);
         if n_empty == 0 {
@@ -160,7 +160,7 @@ fn check_vals<const N: usize, const M: usize>(
     indices: &[Index; 4],
     values: &VBitSet<NineStdVal>,
     puzzle: &State<NineStdVal, StdOverlay<N, M>>,
-    ranking: &mut RankingInfo<NineStdVal, Unscored>,
+    ranking: &mut RankingInfo<NineStdVal>,
     attribution: Key<Attribution>,
 ) -> Option<ConstraintResult<NineStdVal>> {
     let grid = ranking.cells_mut();
@@ -196,7 +196,7 @@ fn sum_trip<const N: usize, const M: usize>(
 
 impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
-    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal, Unscored>) -> ConstraintResult<NineStdVal> {
+    fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal>) -> ConstraintResult<NineStdVal> {
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
                 if v.val() != 5 {

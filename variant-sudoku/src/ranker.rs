@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, DecisionGrid, FVMaybeNormed, FVNormed, Feature, FeatureVec, Index, Key, Overlay, RankingInfo, RegionLayer, Scored, State, Unscored, VBitSet, VDenseMap, VMap, VMapMut, VSet, Value};
+use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, CoVec, ConstraintResult, DecisionGrid, Feature, FeatureVec, Index, Key, Overlay, RankingInfo, Raw, RegionLayer, State, VBitSet, VDenseMap, VMap, VMapMut, VSet, Value};
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
@@ -9,45 +9,20 @@ use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, Const
 /// branch point, but the StdRanker does not do so, and the RankingInfo doesn't
 /// currently provide useful guidance to base such a decision on.
 pub trait Ranker<V: Value, O: Overlay> {
-    fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V, Unscored>;
+    fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V>;
 
     // Note: the ranker must not suggest already filled cells.
-    fn rank(&self, step: usize, ranking: RankingInfo<V, Unscored>, puzzle: &State<V, O>) -> (RankingInfo<V, Scored>, ConstraintResult<V>, Option<BranchPoint<V>>);
-
-    // Score for a particular feature vec for a cell. Exposed for debugging reasons.
-    fn cell_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
-
-    // Score for a particular feature vec for a val. Exposed for debugging reasons.
-    fn val_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64;
+    fn rank(&self, step: usize, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) -> (ConstraintResult<V>, Option<BranchPoint<V>>);
 
     /// Exposes how the ranker looks at the grid when calculating candidates
     /// in regions (i.e., those implied by positive_constraint). Useful for
     /// debugging without needing to duplicate the implementation of the ranker.
     /// Implementations may return None if they don't generate candidates in
     /// this way.
-    fn region_info<S: DGGetter<V>>(
+    fn region_info<S>(
         &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
     ) -> Option<RankerRegionInfo<V>>;
 }
-
-// TODO: Remove this once region_info is all refactored away.
-pub trait DGGetter<V: Value> where Self: Sized {
-    fn get_possible_and_features<'a>(grid: &'a DecisionGrid<V, Self>, index: Index) -> (&'a VBitSet<V>, &'a FeatureVec<FVMaybeNormed>);
-}
-
-impl <V: Value> DGGetter<V> for Unscored {
-    fn get_possible_and_features<'a>(grid: &'a DecisionGrid<V, Unscored>, index: Index) -> (&'a VBitSet<V>, &'a FeatureVec<FVMaybeNormed>) {
-        grid.get(index)
-    }
-}
-
-impl <V: Value> DGGetter<V> for Scored {
-    fn get_possible_and_features<'a>(grid: &'a DecisionGrid<V, Scored>, index: Index) -> (&'a VBitSet<V>, &'a FeatureVec<FVMaybeNormed>) {
-        let (p, f, _) = grid.get(index);
-        (p, f.decay())
-    }
-}
-
 
 pub struct RankerRegionInfo<V: Value> {
     // Values that have already been filled into the puzzle.
@@ -55,7 +30,7 @@ pub struct RankerRegionInfo<V: Value> {
     // Cells that a given value can go into.
     pub cell_choices: VDenseMap<V, Vec<Index>>,
     // Feature vectors for a given value.
-    pub feature_vecs: VDenseMap<V, FeatureVec<FVMaybeNormed>>,
+    pub feature_vecs: VDenseMap<V, FeatureVec<Raw>>,
     p_v_: PhantomData<V>,
 }
 
@@ -76,8 +51,8 @@ pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
 /// a region.
 pub struct StdRanker {
     positive_constraint: bool,
-    cell_weights: FeatureVec<FVNormed>,
-    val_weights: FeatureVec<FVNormed>,
+    cell_weights: FeatureVec<CoVec>,
+    val_weights: FeatureVec<CoVec>,
     cell_possible: Key<Feature>,
     val_possible: Key<Feature>,
     combinator: fn (usize, f64, f64) -> f64,
@@ -95,22 +70,24 @@ impl <V: Value> RankerRegionInfo<V> {
         Self {
             filled: VBitSet::<V>::empty(),
             cell_choices: VDenseMap::<V, Vec<Index>>::empty(),
-            feature_vecs: VDenseMap::<V, FeatureVec<FVMaybeNormed>>::empty(),
+            feature_vecs: VDenseMap::<V, FeatureVec<Raw>>::empty(),
             p_v_: PhantomData,
         }
     }
 }
 
 impl StdRanker {
-    pub fn new(positive_constraint: bool, cell_weights: FeatureVec<FVMaybeNormed>, val_weights: FeatureVec<FVMaybeNormed>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
-        let mut cell_weights = cell_weights.clone();
-        cell_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)));
-        let mut val_weights = val_weights.clone();
-        val_weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)));
+    pub fn new(positive_constraint: bool, cell_weights: FeatureVec<Raw>, val_weights: FeatureVec<Raw>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
+        let cell_weights = cell_weights.to_covec(
+            |id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)),
+        );
+        let val_weights = val_weights.to_covec(
+            |id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)),
+        );
         StdRanker {
             positive_constraint,
-            cell_weights: cell_weights.try_normalized().unwrap().clone(),
-            val_weights: val_weights.try_normalized().unwrap().clone(),
+            cell_weights,
+            val_weights,
             cell_possible: Key::register(DG_CELL_POSSIBLE_FEATURE),
             val_possible: Key::register(DG_VAL_POSSIBLE_FEATURE),
             combinator: combine_features,
@@ -125,7 +102,7 @@ impl StdRanker {
     }
 
     // Like the default but extended with additional weights.
-    pub fn with_additional_weights(weights: FeatureVec<FVMaybeNormed>) -> Self {
+    pub fn with_additional_weights(weights: FeatureVec<Raw>) -> Self {
         let mut cell_weights = FeatureVec::new();
         cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
         cell_weights.extend(&weights);
@@ -155,7 +132,7 @@ impl StdRanker {
         Self::new(false, cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
-    fn annotate<V: Value, O: Overlay>(&self, ranking: &mut RankingInfo<V, Unscored>, puzzle: &State<V, O>) {
+    fn annotate<V: Value, O: Overlay>(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
         let grid = ranking.cells_mut();
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
@@ -169,7 +146,7 @@ impl StdRanker {
         }
     }
 
-    fn to_constraint_result<V: Value, O: Overlay>(&self, ranking: &RankingInfo<V, Scored>, puzzle: &State<V, O>) -> ConstraintResult<V> {
+    fn to_constraint_result<V: Value, O: Overlay>(&self, ranking: &RankingInfo<V>, puzzle: &State<V, O>) -> ConstraintResult<V> {
         let grid = ranking.cells();
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
@@ -217,7 +194,7 @@ enum SRChoice<V: Value> {
 }
 
 impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
-    fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V, Unscored> {
+    fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V> {
         let mut cells = puzzle.overlay().full_decision_grid();
         let (n, m) = puzzle.overlay().grid_dims();
         for r in 0..n {
@@ -230,82 +207,60 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         RankingInfo::new(cells)
     }
 
-    fn rank(&self, step: usize, ranking: RankingInfo<V, Unscored>, puzzle: &State<V, O>) -> (RankingInfo<V, Scored>, ConstraintResult<V>, Option<BranchPoint<V>>) {
-        let mut ranking = ranking;
-        self.annotate(&mut ranking, puzzle);
-        let ranking = ranking.into_scored(|fv| {
-            <Self as Ranker<V, O>>::cell_score(self, fv)
-        });
+    fn rank(&self, step: usize, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) -> (ConstraintResult<V>, Option<BranchPoint<V>>) {
+        self.annotate(ranking, puzzle);
+        let top_cell = ranking.score_against(self.combinator, puzzle, &self.cell_weights);
         let cr = self.to_constraint_result(&ranking, puzzle);
         match &cr {
             ConstraintResult::Contradiction(_) | ConstraintResult::Certainty(_, _) => {
-                return (ranking, cr, None);
+                return (cr, None);
             },
             ConstraintResult::Ok => {},
         };
-        let mut top_choice = None;
-        let mut top_score: f64 = f64::MIN;
-        let grid = ranking.cells();
-        for r in 0..grid.rows() {
-            for c in 0..grid.cols() {
-                if puzzle.get([r, c]).is_some() {
-                    continue;
-                }
-                let score = grid.get([r, c]).2;
-                if score > top_score {
-                    top_score = score;
-                    top_choice = Some(SRChoice::Cell([r, c]));
-                }
-            }
-        }
-        if top_choice.is_none() {
-            return (ranking, ConstraintResult::Ok, Some(BranchPoint::empty(step, self.empty_attr)));
-        }
+        let mut top_choice = if let Some((i, s)) = top_cell {
+            Some((SRChoice::Cell(i), s))
+        } else {
+            return (ConstraintResult::Ok, Some(BranchPoint::empty(step, self.empty_attr)));
+        };
         // TODO: Factor this into the RankingInfo and the init_ranking method
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
-                if let Some(mut info) = self.region_info(grid, puzzle, layer, p) {
+                if let Some(mut info) = self.region_info(ranking.cells_mut(), puzzle, layer, p) {
                     for v in V::possibilities() {
                         if info.filled.contains(&v) {
                             continue;
                         }
-                        let score = <Self as Ranker<V, O>>::val_score(
-                            self,
-                            info.feature_vecs.get_mut(&v),
-                        );
-                        if top_choice.is_none() || score > top_score {
-                            top_score = score;
-                            top_choice = Some(SRChoice::ValueInRegion(v, info.cell_choices.get(&v).clone()));
-                        }
+                        let fv = info.feature_vecs.get_mut(&v);
+                        fv.score_against(self.combinator, &self.val_weights);
+                        let score = fv.try_scored().unwrap().score();
+                        top_choice = top_choice.map(|(c, s)| {
+                            if score > s { 
+                                (SRChoice::ValueInRegion(v, info.cell_choices.get(&v).clone()), score)
+                            } else {
+                                (c, s)
+                            }
+                        });
                     }
                 }
             }
         }
         let bp = match top_choice {
-            Some(SRChoice::Cell(index)) => {
+            Some((SRChoice::Cell(index), _)) => {
                 BranchPoint::for_cell(
                     step, self.top_cell_attr, index,
-                    grid.get(index).0.iter().collect::<Vec<_>>(),
+                    ranking.cells().get(index).0.iter().collect::<Vec<_>>(),
                 )
             },
-            Some(SRChoice::ValueInRegion(val, alternatives)) => {
+            Some((SRChoice::ValueInRegion(val, alternatives), _)) => {
                 BranchPoint::for_value(step, self.top_val_attr, val, alternatives)
             },
             _ => panic!("Should be unreachable!"),
         };
-        (ranking, ConstraintResult::Ok, Some(bp))
+        (ConstraintResult::Ok, Some(bp))
     }
 
-    fn cell_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64 {
-        fv.normalize_and(self.combinator).dot_product(&self.cell_weights)
-    }
-
-    fn val_score(&self, fv: &mut FeatureVec<FVMaybeNormed>) -> f64 {
-        fv.normalize_and(self.combinator).dot_product(&self.val_weights)
-    }
-
-    fn region_info<S: DGGetter<V>>(
+    fn region_info<S>(
         &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
     ) -> Option<RankerRegionInfo<V>> {
         if !self.positive_constraint {
@@ -320,7 +275,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
                 cc.push(index);
                 continue;
             }
-            let g = S::get_possible_and_features(grid, index);
+            let g = grid.get(index);
             for v in g.0.iter() {
                 info.cell_choices.get_mut(&v).push(index);
                 info.feature_vecs.get_mut(&v).extend(&g.1);

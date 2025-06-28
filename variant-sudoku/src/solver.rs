@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, RankingInfo, Scored, State, Stateful, Value};
+use crate::core::{Attribution, BranchPoint, ConstraintResult, Error, Index, Key, Overlay, RankingInfo, State, Stateful, Value};
 use crate::constraint::Constraint;
 use crate::ranker::Ranker;
 
@@ -50,7 +50,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn ranker(&self) -> &R;
     fn constraint(&self) -> &C;
     fn constraint_result(&self) -> ConstraintResult<V>;
-    fn ranking_info(&self) -> &Option<RankingInfo<V, Scored>>;
+    fn ranking_info(&self) -> &Option<RankingInfo<V>>;
     fn state(&self) -> &State<V, O>;
 }
 
@@ -79,7 +79,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     constraint: &'a mut C,
     givens: Vec<(Index, V)>,
     check_result: ConstraintResult<V>,
-    ranking_info: Option<RankingInfo<V, Scored>>,
+    ranking_info: Option<RankingInfo<V>>,
     next_decision: Option<BranchPoint<V>>,
     stack: Vec<BranchPoint<V>>,
     backtracked_steps: Option<usize>,
@@ -156,7 +156,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
         self.check_result.clone()
     }
 
-    fn ranking_info(&self) -> &Option<RankingInfo<V, Scored>> {
+    fn ranking_info(&self) -> &Option<RankingInfo<V>> {
         &self.ranking_info
     }
 
@@ -204,7 +204,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
                 Some(BranchPoint::unique(self.step+1, *a, d.index, d.value))
             },
             ConstraintResult::Ok => {
-                let (ranking, cr, bp) = self.ranker.rank(self.step + 1, ranking, self.puzzle);
+                let (cr, bp) = self.ranker.rank(self.step + 1, &mut ranking, self.puzzle);
                 self.check_result = cr;
                 self.ranking_info = Some(ranking);
                 match &self.check_result {
@@ -341,10 +341,9 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
                         step: self.step,
                     });
                     if self.ranking_info.is_none() {
-                        let (scored, _, _) = self.ranker.rank(
-                            self.step, self.ranker.init_ranking(&self.puzzle), &self.puzzle,
-                        );
-                        self.ranking_info = Some(scored);
+                        let mut ranking = self.ranker.init_ranking(&self.puzzle);
+                        let _ = self.ranker.rank(self.step, &mut ranking, &self.puzzle);
+                        self.ranking_info = Some(ranking);
                     }
                 }
                 Ok(())
@@ -427,7 +426,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
     }
-    fn ranking_info(&self) -> &Option<RankingInfo<V, Scored>> {
+    fn ranking_info(&self) -> &Option<RankingInfo<V>> {
         self.solver.ranking_info()
     }
     fn state(&self) -> &State<V, O> { self.solver.state() }
@@ -495,7 +494,7 @@ where V: Value, O: Overlay, R: Ranker<V, O>, C: Constraint<V, O> {
     fn constraint_result(&self) -> ConstraintResult<V> {
         self.solver.constraint_result()
     }
-    fn ranking_info(&self) -> &Option<RankingInfo<V, Scored>> {
+    fn ranking_info(&self) -> &Option<RankingInfo<V>> {
         self.solver.ranking_info()
     }
     fn state(&self) -> &State<V, O> { self.solver.state() }
@@ -587,7 +586,7 @@ pub mod test_util {
         fn constraint_result(&self) -> ConstraintResult<V> {
             self.solver.constraint_result()
         }
-        fn ranking_info(&self) -> &Option<RankingInfo<V, Scored>> {
+        fn ranking_info(&self) -> &Option<RankingInfo<V>> {
             self.solver.ranking_info()
         }
         fn state(&self) -> &State<V, O> { self.solver.state() }
@@ -659,7 +658,7 @@ pub mod test_util {
 mod test {
     use crate::constraint::test_util::assert_contradiction;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{RankingInfo, Stateful, Unscored, VSetMut};
+    use crate::core::{RankingInfo, Stateful, VSetMut};
     use crate::ranker::StdRanker;
     use super::*;
 
@@ -670,7 +669,7 @@ mod test {
     struct GwLineConstraint {}
     impl Stateful<TestVal> for GwLineConstraint {}
     impl Constraint<TestVal, GwOverlay> for GwLineConstraint {
-        fn check(&self, puzzle: &GwLine, _: &mut RankingInfo<TestVal, Unscored>) -> ConstraintResult<TestVal> {
+        fn check(&self, puzzle: &GwLine, _: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             for i in 0..8 {
                 if puzzle.get([0, i]).is_none() {
                     continue;
@@ -699,7 +698,7 @@ mod test {
     struct GwSmartLineConstraint {}
     impl Stateful<TestVal> for GwSmartLineConstraint {}
     impl Constraint<TestVal, GwOverlay> for GwSmartLineConstraint {
-        fn check(&self, puzzle: &GwLine, ranking: &mut RankingInfo<TestVal, Unscored>) -> ConstraintResult<TestVal> {
+        fn check(&self, puzzle: &GwLine, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             let grid = ranking.cells_mut();
             for i in 0..8 {
                 if let Some(v) = puzzle.get([0, i]) {

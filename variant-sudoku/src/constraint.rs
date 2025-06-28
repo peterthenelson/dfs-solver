@@ -1,5 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
-use crate::core::{ConstraintResult, Error, Index, Overlay, RankingInfo, State, Stateful, Unscored, Value};
+use crate::core::{ConstraintResult, Error, Index, Overlay, RankingInfo, State, Stateful, Value};
 
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
@@ -26,7 +26,7 @@ pub trait Constraint<V: Value, O: Overlay> where Self: Stateful<V> + Debug {
     /// state from past actions). If a Constraint is able to infer useful
     /// information about what values a cell could take on, they should update
     /// the grids in the RankingInfo (in a way that further constrains them).
-    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V>;
+    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V>;
     /// Provide debug information at a particular grid in the puzzle (if any
     /// is available).
     fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String>;
@@ -85,7 +85,7 @@ impl <V, O, X, Y> Constraint<V, O> for ConstraintConjunction<V, O, X, Y>
 where
     V: Value, O: Overlay, X: Constraint<V, O>, Y: Constraint<V, O>
 {
-    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V> {
+    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
         match self.x.check(puzzle, ranking) {
             ConstraintResult::Contradiction(a) => ConstraintResult::Contradiction(a),
             ConstraintResult::Certainty(d, a) => ConstraintResult::Certainty(d, a),
@@ -158,7 +158,7 @@ impl <V: Value, O: Overlay> Stateful<V> for MultiConstraint<V, O> {
 }
 
 impl <V: Value, O: Overlay> Constraint<V, O> for MultiConstraint<V, O> {
-    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V> {
+    fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
         for c in &self.constraints {
             match c.check(puzzle, ranking) {
                 ConstraintResult::Contradiction(a) => return ConstraintResult::Contradiction(a),
@@ -216,7 +216,7 @@ mod test {
     use super::*;
     use super::test_util::*;
     use crate::core::test_util::{OneDimOverlay, TestVal};
-    use crate::core::{DecisionGrid, Key, Stateful, VBitSet, VSet, VSetMut};
+    use crate::core::{DecisionGrid, Key, Raw, Stateful, VBitSet, VSet, VSetMut};
     use crate::ranker::{Ranker, StdRanker};
 
     type ThreeVals = State<TestVal, OneDimOverlay<3>>;
@@ -225,7 +225,7 @@ mod test {
     pub struct BlacklistedVal(pub u8);
     impl Stateful<TestVal> for BlacklistedVal {}
     impl Constraint<TestVal, OneDimOverlay<3>> for BlacklistedVal {
-        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal, Unscored>) -> ConstraintResult<TestVal> {
+        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             let grid = ranking.cells_mut();
             for j in 0..3 {
                 if puzzle.get([0, j]) == Some(TestVal(self.0)) {
@@ -243,7 +243,7 @@ mod test {
     pub struct Mod(pub u8, pub u8);
     impl Stateful<TestVal> for Mod {}
     impl Constraint<TestVal, OneDimOverlay<3>> for Mod {
-        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal, Unscored>) -> ConstraintResult<TestVal> {
+        fn check(&self, puzzle: &ThreeVals, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             let grid = ranking.cells_mut();
             for j in 0..3 {
                 if let Some(v) = puzzle.get([0, j]) {
@@ -299,7 +299,7 @@ mod test {
         assert_contradiction(constraint.check(&puzzle, &mut ranking), "BLACKLISTED");
     }
 
-    fn unpack_set(g: &DecisionGrid<TestVal, Unscored>, index: Index) -> Vec<u8> {
+    fn unpack_set(g: &DecisionGrid<TestVal, Raw>, index: Index) -> Vec<u8> {
         g.get(index).0.iter().map(|v| v.0).collect::<Vec<u8>>()
     }
 

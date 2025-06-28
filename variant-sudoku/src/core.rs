@@ -576,23 +576,31 @@ impl <KT: KeyType> Key<KT> {
     pub fn id(&self) -> usize { self.id }
 }
 
+/// Marker structs to distinguish scoring-related structures in an indeterminate
+/// state vs one where things have been normalized and scored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FVMaybeNormed;
+pub struct Raw;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FVNormed;
+pub struct Scored;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeatureVec<S> {
     features: Vec<(usize, f64)>,
-    // Some methods only make sense when the features are sorted by id and
+    // Some methods have a precondition that features are sorted by id and
     // duplicate ids are dropped or merged.
     normalized: bool,
+    score: Option<f64>,
     _marker: PhantomData<S>,
 }
 
-impl FeatureVec<FVMaybeNormed> {
+/// FeatureVecs can be <Raw>, <Scored>, or <CoVec>. The latter is for the
+/// feature weights themselves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoVec;
+
+impl FeatureVec<Raw> {
     pub fn new() -> Self {
-        FeatureVec { features: Vec::new(), normalized: true, _marker: PhantomData }
+        FeatureVec { features: Vec::new(), normalized: true, score: None, _marker: PhantomData }
     }
 
     pub fn from_pairs(weights: Vec<(&'static str, f64)>) -> Self {
@@ -603,15 +611,22 @@ impl FeatureVec<FVMaybeNormed> {
         fv
     }
 
+    pub fn to_covec(mut self, combine: fn(usize, f64, f64) -> f64) -> FeatureVec<CoVec> {
+        self.normalize(combine);
+        unsafe { std::mem::transmute(self) }
+    }
+
     pub fn add(&mut self, key: &Key<Feature>, value: f64) {
         let id = key.id();
         self.features.push((id, value));
         self.normalized = false;
+        self.score = None;
     }
 
-    pub fn extend(&mut self, other: &FeatureVec<FVMaybeNormed>) {
+    pub fn extend(&mut self, other: &FeatureVec<Raw>) {
         self.features.extend_from_slice(&other.features);
         self.normalized = false;
+        self.score = None;
     }
 
     pub fn normalize(&mut self, combine: fn(usize, f64, f64) -> f64) {
@@ -638,21 +653,37 @@ impl FeatureVec<FVMaybeNormed> {
         self.normalized = true;
     }
 
-    pub fn try_normalized(&self) -> Result<&FeatureVec<FVNormed>, Error> {
-        if self.normalized {
+    pub fn score_against(&mut self, combine: fn(usize, f64, f64) -> f64, covec: &FeatureVec<CoVec>) -> f64 {
+        self.normalize(combine);
+        let mut sum = 0.0;
+        let mut i = 0;
+        let mut j = 0;
+        while i < self.features.len() && j < covec.features.len() {
+            if self.features[i].0 == covec.features[j].0 {
+                sum += self.features[i].1 * covec.features[j].1;
+                i += 1;
+                j += 1;
+            } else if self.features[i].0 < covec.features[j].0 {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+        self.score = Some(sum);
+        sum
+    }
+
+    pub fn try_scored(&self) -> Result<&FeatureVec<Scored>, Error> {
+        if self.score.is_some() {
             Ok(unsafe { std::mem::transmute(self) })
         } else {
-            Err(Error::new("FeatureVec is not normalized"))
+            Err(Error::new("FeatureVec is not scored"))
         }
     }
 
-    pub fn normalize_and(&mut self, combine: fn(usize, f64, f64) -> f64) -> &FeatureVec<FVNormed> {
-        self.normalize(combine);
-        unsafe { std::mem::transmute(self) }
-    }
 }
 
-impl Default for FeatureVec<FVMaybeNormed> {
+impl Default for FeatureVec<Raw> {
     fn default() -> Self {
         FeatureVec::new()
     }
@@ -675,7 +706,7 @@ impl <S> Display for FeatureVec<S> {
     }
 }
 
-impl FeatureVec<FVNormed> {
+impl FeatureVec<Scored> {
     pub fn get(&self, key: &Key<Feature>) -> Option<f64> {
         let id = key.id();
         for (k, v) in &self.features {
@@ -686,25 +717,11 @@ impl FeatureVec<FVNormed> {
         None
     }
 
-    pub fn dot_product(&self, other: &FeatureVec<FVNormed>) -> f64 {
-        let mut sum = 0.0;
-        let mut i = 0;
-        let mut j = 0;
-        while i < self.features.len() && j < other.features.len() {
-            if self.features[i].0 == other.features[j].0 {
-                sum += self.features[i].1 * other.features[j].1;
-                i += 1;
-                j += 1;
-            } else if self.features[i].0 < other.features[j].0 {
-                i += 1;
-            } else {
-                j += 1;
-            }
-        }
-        sum
+    pub fn score(&self) -> f64 {
+        self.score.unwrap()
     }
 
-    pub fn decay(&self) -> &FeatureVec<FVMaybeNormed> {
+    pub fn decay(&self) -> &FeatureVec<Raw> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -846,11 +863,6 @@ impl <V: Value> BranchPoint<V> {
     }
 }
 
-/// Marker structs for both DecisionGrid and RankingInfo state
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Unscored;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Scored;
 
 /// This is a grid of VBitSets and FeatureVecs. It is used to represent the
 /// not-yet-ruled-out values for each cell in the grid, along with features
@@ -859,7 +871,8 @@ pub struct Scored;
 pub struct DecisionGrid<V: Value, S> {
     rows: usize,
     cols: usize,
-    grid: Box<[(VBitSet<V>, FeatureVec<FVMaybeNormed>, f64)]>,
+    grid: Box<[(VBitSet<V>, FeatureVec<Raw>)]>,
+    top: Option<(Index, f64)>,
     _marker: PhantomData<(V, S)>,
 }
 
@@ -871,14 +884,20 @@ impl <V: Value, S> DecisionGrid<V, S> {
     pub fn cols(&self) -> usize {
         self.cols
     }
+
+    pub fn get(&self, index: Index) -> (&VBitSet<V>, &FeatureVec<Raw>) {
+        let (s, f) = &self.grid[index[0] * self.cols + index[1]];
+        (s, f)
+    }
 }
 
-impl<V: Value> DecisionGrid<V, Unscored> {
+impl<V: Value> DecisionGrid<V, Raw> {
     pub fn new(rows: usize, cols: usize) -> Self {
         Self {
             rows,
             cols,
-            grid: vec![(VBitSet::<V>::empty(), FeatureVec::new(), 0.0); rows * cols].into_boxed_slice(),
+            grid: vec![(VBitSet::<V>::empty(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            top: None,
             _marker: PhantomData,
         }
     }
@@ -887,26 +906,24 @@ impl<V: Value> DecisionGrid<V, Unscored> {
         Self {
             rows,
             cols,
-            grid: vec![(VBitSet::<V>::full(), FeatureVec::new(), 0.0); rows * cols].into_boxed_slice(),
+            grid: vec![(VBitSet::<V>::full(), FeatureVec::new()); rows * cols].into_boxed_slice(),
+            top: None,
             _marker: PhantomData,
         }
     }
 
-    pub fn get(&self, index: Index) -> (&VBitSet<V>, &FeatureVec<FVMaybeNormed>) {
-        let (s, f, _) = &self.grid[index[0] * self.cols + index[1]];
-        (s, f)
-    }
-
-    pub fn get_mut(&mut self, index: Index) -> (&mut VBitSet<V>, &mut FeatureVec<FVMaybeNormed>) {
-        let (s, f, _) = &mut self.grid[index[0] * self.cols + index[1]];
+    pub fn get_mut(&mut self, index: Index) -> (&mut VBitSet<V>, &mut FeatureVec<Raw>) {
+        let (s, f) = &mut self.grid[index[0] * self.cols + index[1]];
+        self.top = None;
         (s, f)
     }
 
     /// Intersects the possible values of this grid with the possible values of
     /// another grid. Also merges the features of the two grids.
-    pub fn combine_with(&mut self, other: &DecisionGrid<V, Unscored>) {
+    pub fn combine_with(&mut self, other: &DecisionGrid<V, Raw>) {
         assert!(self.rows == other.rows && self.cols == other.cols,
                 "Cannot combine grids of different sizes");
+        self.top = None;
         for i in 0..self.rows {
             for j in 0..self.cols {
                 let a = self.get_mut([i, j]);
@@ -917,26 +934,36 @@ impl<V: Value> DecisionGrid<V, Unscored> {
         }
     }
 
-    pub fn into_scored<F: Fn(&mut FeatureVec<FVMaybeNormed>) -> f64>(mut self, score_f: F) -> DecisionGrid<V, Scored> {
+    pub fn score_against<O: Overlay>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, covec: &FeatureVec<CoVec>) -> Option<(Index, f64)> {
+        self.top = None;
         for r in 0..self.rows {
             for c in 0..self.cols {
+                if puzzle.get([r, c]).is_some() {
+                    continue;
+                }
                 let cell = &mut self.grid[r * self.cols + c];
-                cell.2 = score_f(&mut cell.1);
+                let score = cell.1.score_against(combine, covec);
+                self.top = self.top.map_or(Some(([r, c], score)), |(i, s)| {
+                    Some(if score > s { ([r, c], score) } else { (i, s) })
+                });
             }
         }
-        DecisionGrid {
-            rows: self.rows,
-            cols: self.cols,
-            grid: self.grid,
-            _marker: PhantomData,
+        self.top
+    }
+
+    pub fn try_scored(&self) -> Result<&FeatureVec<Scored>, Error> {
+        if self.top.is_some() {
+            Ok(unsafe { std::mem::transmute(self) })
+        } else {
+            Err(Error::new("DecisionGrid is not scored"))
         }
     }
 }
 
 impl<V: Value> DecisionGrid<V, Scored> {
-    pub fn get(&self, index: Index) -> (&VBitSet<V>, &FeatureVec<FVNormed>, f64) {
-        let (s, f, score) = &self.grid[index[0] * self.cols + index[1]];
-        (s, f.try_normalized().unwrap(), *score)
+    pub fn scored_feature(&self, index: Index) -> &FeatureVec<Scored> {
+        let (_, f)= &self.grid[index[0] * self.cols + index[1]];
+        f.try_scored().unwrap()
     }
 }
 
@@ -944,32 +971,29 @@ impl<V: Value> DecisionGrid<V, Scored> {
 /// RankingInfo. The available grids should be consistent with the regions
 /// visible in the Overlay.
 #[derive(Debug, Clone)]
-pub struct RankingInfo<V: Value, S> {
+pub struct RankingInfo<V: Value> {
     // The primary way to provide ranking-relevant information is to add
     // features to or restrict available values in a DecisionGrid.
-    cells: DecisionGrid<V, S>,
+    cells: DecisionGrid<V, Raw>,
 
     // TODO: Add info for RegionLayers in the Overlay.
 }
 
-impl <V: Value, S> RankingInfo<V, S> {
-    pub fn new(cells: DecisionGrid<V, S>) -> Self { Self { cells } }
+impl <V: Value> RankingInfo<V> {
+    pub fn new(cells: DecisionGrid<V, Raw>) -> Self { Self { cells } }
 
-    pub fn cells(&self) -> &DecisionGrid<V, S> {
+    pub fn cells(&self) -> &DecisionGrid<V, Raw> {
         &self.cells
     }
-}
 
-impl <V: Value> RankingInfo<V, Unscored> {
-    pub fn cells_mut(&mut self) -> &mut DecisionGrid<V, Unscored> {
+    pub fn cells_mut(&mut self) -> &mut DecisionGrid<V, Raw> {
         &mut self.cells
     }
 
-    pub fn into_scored<F: Fn(&mut FeatureVec<FVMaybeNormed>) -> f64>(self, score_f: F) -> RankingInfo<V, Scored> {
-        RankingInfo { cells: self.cells.into_scored(score_f) }
+    pub fn score_against<O: Overlay>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, covec: &FeatureVec<CoVec>) -> Option<(Index, f64)> {
+        self.cells.score_against(combine, puzzle, covec)
     }
 }
-
 
 /// This converts an extracted item from a container a Value, making use of the
 /// private API to do so.
@@ -1022,7 +1046,7 @@ pub trait Overlay: Clone + Debug {
     fn all_mutually_visible(&self, indices: &Vec<Index>) -> bool {
         indices.iter().all(|i| self.mutually_visible(indices[0], *i))
     }
-    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Unscored>;
+    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Raw>;
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error>;
     fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String;
 }
@@ -1181,7 +1205,7 @@ pub mod test_util {
             panic!("No region layers exist!")
         }
         fn mutually_visible(&self, _: Index, _: Index) -> bool { true }
-        fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Unscored> {
+        fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Raw> {
             DecisionGrid::full(1, N)
         }
         fn parse_state<V: Value>(&self, _: &str) -> Result<State<V, Self>, Error> {

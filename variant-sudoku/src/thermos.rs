@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, Unscored, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
+use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RankingInfo, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, sudoku::StdVal};
 
 // TODO: Add support for slow thermos
 
@@ -191,7 +191,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for ThermoChecker
 
 impl <const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
-    fn check(&self, _: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>, Unscored>) -> ConstraintResult<StdVal<MIN, MAX>> {
+    fn check(&self, _: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
         }

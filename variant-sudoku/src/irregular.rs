@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, Unscored, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, index_util::{parse_region_grid, parse_val_grid}};
+use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, DecisionGrid, Error, Index, Key, Overlay, RankingInfo, RegionLayer, State, Stateful, Raw, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, index_util::{parse_region_grid, parse_val_grid}};
 
 #[derive(Debug, Clone)]
 pub struct IrregularOverlay<const N: usize, const M: usize> {
@@ -111,7 +111,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
 
     fn grid_dims(&self) -> (usize, usize) { (N, M) }
 
-    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Unscored> {
+    fn full_decision_grid<V: Value>(&self) -> DecisionGrid<V, Raw> {
         DecisionGrid::full(N, M)
     }
 
@@ -339,7 +339,7 @@ Stateful<V> for IrregularChecker<N, M, V> {
 
 impl <const N: usize, const M: usize, V: Value>
 Constraint<V, IrregularOverlay<N, M>> for IrregularChecker<N, M, V> {
-    fn check(&self, puzzle: &State<V, IrregularOverlay<N, M>>, ranking: &mut RankingInfo<V, Unscored>) -> ConstraintResult<V> {
+    fn check(&self, puzzle: &State<V, IrregularOverlay<N, M>>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
         let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
