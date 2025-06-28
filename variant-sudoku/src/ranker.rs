@@ -15,13 +15,13 @@ pub trait Ranker<V: Value, O: Overlay> {
     fn rank(&self, step: usize, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) -> (ConstraintResult<V>, Option<BranchPoint<V>>);
 
     /// Exposes how the ranker looks at the grid when calculating candidates
-    /// in regions (i.e., those implied by positive_constraint). Useful for
-    /// debugging without needing to duplicate the implementation of the ranker.
-    /// Implementations may return None if they don't generate candidates in
-    /// this way.
+    /// in regions (i.e., the positive constraints implied by the overlay).
+    /// Useful for debugging without needing to duplicate the implementation of
+    /// the ranker. Implementations may return None if they don't generate
+    /// candidates in this way.
     fn region_info<S>(
         &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
-    ) -> Option<RankerRegionInfo<V>>;
+    ) -> RankerRegionInfo<V>;
 }
 
 pub struct RankerRegionInfo<V: Value> {
@@ -50,7 +50,6 @@ pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
 /// that indicates how many possible indices are left for a particular value in
 /// a region.
 pub struct StdRanker {
-    positive_constraint: bool,
     cell_weights: FeatureVec<CoVec>,
     val_weights: FeatureVec<CoVec>,
     cell_possible: Key<Feature>,
@@ -77,7 +76,7 @@ impl <V: Value> RankerRegionInfo<V> {
 }
 
 impl StdRanker {
-    pub fn new(positive_constraint: bool, cell_weights: FeatureVec<Raw>, val_weights: FeatureVec<Raw>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
+    pub fn new(cell_weights: FeatureVec<Raw>, val_weights: FeatureVec<Raw>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
         let cell_weights = cell_weights.to_covec(
             |id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)),
         );
@@ -85,7 +84,6 @@ impl StdRanker {
             |id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)),
         );
         StdRanker {
-            positive_constraint,
             cell_weights,
             val_weights,
             cell_possible: Key::register(DG_CELL_POSSIBLE_FEATURE),
@@ -109,7 +107,7 @@ impl StdRanker {
         let mut val_weights = FeatureVec::new();
         val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
         val_weights.extend(&weights);
-        Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
+        Self::new(cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
     // {DB_CELL_POSSIBLE: -10, DB_VAL_POSSIBLE: -10} I.e., highly prioritize
@@ -120,16 +118,7 @@ impl StdRanker {
         cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
         let mut val_weights = FeatureVec::new();
         val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
-        Self::new(true, cell_weights, val_weights, |_, a, b| f64::max(a, b))
-    }
-
-    // Same as default but with no positive constraint.
-    pub fn default_negative() -> Self {
-        let mut cell_weights = FeatureVec::new();
-        cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
-        let mut val_weights = FeatureVec::new();
-        val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
-        Self::new(false, cell_weights, val_weights, |_, a, b| f64::max(a, b))
+        Self::new(cell_weights, val_weights, |_, a, b| f64::max(a, b))
     }
 
     fn annotate<V: Value, O: Overlay>(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
@@ -166,20 +155,19 @@ impl StdRanker {
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
-                if let Some(info) = self.region_info(grid, puzzle, layer, p) {
-                    for v in V::possibilities() {
-                        if info.filled.contains(&v) {
-                            continue;
-                        }
-                        let choices = info.cell_choices.get(&v);
-                        if choices.len() == 0 {
-                            return ConstraintResult::Contradiction(self.no_cells_attr);
-                        } else if choices.len() == 1 {
-                            return ConstraintResult::Certainty(
-                                CertainDecision::new(choices[0], v),
-                                self.one_cell_attr,
-                            );
-                        }
+                let info = self.region_info(grid, puzzle, layer, p);
+                for v in V::possibilities() {
+                    if info.filled.contains(&v) {
+                        continue;
+                    }
+                    let choices = info.cell_choices.get(&v);
+                    if choices.len() == 0 {
+                        return ConstraintResult::Contradiction(self.no_cells_attr);
+                    } else if choices.len() == 1 {
+                        return ConstraintResult::Certainty(
+                            CertainDecision::new(choices[0], v),
+                            self.one_cell_attr,
+                        );
                     }
                 }
             }
@@ -226,22 +214,21 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
-                if let Some(mut info) = self.region_info(ranking.cells_mut(), puzzle, layer, p) {
-                    for v in V::possibilities() {
-                        if info.filled.contains(&v) {
-                            continue;
-                        }
-                        let fv = info.feature_vecs.get_mut(&v);
-                        fv.score_against(self.combinator, &self.val_weights);
-                        let score = fv.try_scored().unwrap().score();
-                        top_choice = top_choice.map(|(c, s)| {
-                            if score > s { 
-                                (SRChoice::ValueInRegion(v, info.cell_choices.get(&v).clone()), score)
-                            } else {
-                                (c, s)
-                            }
-                        });
+                let mut info = self.region_info(ranking.cells_mut(), puzzle, layer, p);
+                for v in V::possibilities() {
+                    if info.filled.contains(&v) {
+                        continue;
                     }
+                    let fv = info.feature_vecs.get_mut(&v);
+                    fv.score_against(self.combinator, &self.val_weights);
+                    let score = fv.try_scored().unwrap().score();
+                    top_choice = top_choice.map(|(c, s)| {
+                        if score > s { 
+                            (SRChoice::ValueInRegion(v, info.cell_choices.get(&v).clone()), score)
+                        } else {
+                            (c, s)
+                        }
+                    });
                 }
             }
         }
@@ -262,10 +249,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
 
     fn region_info<S>(
         &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
-    ) -> Option<RankerRegionInfo<V>> {
-        if !self.positive_constraint {
-            return None;
-        }
+    ) -> RankerRegionInfo<V> {
         let mut info = RankerRegionInfo::new();
         for index in puzzle.overlay().region_iter(layer, p) {
             if let Some(val) = puzzle.get(index) {
@@ -293,6 +277,6 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
                 info.cell_choices.get(&v).len() as f64,
             );
         }
-        Some(info)
+        info
     }
 }

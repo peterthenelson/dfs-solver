@@ -271,7 +271,7 @@ mod test {
         let constraint1 = BlacklistedVal(1);
         let constraint2 = BlacklistedVal(2);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        let mut ranking = StdRanker::default_negative().init_ranking(&puzzle);
+        let mut ranking = StdRanker::default().init_ranking(&puzzle);
         assert_eq!(conjunction.check(&puzzle, &mut ranking), ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
         assert_contradiction(conjunction.check(&puzzle, &mut ranking), "BLACKLISTED");
@@ -288,7 +288,7 @@ mod test {
         let constraint = MultiConstraint::new(vec_box::vec_box![
             BlacklistedVal(1), BlacklistedVal(2),
         ]);
-        let mut ranking = StdRanker::default_negative().init_ranking(&puzzle);
+        let mut ranking = StdRanker::default().init_ranking(&puzzle);
         assert_eq!(constraint.check(&puzzle, &mut ranking), ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
         assert_contradiction(constraint.check(&puzzle, &mut ranking), "BLACKLISTED");
@@ -309,7 +309,7 @@ mod test {
         let constraint1 = Mod(2, 1);
         let constraint2 = Mod(3, 0);
         let conjunction = ConstraintConjunction::new(constraint1, constraint2);
-        let mut ranking = StdRanker::default_negative().init_ranking(&puzzle);
+        let mut ranking = StdRanker::default().init_ranking(&puzzle);
         match conjunction.check(&puzzle, &mut ranking) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},
@@ -325,7 +325,7 @@ mod test {
         let constraint = MultiConstraint::new(vec_box::vec_box![
             Mod(2, 1), Mod(3, 0)
         ]);
-        let mut ranking = StdRanker::default_negative().init_ranking(&puzzle);
+        let mut ranking = StdRanker::default().init_ranking(&puzzle);
         match constraint.check(&puzzle, &mut ranking) {
             ConstraintResult::Contradiction(a) => panic!("Unexpected contradiction: {}", a.name()),
             _ => {},

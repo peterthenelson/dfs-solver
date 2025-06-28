@@ -160,7 +160,7 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
         (Some(v), Some(p)) => {
             let info = state.solver.ranker().region_info(
                 ranking.cells(), state.solver.state(), layer, p,
-            ).unwrap();
+            );
             let cells = info.cell_choices.get(&v).iter()
                 .map(|c| format!("{:?}", c))
                 .collect::<Vec<_>>().join(", ");
@@ -438,7 +438,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         // Note: We are assuming that all rows have the same size (and same for cols, boxes).
         let mut infos = vec![];
         for p in 0..overlay.regions_in_layer(layer) {
-            infos.push(state.solver.ranker().region_info(&ranking.cells(), state.solver.state(), layer, p).unwrap());
+            infos.push(state.solver.ranker().region_info(&ranking.cells(), state.solver.state(), layer, p));
         }
         for r in 0..N {
             for c in 0..M {

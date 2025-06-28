@@ -725,7 +725,7 @@ mod test {
     fn test_german_whispers_constraint() {
         let mut puzzle = GwLine::new(GwOverlay {});
         let constraint = GwLineConstraint {};
-        let mut ranking = StdRanker::default_negative().init_ranking(&puzzle);
+        let mut ranking = StdRanker::default().init_ranking(&puzzle);
         let violation = constraint.check(&puzzle, &mut ranking);
         assert_eq!(violation, ConstraintResult::Ok);
         puzzle.apply([0, 0], TestVal(1)).unwrap();
@@ -755,7 +755,7 @@ mod test {
             Self::setup_with_givens(GwLine::new(GwOverlay {}))
         }
         fn setup_with_givens(given: GwLine) -> (GwLine, Self::Ranker, Self::Constraint) {
-            (given, StdRanker::default_negative(), GwLineConstraint{})
+            (given, StdRanker::default(), GwLineConstraint{})
         }
     }
     struct GwSmartLineSetter;
@@ -768,7 +768,7 @@ mod test {
             Self::setup_with_givens(GwLine::new(GwOverlay {}))
         }
         fn setup_with_givens(given: GwLine) -> (GwLine, Self::Ranker, Self::Constraint) {
-            (given, StdRanker::default_negative(), GwSmartLineConstraint{})
+            (given, StdRanker::default(), GwSmartLineConstraint{})
         }
     }
 
