@@ -11,17 +11,13 @@ pub struct Scored;
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeatureVec<S> {
     features: Vec<(usize, f64)>,
-    // Some methods have a precondition that features are sorted by id and
-    // duplicate ids are dropped or merged.
+    // Whether the features are sorted by id and duplicate ids have been dropped
+    // or merged.
     normalized: bool,
+    // The score of this vector (against some scorer).
     score: Option<f64>,
     _marker: PhantomData<S>,
 }
-
-/// FeatureVecs can be <Raw>, <Scored>, or <CoVec>. The latter is for the
-/// feature weights themselves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CoVec;
 
 impl FeatureVec<Raw> {
     pub fn new() -> Self {
@@ -29,16 +25,11 @@ impl FeatureVec<Raw> {
     }
 
     pub fn from_pairs(weights: Vec<(&'static str, f64)>) -> Self {
-        let mut fv = FeatureVec::new();
+        let mut fv = FeatureVec::<Raw>::new();
         for (k, v) in weights {
             fv.add(&Key::<Feature>::register(k), v);
         }
         fv
-    }
-
-    pub fn to_covec(mut self, combine: fn(usize, f64, f64) -> f64) -> FeatureVec<CoVec> {
-        self.normalize(combine);
-        unsafe { std::mem::transmute(self) }
     }
 
     pub fn add(&mut self, key: &Key<Feature>, value: f64) {
@@ -78,24 +69,11 @@ impl FeatureVec<Raw> {
         self.normalized = true;
     }
 
-    pub fn score_against(&mut self, combine: fn(usize, f64, f64) -> f64, covec: &FeatureVec<CoVec>) -> f64 {
+    pub fn score_against<S: Scorer>(&mut self, combine: fn(usize, f64, f64) -> f64, scorer: &S) -> f64 {
         self.normalize(combine);
-        let mut sum = 0.0;
-        let mut i = 0;
-        let mut j = 0;
-        while i < self.features.len() && j < covec.features.len() {
-            if self.features[i].0 == covec.features[j].0 {
-                sum += self.features[i].1 * covec.features[j].1;
-                i += 1;
-                j += 1;
-            } else if self.features[i].0 < covec.features[j].0 {
-                i += 1;
-            } else {
-                j += 1;
-            }
-        }
-        self.score = Some(sum);
-        sum
+        let score = scorer.score(&self.features);
+        self.score = Some(score);
+        score
     }
 
     pub fn try_scored(&self) -> Result<&FeatureVec<Scored>, Error> {
@@ -148,6 +126,47 @@ impl FeatureVec<Scored> {
 
     pub fn decay(&self) -> &FeatureVec<Raw> {
         unsafe { std::mem::transmute(self) }
+    }
+}
+
+/// A Scorer is a function from (normalized) FeatureVecs to a score.
+pub trait Scorer {
+    fn score(&self, normalized_features: &Vec<(usize, f64)>) -> f64;
+}
+
+/// FeatureVecs can be <Raw>, <Scored>, or <CoVec>. The latter is for the
+/// feature weights themselves, which act as a (linear) Scorer against
+/// FeatureVec<Raw>s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoVec;
+
+impl FeatureVec<CoVec> {
+    pub fn from_raw(mut weights: FeatureVec<Raw>) -> Self {
+        weights.normalize(|id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)));
+        unsafe { std::mem::transmute(weights) }
+    }
+}
+
+impl Scorer for FeatureVec<CoVec> {
+    fn score(&self, normalized_features: &Vec<(usize, f64)>) -> f64 {
+        let mut sum = 0.0;
+        let (mut it1, mut it2) = (self.features.iter(), normalized_features.iter());
+        let mut i = it1.next();
+        let mut j = it2.next();
+        while i.is_some() && j.is_some() {
+            let (i_id, i_val) = i.unwrap();
+            let (j_id, j_val) = j.unwrap();
+            if i_id == j_id {
+                sum += i_val * j_val;
+                i = it1.next();
+                j = it2.next();
+            } else if i_id < j_id {
+                i = it1.next();
+            } else {
+                j = it2.next();
+            }
+        }
+        sum
     }
 }
 
@@ -358,13 +377,7 @@ impl <V: Value> RankerRegionInfo<V> {
 }
 
 impl StdRanker {
-    pub fn new(cell_weights: FeatureVec<Raw>, val_weights: FeatureVec<Raw>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
-        let cell_weights = cell_weights.to_covec(
-            |id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)),
-        );
-        let val_weights = val_weights.to_covec(
-            |id, _, _| panic!("Duplicate feature in weights vec: {:?}", readable_key::<Feature>(id)),
-        );
+    pub fn new(cell_weights: FeatureVec<CoVec>, val_weights: FeatureVec<CoVec>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
         StdRanker {
             cell_weights,
             val_weights,
@@ -389,7 +402,11 @@ impl StdRanker {
         let mut val_weights = FeatureVec::new();
         val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
         val_weights.extend(&weights);
-        Self::new(cell_weights, val_weights, |_, a, b| f64::max(a, b))
+        Self::new(
+            FeatureVec::from_raw(cell_weights),
+            FeatureVec::from_raw(val_weights),
+            |_, a, b| f64::max(a, b),
+        )
     }
 
     // {DB_CELL_POSSIBLE: -10, DB_VAL_POSSIBLE: -10} I.e., highly prioritize
@@ -400,7 +417,11 @@ impl StdRanker {
         cell_weights.add(&Key::register(DG_CELL_POSSIBLE_FEATURE), -10.0);
         let mut val_weights = FeatureVec::new();
         val_weights.add(&Key::register(DG_VAL_POSSIBLE_FEATURE), -10.0);
-        Self::new(cell_weights, val_weights, |_, a, b| f64::max(a, b))
+        Self::new(
+            FeatureVec::from_raw(cell_weights),
+            FeatureVec::from_raw(val_weights),
+            |_, a, b| f64::max(a, b),
+        )
     }
 
     fn annotate<V: Value, O: Overlay>(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
