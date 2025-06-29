@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    color_util::color_lerp, constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -241,6 +241,8 @@ pub enum ColorBy { Possibilities }
 pub enum GridType<P: PuzzleSetter> {
     // Just show the puzzle itself, like normal.
     Puzzle,
+    // Highlight cells based on the constraints.
+    Constraints(Option<usize>),
     // Highlight cells which could be a particular value.
     // Note: The usize is the index in the relevant region layer
     HighlightPossible(P::Value, Key<RegionLayer>, usize),
@@ -255,7 +257,7 @@ impl <P: PuzzleSetter> GridType<P> {
         match self {
             GridType::HighlightPossible(_, _, _) => ViewBy::Cell,
             GridType::Heatmap(vb, _) => *vb,
-            GridType::Puzzle => ViewBy::Cell,
+            GridType::Constraints(_) | GridType::Puzzle => ViewBy::Cell,
         }
     }
 }
@@ -355,9 +357,8 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
 fn gen_heatmap_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
     let max = P::Value::cardinality();
     let ratio = n_possibilities as f32 / max as f32;
-    let red = (255.0 * ratio) as u8;
-    let green = (255.0 * (1.0 - ratio)) as u8;
-    Color::Rgb(red, green, 0)
+    let (r, g, b) = color_lerp((0, 255, 0), (255, 0, 0), ratio);
+    Color::Rgb(r, g, b)
 }
 
 fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -395,8 +396,17 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let mut hm = [[None; M]; N];
     let overlay = state.solver.state().overlay();
     let layer = match grid_type {
-        // The remaining types return early.
+        // These first several types return early.
         GridType::Puzzle => return hm,
+        GridType::Constraints(_) => {
+            for r in 0..N {
+                for c in 0..M {
+                    hm[r][c] = state.solver.constraint().debug_highlight(state.solver.state(), [r, c])
+                        .map(|(r, g, b)| Color::Rgb(r, g, b));
+                }
+            }
+            return hm;
+        },
         GridType::HighlightPossible(v, layer, p) => {
             if let Some(ranking) = state.solver.ranking_info().as_ref() {
                 for r in 0..N {
@@ -469,6 +479,7 @@ pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                 }
             },
             GridType::HighlightPossible(_, _, _) => None,
+            GridType::Constraints(_) => Some(state.grid_pos),
             GridType::Puzzle => Some(state.grid_pos),
         },
         vals: gen_val(state, grid_type),
@@ -667,6 +678,14 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         .border_set(if is_active { border::DOUBLE } else { border::PLAIN });
     match state.mode {
         Mode::PossibilityHeatmap => {},
+        Mode::Constraints => {
+            frame.render_widget(
+                // TODO: Add constraint cycling to select specific constraints
+                Paragraph::new(grid_text(state, so, GridType::Constraints(None))).centered().block(block),
+                area,
+            );
+            return;
+        },
         _ => {
             frame.render_widget(
                 Paragraph::new(grid_text(state, so, GridType::Puzzle)).centered().block(block),

@@ -617,6 +617,7 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
+    fn name(&self) -> Option<String> { Some("StdChecker".to_string()) }
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
@@ -653,6 +654,15 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
             unpack_stdval_vals::<MIN, MAX, _>(&self.col[c]),
             unpack_stdval_vals::<MIN, MAX, _>(&self.boxes[b]),
         ))
+    }
+
+    fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some((i, _, _)) = &self.illegal {
+            if *i == index {
+                return Some((200, 0, 0));
+            }
+        }
+        None
     }
 }
 

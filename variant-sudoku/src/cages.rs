@@ -251,6 +251,7 @@ fn cage_feasible<const MIN: u8, const MAX: u8>(set: &VBitSet<StdVal<MIN, MAX>>, 
 
 impl <const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
+    fn name(&self) -> Option<String> { Some("CageChecker".to_string()) }
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
@@ -308,6 +309,25 @@ Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
         } else {
             Some(format!("{}{}", header, lines.join("\n")))
         }
+    }
+
+    fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some((i, _, _)) = &self.illegal {
+            if *i == index {
+                return Some((200, 0, 0));
+            }
+        }
+        for (i, c) in self.cages.iter().enumerate() {
+            if c.contains(index) {
+                if let Some(r) = self.remaining[i] {
+                    if r == 0 {
+                        return Some((0, 200, 0));
+                    }
+                }
+                return Some((200, 200, 0));
+            }
+        }
+        None
     }
 }
 

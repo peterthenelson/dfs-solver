@@ -1,5 +1,6 @@
 pub mod core;
 pub mod bench;
+pub mod color_util;
 pub mod index_util;
 pub mod memo;
 pub mod constraint;

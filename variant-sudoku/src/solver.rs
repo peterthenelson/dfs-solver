@@ -669,6 +669,7 @@ mod test {
     struct GwLineConstraint {}
     impl Stateful<TestVal> for GwLineConstraint {}
     impl Constraint<TestVal, GwOverlay> for GwLineConstraint {
+        fn name(&self) -> Option<String> { Some("GwLineConstraint".to_string()) }
         fn check(&self, puzzle: &GwLine, _: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             for i in 0..8 {
                 if puzzle.get([0, i]).is_none() {
@@ -691,13 +692,15 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { Some("NA".to_string()) }
+        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { None }
+        fn debug_highlight(&self, _: &State<TestVal, GwOverlay>, _: Index) -> Option<(u8, u8, u8)> { None }
     }
 
     #[derive(Debug)]
     struct GwSmartLineConstraint {}
     impl Stateful<TestVal> for GwSmartLineConstraint {}
     impl Constraint<TestVal, GwOverlay> for GwSmartLineConstraint {
+        fn name(&self) -> Option<String> { Some("GwSmartLineConstraint".to_string()) }
         fn check(&self, puzzle: &GwLine, ranking: &mut RankingInfo<TestVal>) -> ConstraintResult<TestVal> {
             let grid = ranking.cells_mut();
             for i in 0..8 {
@@ -718,7 +721,8 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { Some("NA".to_string()) }
+        fn debug_at(&self, _: &GwLine, _: Index) -> Option<String> { None }
+        fn debug_highlight(&self, _: &State<TestVal, GwOverlay>, _: Index) -> Option<(u8, u8, u8)> { None }
     }
 
     #[test]

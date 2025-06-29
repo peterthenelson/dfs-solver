@@ -194,7 +194,6 @@ pub fn parse_grid(s: &str, rows: usize, cols: usize) -> Result<Vec<Vec<String>>,
         .map(split_and_filter_grid_line)
         .filter(|w| !w.is_empty())
         .collect();
-    println!("DEBUG: {:?}", lines);
     if lines.len() != rows {
         return Err(Error::new(format!(
             "Not enough (non-trivial) rows: {} (expected at least {})", lines.len(), rows,

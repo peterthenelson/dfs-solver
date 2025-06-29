@@ -460,6 +460,7 @@ pub fn xsum_possibilities<const MIN: u8, const MAX: u8>(sum: u8) -> usize {
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for XSumChecker<MIN, MAX, N, M> {
+    fn name(&self) -> Option<String> { Some("XSumChecker".to_string()) }
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         let grid = ranking.cells_mut();
         for (i, xsum) in self.xsums.iter().enumerate() {
@@ -529,6 +530,20 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for XSumChecker<MIN, MAX, N, M> {
         } else {
             Some(format!("{}{}", header, lines.join("\n")))
         }
+    }
+
+    fn debug_highlight(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        for x in &self.xsums {
+            if !x.contains(puzzle, index) {
+                continue;
+            }
+            if index == x.length_index() {
+                return Some((200, 0, 200));
+            } else {
+                return Some((0, 200, 0));
+            }
+        }
+        None
     }
 }
 

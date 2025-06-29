@@ -338,6 +338,7 @@ Stateful<V> for IrregularChecker<N, M, V> {
 
 impl <const N: usize, const M: usize, V: Value>
 Constraint<V, IrregularOverlay<N, M>> for IrregularChecker<N, M, V> {
+    fn name(&self) -> Option<String> { Some("IrregularChecker".to_string()) }
     fn check(&self, puzzle: &State<V, IrregularOverlay<N, M>>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
         let grid = ranking.cells_mut();
         if let Some((_, _, a)) = &self.illegal {
@@ -371,5 +372,14 @@ Constraint<V, IrregularOverlay<N, M>> for IrregularChecker<N, M, V> {
             "{}  Unused vals in this row: {}\n  Unused vals in this col: {}\n  Unused vals in this region: {}",
             header, self.row[r].to_string(), self.col[c].to_string(), self.region[reg].to_string(),
         ))
+    }
+
+    fn debug_highlight(&self, _: &State<V, IrregularOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some((i, _, _)) = &self.illegal {
+            if *i == index {
+                return Some((200, 0, 0));
+            }
+        }
+        None
     }
 }

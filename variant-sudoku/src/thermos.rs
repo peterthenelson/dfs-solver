@@ -191,6 +191,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for ThermoChecker
 
 impl <const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
+    fn name(&self) -> Option<String> { Some("ThermoChecker".to_string()) }
     fn check(&self, _: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
@@ -224,6 +225,22 @@ Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
         } else {
             Some(format!("{}{}", header, lines.join("\n")))
         }
+    }
+
+    fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some((i, _, _)) = &self.illegal {
+            if *i == index {
+                return Some((200, 0, 0));
+            }
+        }
+        for t in &self.thermos {
+            if t.cells[0] == index {
+                return Some((200, 200, 0))
+            } else if t.contains(index) {
+                return Some((150, 150, 0))
+            }
+        }
+        None
     }
 }
 

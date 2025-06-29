@@ -1,5 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
-use crate::{core::{ConstraintResult, Error, Index, Overlay, State, Stateful, Value}, ranker::RankingInfo};
+use crate::{color_util::{color_ave, color_ave2}, core::{ConstraintResult, Error, Index, Overlay, State, Stateful, Value}, ranker::RankingInfo};
 
 /// Constraints check that the puzzle state is valid. The ideal Constraint 
 /// will:
@@ -22,6 +22,8 @@ use crate::{core::{ConstraintResult, Error, Index, Overlay, State, Stateful, Val
 ///    implement these as Constraints that only ever return a Certainty (if it
 ///    can be deduced) or Ok (otherwise).
 pub trait Constraint<V: Value, O: Overlay> where Self: Stateful<V> + Debug {
+    // The name of the constraint, if any. Used in UIs.
+    fn name(&self) -> Option<String> { None }
     /// Check that the Constraint is satisfied by the puzzle (and any internal
     /// state from past actions). If a Constraint is able to infer useful
     /// information about what values a cell could take on, they should update
@@ -30,6 +32,8 @@ pub trait Constraint<V: Value, O: Overlay> where Self: Stateful<V> + Debug {
     /// Provide debug information at a particular grid in the puzzle (if any
     /// is available).
     fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String>;
+    /// Highlight the grid (again, for debug purposes).
+    fn debug_highlight(&self, puzzle: &State<V, O>, index: Index) -> Option<(u8, u8, u8)>;
 }
 
 pub struct ConstraintConjunction<V, O, X, Y>
@@ -106,6 +110,20 @@ where
             yd
         }
     }
+
+    fn debug_highlight(&self, puzzle: &State<V, O>, index: Index) -> Option<(u8, u8, u8)> {
+        let xc = self.x.debug_highlight(puzzle, index.clone());
+        let yc = self.y.debug_highlight(puzzle, index);
+        if let Some(xrgb) = &xc {
+            if let Some(yrgb) = &yc {
+                Some(color_ave2(*xrgb, *yrgb))
+            } else {
+                xc
+            }
+        } else {
+            yc
+        }
+    }
 }
 
 pub struct MultiConstraint<V: Value, O: Overlay> {
@@ -115,6 +133,12 @@ pub struct MultiConstraint<V: Value, O: Overlay> {
 impl <V: Value, O: Overlay> MultiConstraint<V, O> {
     pub fn new(constraints: Vec<Box<dyn Constraint<V, O>>>) -> Self {
         MultiConstraint { constraints }
+    }
+
+    pub fn num_constraints(&self) -> usize { self.constraints.len() }
+
+    pub fn constraint(&self, i: usize) -> &Box<dyn Constraint<V, O>> {
+        &self.constraints[i]
     }
 }
 
@@ -158,6 +182,8 @@ impl <V: Value, O: Overlay> Stateful<V> for MultiConstraint<V, O> {
 }
 
 impl <V: Value, O: Overlay> Constraint<V, O> for MultiConstraint<V, O> {
+    fn name(&self) -> Option<String> { Some("MultiConstraint".to_string()) }
+
     fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
         for c in &self.constraints {
             match c.check(puzzle, ranking) {
@@ -168,7 +194,7 @@ impl <V: Value, O: Overlay> Constraint<V, O> for MultiConstraint<V, O> {
         }
         ConstraintResult::Ok
     }
-    
+
     fn debug_at(&self, puzzle: &State<V, O>, index: Index) -> Option<String> {
         let somes = self.constraints.iter()
             .filter_map(|c| c.debug_at(puzzle, index.clone()))
@@ -177,6 +203,17 @@ impl <V: Value, O: Overlay> Constraint<V, O> for MultiConstraint<V, O> {
             None
         } else {
             Some(somes.join("\n"))
+        }
+    }
+
+    fn debug_highlight(&self, puzzle: &State<V, O>, index: Index) -> Option<(u8, u8, u8)> {
+        let somes = self.constraints.iter()
+            .filter_map(|c| c.debug_highlight(puzzle, index.clone()))
+            .collect::<Vec<(u8, u8, u8)>>();
+        if somes.is_empty() {
+            None
+        } else {
+            Some(color_ave(&somes))
         }
     }
 }
@@ -236,7 +273,8 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { Some("NA".into()) }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { None }
+        fn debug_highlight(&self, _: &State<TestVal, OneDimOverlay<3>>, _: Index) -> Option<(u8, u8, u8)> { None }
     }
 
     #[derive(Debug, Clone)]
@@ -262,7 +300,8 @@ mod test {
             }
             ConstraintResult::Ok
         }
-        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { Some("NA".into()) }
+        fn debug_at(&self, _: &ThreeVals, _: Index) -> Option<String> { None }
+        fn debug_highlight(&self, _: &State<TestVal, OneDimOverlay<3>>, _: Index) -> Option<(u8, u8, u8)> { None }
     }
 
     #[test]

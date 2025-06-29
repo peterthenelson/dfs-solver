@@ -368,6 +368,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
+    fn name(&self) -> Option<String> { Some("KropkiChecker".to_string()) }
     fn check(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
@@ -402,6 +403,11 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "KropkiChecker:\n";
         let mut lines = vec![];
+        if let Some((i, v, a)) = &self.illegal {
+            if *i == index {
+                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
+            }
+        }
         for (i, b) in self.blacks.iter().enumerate() {
             if !b.contains(index) {
                 continue;
@@ -420,6 +426,19 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
             None
         } else {
             Some(format!("{}{}", header, lines.join("\n")))
+        }
+    }
+
+    fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some((i, _, _)) = &self.illegal {
+            if *i == index {
+                return Some((200, 0, 0));
+            }
+        }
+        if let Some(_) = self.black_remaining.get(&index) {
+            Some((200, 200, 0))
+        } else {
+            None
         }
     }
 }

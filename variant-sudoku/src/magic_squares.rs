@@ -196,6 +196,7 @@ fn sum_trip<const N: usize, const M: usize>(
 
 impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
+    fn name(&self) -> Option<String> { Some("MagicSquareChecker".to_string()) }
     fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal>) -> ConstraintResult<NineStdVal> {
         for square in &self.squares {
             if let Some(v) = puzzle.get(square.center) {
@@ -251,6 +252,23 @@ Constraint<NineStdVal, StdOverlay<N, M>> for MagicSquareChecker {
                 return Some("Magic Square: side cell (must be odd)".to_string());
             } else if index == mm {
                 return Some("Magic Square: middle cell (must be 5)".to_string())
+            }
+        }
+        None
+    }
+
+    fn debug_highlight(&self, _: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        for square in &self.squares {
+            let [ul, mm, lr] = square.diag_0();
+            let [ll, _, ur] = square.diag_1();
+            let [ml, _, mr] = square.row_1();
+            let [mu, _, md] = square.col_1();
+            if index == ul || index == lr || index == ll || index == ur {
+                return Some((0, 0, 200))
+            } else if index == ml || index == mr || index == mu || index == md {
+                return Some((200, 200, 0))
+            } else if index == mm {
+                return Some((200, 0, 200))
             }
         }
         None

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use crate::color_util::{color_ave, polarity_color};
 use crate::constraint::Constraint;
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::index_util::{check_adjacent, expand_polyline};
@@ -205,6 +206,7 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
 
 impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
+    fn name(&self) -> Option<String> { Some("DutchWhisperChecker".to_string()) }
     fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal>) -> ConstraintResult<NineStdVal> {
         if let Some((_, _, a)) = &self.illegal {
             return ConstraintResult::Contradiction(*a);
@@ -256,6 +258,11 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
     fn debug_at(&self, _: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "DutchWhisperChecker:\n";
         let mut lines = vec![];
+        if let Some((i, v, a)) = &self.illegal {
+            if *i == index {
+                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
+            }
+        }
         for (i, w) in self.whispers.iter().enumerate() {
             if !w.contains(index) {
                 continue;
@@ -274,6 +281,25 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
             None
         } else {
             Some(format!("{}{}", header, lines.join("\n")))
+        }
+    }
+
+    fn debug_highlight(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some((i, _, _)) = &self.illegal {
+            if *i == index {
+                return Some((200, 0, 0));
+            }
+        }
+        if let Some(v) = puzzle.get(index) {
+            return Some(polarity_color(1, 9, v.val()))
+        }
+        if let Some(rem) = self.remaining.get(&index) {
+            let polarities = rem.iter()
+                .map(|v| polarity_color(1, 9, v.val()))
+                .collect::<Vec<_>>();
+            Some(color_ave(&polarities))
+        } else {
+            None
         }
     }
 }
