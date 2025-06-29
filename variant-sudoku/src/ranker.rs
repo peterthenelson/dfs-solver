@@ -2,7 +2,7 @@ use std::{fmt::Display, marker::PhantomData};
 use crate::core::{readable_key, Attribution, BranchPoint, CertainDecision, ConstraintResult, Error, Feature, Index, Key, Overlay, RegionLayer, State, VBitSet, VDenseMap, VMap, VMapMut, VSet, VSetMut, Value};
 
 /// Marker structs to distinguish scoring-related structures in an indeterminate
-/// state vs one where things have been normalized and scored.
+/// state vs one where things have definitely been normalized and scored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Raw;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +14,7 @@ pub struct FeatureVec<S> {
     // Whether the features are sorted by id and duplicate ids have been dropped
     // or merged.
     normalized: bool,
-    // The score of this vector (against some scorer).
+    // The score of this vector (against some Scorer).
     score: Option<f64>,
     _marker: PhantomData<S>,
 }
@@ -134,9 +134,8 @@ pub trait Scorer {
     fn score(&self, normalized_features: &Vec<(usize, f64)>) -> f64;
 }
 
-/// FeatureVecs can be <Raw>, <Scored>, or <CoVec>. The latter is for the
-/// feature weights themselves, which act as a (linear) Scorer against
-/// FeatureVec<Raw>s.
+/// A FeatureVec<CoVec> is a FeatureVec that acts as a (linear) Scorer against
+/// other FeatureVecs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoVec;
 
@@ -240,7 +239,7 @@ impl<V: Value> DecisionGrid<V, Raw> {
         }
     }
 
-    pub fn score_against<O: Overlay>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, covec: &FeatureVec<CoVec>) -> Option<(Index, f64)> {
+    pub fn score_against<O: Overlay, S: Scorer>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, scorer: &S) -> Option<(Index, f64)> {
         self.top = None;
         for r in 0..self.rows {
             for c in 0..self.cols {
@@ -248,7 +247,7 @@ impl<V: Value> DecisionGrid<V, Raw> {
                     continue;
                 }
                 let cell = &mut self.grid[r * self.cols + c];
-                let score = cell.1.score_against(combine, covec);
+                let score = cell.1.score_against(combine, scorer);
                 self.top = self.top.map_or(Some(([r, c], score)), |(i, s)| {
                     Some(if score > s { ([r, c], score) } else { (i, s) })
                 });
@@ -296,8 +295,11 @@ impl <V: Value> RankingInfo<V> {
         &mut self.cells
     }
 
-    pub fn score_against<O: Overlay>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, covec: &FeatureVec<CoVec>) -> Option<(Index, f64)> {
-        self.cells.score_against(combine, puzzle, covec)
+    pub fn score_against<O: Overlay, S: Scorer>(
+        &mut self, combine: fn(usize, f64, f64) -> f64,
+        puzzle: &State<V, O>, scorer: &S,
+    ) -> Option<(Index, f64)> {
+        self.cells.score_against(combine, puzzle, scorer)
     }
 }
 
