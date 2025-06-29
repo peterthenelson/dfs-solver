@@ -59,15 +59,17 @@ mod test {
 
     #[test]
     fn test_top_right_boi_thermo() {
-        let input: &str = "243981576\n\
-                           751326498\n\
-                           869475123\n\
-                           975862341\n\
-                           612734859\n\
-                           438159762\n\
-                           594618237\n\
-                           127593684\n\
-                           38624791.\n";
+        let input: &str = "2 4 3|9 8 1|5 7 6\n\
+                           7 5 1|3 2 6|4 9 8\n\
+                           8 6 9|4 7 5|1 2 3\n\
+                           -----+-----+-----\n\
+                           9 7 5|8 6 2|3 4 1\n\
+                           6 1 2|7 3 4|8 5 9\n\
+                           4 3 8|1 5 9|7 6 2\n\
+                           -----+-----+-----\n\
+                           5 9 4|6 1 8|2 3 7\n\
+                           1 2 7|5 9 3|6 8 4\n\
+                           3 8 6|2 4 7|9 1 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<TopRightBoiThermo, _>(sudoku, obs);

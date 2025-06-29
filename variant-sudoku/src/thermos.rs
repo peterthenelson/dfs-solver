@@ -306,10 +306,11 @@ mod test {
         type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
         fn setup() -> (FourStd, Self::Ranker, Self::Constraint) {
             Self::setup_with_givens(four_standard_parse(
-                "2...\n\
-                 ....\n\
-                 ...2\n\
-                 ....\n"
+                "2 .|. .\n\
+                 . .|. .\n\
+                 ---+---\n\
+                 . .|. 2\n\
+                 . .|. .\n"
             ).unwrap())
         }
         fn setup_with_givens(given: FourStd) -> (FourStd, Self::Ranker, Self::Constraint) {
@@ -333,11 +334,13 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
-        let expected: &str = "2431\n\
-                              3124\n\
-                              1342\n\
-                              4213\n";
-        assert_eq!(format!("{:?}", maybe_solution.unwrap().state()), expected);
+        let expected: &str = "2 4|3 1\n\
+                              3 1|2 4\n\
+                              ---+---\n\
+                              1 3|4 2\n\
+                              4 2|1 3\n";
+        let solution = maybe_solution.unwrap().state();
+        assert_eq!(solution.overlay().serialize_pretty(&solution), expected);
         Ok(())
     }
 }

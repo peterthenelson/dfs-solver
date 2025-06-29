@@ -163,23 +163,51 @@ pub fn expand_polyline(vertices: Vec<Index>) -> Result<Vec<Index>, String> {
     Ok(cells)
 }
 
-pub fn parse_grid(s: &str, rows: usize, cols: usize) -> Result<Vec<Vec<char>>, Error> {
-    let mut grid = vec![vec!['@'; cols]; rows];
-    let lines: Vec<&str> = s.lines().collect();
+fn is_box_char(c: char) -> bool {
+    if c == '-' || c == '|' || c == '+' {
+        // Pure ascii box-drawing characters
+        true
+    } else {
+        // Unicode ones
+        '\u{2500}' <= c && c <= '\u{257f}'
+    }
+}
+
+fn split_and_filter_grid_line(s: &str) -> Vec<String> {
+    let by_ws_and_box: Vec<String> = s
+        .split(|c| is_box_char(c) || c.is_whitespace())
+        .filter(|word| !word.is_empty())
+        .map(|word| word.to_string())
+        .collect();
+    // The dense case
+    if by_ws_and_box.len() == 1 {
+        return s.chars()
+            .map(|c| c.to_string())
+            .collect();
+    }
+    by_ws_and_box
+}
+
+pub fn parse_grid(s: &str, rows: usize, cols: usize) -> Result<Vec<Vec<String>>, Error> {
+    let mut grid: Vec<Vec<String>> = vec![vec!["".to_string(); cols]; rows];
+    let lines: Vec<Vec<String>> = s.lines()
+        .map(split_and_filter_grid_line)
+        .filter(|w| !w.is_empty())
+        .collect();
+    println!("DEBUG: {:?}", lines);
     if lines.len() != rows {
         return Err(Error::new(format!(
-            "Invalid number of rows: {} (expected {})", lines.len(), rows,
+            "Not enough (non-trivial) rows: {} (expected at least {})", lines.len(), rows,
         )));
     }
-    for r in 0..rows {
-        let line = lines[r].trim();
+    for (r, line) in lines.iter().enumerate() {
         if line.len() != cols {
             return Err(Error::new(format!(
                 "Invalid number of cols: {} (expected {})", line.len(), cols,
             )));
         }
-        for c in 0..cols {
-            grid[r][c] = line.chars().nth(c).unwrap();
+        for (c, s) in line.iter().enumerate() {
+            grid[r][c] = s.clone();
         }
     }
     Ok(grid)
@@ -190,26 +218,22 @@ pub fn parse_val_grid<V: Value>(s: &str, rows: usize, cols: usize) -> Result<VGr
     let mut grid = VGrid::<V>::new(rows, cols);
     for r in 0..rows {
         for c in 0..cols {
-            match parsed[r][c] {
-                // Represents None, which already is present in the grid.
-                '.' => {},
-                ch => {
-                    let s = ch.to_string();
-                    let v = V::parse(s.as_str())?;
-                    grid.set([r, c], Some(v));
-                },
+            // "." represents None, which already is present in the grid.
+            if parsed[r][c] != "." {
+                let v = V::parse(parsed[r][c].as_str())?;
+                grid.set([r, c], Some(v));
             }
         }
     }
     Ok(grid)
 }
 
-pub fn parse_region_grid(s: &str, rows: usize, cols: usize) -> Result<HashMap<char, Vec<Index>>, Error> {
+pub fn parse_region_grid(s: &str, rows: usize, cols: usize) -> Result<HashMap<String, Vec<Index>>, Error> {
     let grid = parse_grid(s, rows, cols)?;
-    let mut sym_to_indices: HashMap<char, Vec<Index>> = HashMap::new();
+    let mut sym_to_indices: HashMap<String, Vec<Index>> = HashMap::new();
     for r in 0..rows {
         for c in 0..cols {
-            sym_to_indices.entry(grid[r][c]).or_default().push([r, c]);
+            sym_to_indices.entry(grid[r][c].clone()).or_default().push([r, c]);
         }
     }
     Ok(sym_to_indices)
@@ -345,5 +369,41 @@ mod test {
         );
         // Messed up diagonals are still bad
         assert!(expand_polyline(vec![[2, 2], [4, 5]]).is_err());
+    }
+
+    #[test]
+    fn test_parse_grid_dense() {
+        let input: &str = "abcd\n\
+                           .123\n\
+                           ..vx\n\
+                           ...$\n";
+        let parsed = parse_grid(input, 4, 4).unwrap();
+        assert_eq!(parsed[0], vec!["a", "b", "c", "d"]);
+        assert_eq!(parsed[3], vec![".", ".", ".", "$"]);
+    }
+
+    #[test]
+    fn test_parse_grid_pretty_based_on_spaces() {
+        let input: &str = "a b c d\n\
+                           . 1 2 3\n\
+                           . . v x\n\
+                           . . . $\n";
+        let parsed = parse_grid(input, 4, 4).unwrap();
+        assert_eq!(parsed[0], vec!["a", "b", "c", "d"]);
+        assert_eq!(parsed[3], vec![".", ".", ".", "$"]);
+    }
+
+    #[test]
+    fn test_parse_grid_pretty_ignores_grid_lines() {
+        let input: &str = "+------+------+\n\
+                           | a  b | c  d |\n\
+                           | .  1 | 2  3 |\n\
+                           |------+------|\n\
+                           | .  . | v  x |\n\
+                           | .  . | .  $ |\n\
+                           +------+------|\n";
+        let parsed = parse_grid(input, 4, 4).unwrap();
+        assert_eq!(parsed[0], vec!["a", "b", "c", "d"]);
+        assert_eq!(parsed[3], vec![".", ".", ".", "$"]);
     }
 }

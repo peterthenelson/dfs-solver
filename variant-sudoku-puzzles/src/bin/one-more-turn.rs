@@ -13,15 +13,15 @@ pub struct OneMoreTurn;
 impl OneMoreTurn {
     fn make_overlay() -> IrregularOverlay<9, 9> {
         IrregularOverlay::<9, 9>::from_grid(
-            "111222333\n\
-             141112223\n\
-             141452333\n\
-             444452236\n\
-             475555536\n\
-             478856666\n\
-             777856969\n\
-             788899969\n\
-             777888999\n"
+            "1 1 1|2 2 2|3 3 3\n\
+             1 4 1|1 1 2|2 2 3\n\
+             1 4 1|4 5 2|3 3 3\n\
+             4 4 4|4 5 2|2 3 6\n\
+             4 7 5|5 5 5|5 3 6\n\
+             4 7 8|8 5 6|6 6 6\n\
+             7 7 7|8 5 6|9 6 9\n\
+             7 8 8|8 9 9|9 6 9\n\
+             7 7 7|8 8 8|9 9 9\n"
         ).unwrap()
     }
 
@@ -40,15 +40,17 @@ impl PuzzleSetter for OneMoreTurn {
     fn setup() -> (State<NineStdVal, Self::Overlay>, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(Self::parse_state(
-            "..9...6..\n\
-             .1.....2.\n\
-             8.......5\n\
-             .........\n\
-             .........\n\
-             .........\n\
-             5.......9\n\
-             .4.....3.\n\
-             ..6...7..\n"
+            ". . 9|. . .|6 . .\n\
+             . 1 .|. . .|. 2 .\n\
+             8 . .|. . .|. . 5\n\
+             -----+-----+-----\n\
+             . . .|. . .|. . .\n\
+             . . .|. . .|. . .\n\
+             . . .|. . .|. . .\n\
+             -----+-----+-----\n\
+             5 . .|. . .|. . 9\n\
+             . 4 .|. . .|. 3 .\n\
+             . . 6|. . .|7 . .\n"
         ).unwrap())
     }
 
@@ -78,15 +80,17 @@ mod test {
 
     #[test]
     fn test_oner_more_turn_solution() {
-        let input: &str = "279485613\n\
-                           627547928\n\
-                           438793245\n\
-                           452836197\n\
-                           953264871\n\
-                           387619452\n\
-                           524178369\n\
-                           748921536\n\
-                           19635278.\n";
+        let input: &str = "2 7 9|4 8 5|6 1 3\n\
+                           6 2 7|5 4 7|9 2 8\n\
+                           4 3 8|7 9 3|2 4 5\n\
+                           -----+-----+-----\n\
+                           4 5 2|8 3 6|1 9 7\n\
+                           9 5 3|2 6 4|8 7 1\n\
+                           3 8 7|6 1 9|4 5 2\n\
+                           -----+-----+-----\n\
+                           5 2 4|1 7 8|3 6 9\n\
+                           7 4 8|9 2 1|5 3 6\n\
+                           1 9 6|3 5 2|7 8 .\n";
         let sudoku = OneMoreTurn::parse_state(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<OneMoreTurn, _>(sudoku, obs);

@@ -71,15 +71,17 @@ mod test {
 
     #[test]
     fn test_dutch_magic_solution() {
-        let input: &str = "195643827\n\
-                           627895143\n\
-                           438127695\n\
-                           951438762\n\
-                           276951438\n\
-                           843276951\n\
-                           514389276\n\
-                           769512384\n\
-                           38276451.\n";
+        let input: &str = "1 9 5|6 4 3|8 2 7\n\
+                           6 2 7|8 9 5|1 4 3\n\
+                           4 3 8|1 2 7|6 9 5\n\
+                           -----+-----+-----\n\
+                           9 5 1|4 3 8|7 6 2\n\
+                           2 7 6|9 5 1|4 3 8\n\
+                           8 4 3|2 7 6|9 5 1\n\
+                           -----+-----+-----\n\
+                           5 1 4|3 8 9|2 7 6\n\
+                           7 6 9|5 1 2|3 8 4\n\
+                           3 8 2|7 6 4|5 1 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<DutchMagic, _>(sudoku, obs);

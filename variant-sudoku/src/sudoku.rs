@@ -356,6 +356,32 @@ impl <const N: usize, const M: usize> StdOverlay<N, M> {
     pub fn others_in_box(&self, cell: Index) -> StdOverlayIterator<N, M> {
         StdOverlayIterator::others_in_box(self, cell)
     }
+    pub fn serialize_pretty<V: Value>(&self, s: &State<V, Self>) -> String {
+        let mut result = String::new();
+        for r in 0..N {
+            for c in 0..M {
+                if let Some(v) = s.get([r, c]) {
+                    result.push_str(v.to_string().as_str())
+                } else {
+                    result.push('.');
+                }
+                if c+1 < M {
+                    result.push(if (c+1) % self.bw == 0 { '|' } else { ' ' });
+                }
+            }
+            result.push('\n');
+            if (r+1) < N && (r+1) % self.bh == 0 {
+                for c in 0..M {
+                    result.push('-');
+                    if c+1 < M {
+                        result.push(if (c+1) % self.bw == 0 { '+' } else { '-' });
+                    }
+                }
+                result.push('\n');
+            }
+        }
+        result
+    }
 }
 
 impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
@@ -829,34 +855,38 @@ mod test {
 
     #[test]
     fn test_sudoku_parse() {
-        let input: &str = "5.3......\n\
-                           6..195...\n\
-                           .98....6.\n\
-                           8...6...3\n\
-                           4..8.3..1\n\
-                           7...2...6\n\
-                           .6....28.\n\
-                           ...419..5\n\
-                           ......8.9\n";
+        let input: &str = "5 . 3|. . .|. . .\n\
+                           6 . .|1 9 5|. . .\n\
+                           . 9 8|. . .|. 6 .\n\
+                           -----+-----+-----\n\
+                           8 . .|. 6 .|. . 3\n\
+                           4 . .|8 . 3|. . 1\n\
+                           7 . .|. 2 .|. . 6\n\
+                           -----+-----+-----\n\
+                           . 6 .|. . .|2 8 .\n\
+                           . . .|4 1 9|. . 5\n\
+                           . . .|. . .|8 . 9\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
         replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 0]), Some(StdVal::new(5)));
         assert_eq!(sudoku.get([8, 8]), Some(StdVal::new(9)));
         assert_eq!(sudoku.get([2, 7]), Some(StdVal::new(6)));
-        assert_eq!(format!("{:?}", sudoku), input);
+        assert_eq!(sudoku.overlay().serialize_pretty(&sudoku), input);
     }
 
     #[test]
-    fn test_sudoku_reset_remembers_givesn() {
-        let input: &str = "5.3......\n\
-                           6..195...\n\
-                           .98....6.\n\
-                           8...6...3\n\
-                           4..8.3..1\n\
-                           7...2...6\n\
-                           .6....28.\n\
-                           ...419..5\n\
-                           ......8.9\n";
+    fn test_sudoku_reset_remembers_givens() {
+        let input: &str = "5 . 3|. . .|. . .\n\
+                           6 . .|1 9 5|. . .\n\
+                           . 9 8|. . .|. 6 .\n\
+                           -----+-----+-----\n\
+                           8 . .|. 6 .|. . 3\n\
+                           4 . .|8 . 3|. . 1\n\
+                           7 . .|. 2 .|. . 6\n\
+                           -----+-----+-----\n\
+                           . 6 .|. . .|2 8 .\n\
+                           . . .|4 1 9|. . 5\n\
+                           . . .|. . .|8 . 9\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
         replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 1]), None);
@@ -865,21 +895,23 @@ mod test {
         sudoku.reset();
         replay_givens(&mut sudoku);
         assert_eq!(sudoku.get([0, 1]), None);
-        assert_eq!(format!("{:?}", sudoku), input);
+        assert_eq!(sudoku.overlay().serialize_pretty(&sudoku), input);
     }
 
     #[test]
     fn test_nine_solve() {
         // #t1d1p1 from sudoku-puzzles.net
-        let input: &str = ".7.583.2.\n\
-                           .592..3..\n\
-                           34...65.7\n\
-                           795...632\n\
-                           ..36971..\n\
-                           68...27..\n\
-                           914835.76\n\
-                           .3.7.1495\n\
-                           567429.13\n";
+        let input: &str = ". 7 .|5 8 3|. 2 .\n\
+                           . 5 9|2 . .|3 . .\n\
+                           3 4 .|. . 6|5 . 7\n\
+                           -----+-----+-----\n\
+                           7 9 5|. . .|6 3 2\n\
+                           . . 3|6 9 7|1 . .\n\
+                           6 8 .|. . 2|7 . .\n\
+                           -----+-----+-----\n\
+                           9 1 4|8 3 5|. 7 6\n\
+                           . 3 .|7 . 1|4 9 5\n\
+                           5 6 7|4 2 9|. 1 3\n";
         let mut sudoku = nine_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
@@ -900,14 +932,17 @@ mod test {
     #[test]
     fn test_eight_solve() {
         // #t34d1p1 from sudoku-puzzles.net
-        let input: &str = "2...1.38\n\
-                           316..7.2\n\
-                           .45...8.\n\
-                           1..26475\n\
-                           ..475...\n\
-                           52..7.6.\n\
-                           .713...6\n\
-                           46..8...\n";
+        let input: &str = "2 .|. .|1 .|3 8\n\
+                           3 1|6 .|. 7|. 2\n\
+                           ---+---+---+---\n\
+                           . 4|5 .|. .|8 .\n\
+                           1 .|. 2|6 4|7 5\n\
+                           ---+---+---+---\n\
+                           . .|4 7|5 .|. .\n\
+                           5 2|. .|7 .|6 .\n\
+                           ---+---+---+---\n\
+                           . 7|1 3|. .|. 6\n\
+                           4 6|. .|8 .|. .\n";
         let mut sudoku = eight_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
@@ -928,12 +963,14 @@ mod test {
     #[test]
     fn test_six_solve() {
         // #t2d1p1 from sudoku-puzzles.net
-        let input: &str = ".3.4..\n\
-                           ..56.3\n\
-                           ...1..\n\
-                           .1.3.5\n\
-                           .64.31\n\
-                           ..1.46\n";
+        let input: &str = ". 3 .|4 . .\n\
+                           . . 5|6 . 3\n\
+                           -----+-----\n\
+                           . . .|1 . .\n\
+                           . 1 .|3 . 5\n\
+                           -----+-----\n\
+                           . 6 4|. 3 1\n\
+                           . . 1|. 4 6\n";
         let mut sudoku = six_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);
@@ -954,10 +991,11 @@ mod test {
     #[test]
     fn test_four_solve() {
         // #t14d1p1 from sudoku-puzzles.net
-        let input: &str = "...4\n\
-                           ....\n\
-                           2..3\n\
-                           4.12\n";
+        let input: &str = ". .|. 4\n\
+                           . .|. .\n\
+                           ---+---\n\
+                           2 .|. 3\n\
+                           4 .|1 2\n";
         let mut sudoku = four_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
         let mut checker = StdChecker::new(&sudoku);

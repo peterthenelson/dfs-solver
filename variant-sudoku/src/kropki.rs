@@ -675,48 +675,56 @@ mod test {
     #[test]
     fn test_kropki_black_1_not_middle() {
         // 1 can't be a middle value at all
-        let input: &str = "......\n\
-                           .1....\n\
-                           ......\n\
-                           ......\n\
-                           ......\n\
-                           ......\n";
+        let input: &str = ". . .|. . .\n\
+                           . 1 .|. . .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n";
         assert_kropki_black_result(input, Some("KROPKI_BLACK_CONFLICT"));
     }
 
     #[test]
     fn test_kropki_black_sudoku_interaction() {
         // [1, 1] has to be a 2 for KB reasons but is ruled out for sudoku ones
-        let input: &str = "......\n\
-                           4...2.\n\
-                           ......\n\
-                           ......\n\
-                           ......\n\
-                           ......\n";
+        let input: &str = ". . .|. . .\n\
+                           4 . .|. 2 .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n";
         assert_kropki_black_result(input, Some("KROPKI_BLACK_INFEASIBLE"));
     }
 
     #[test]
     fn test_kropki_black_contradiction() {
         // Straightforward contradiction
-        let input: &str = "......\n\
-                           41....\n\
-                           ......\n\
-                           ......\n\
-                           ......\n\
-                           ......\n";
+        let input: &str = ". . .|. . .\n\
+                           4 1 .|. . .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n";
         assert_kropki_black_result(input, Some("KROPKI_BLACK_CONFLICT"));
     }
 
     #[test]
     fn test_kropki_black_valid_fill() {
         // Valid fill
-        let input: &str = "......\n\
-                           124536\n\
-                           ......\n\
-                           ......\n\
-                           ......\n\
-                           ......\n";
+        let input: &str = ". . .|. . .\n\
+                           1 2 4|5 3 6\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n\
+                           -----+-----\n\
+                           . . .|. . .\n\
+                           . . .|. . .\n";
         assert_kropki_black_result(input, None);
     }
 }

@@ -73,15 +73,17 @@ mod test {
 
     #[test]
     fn test_double_down_solution() {
-        let input: &str = "174625893\n\
-                           982713546\n\
-                           356894217\n\
-                           813952764\n\
-                           297346185\n\
-                           465178329\n\
-                           748239651\n\
-                           639581472\n\
-                           52146793.\n";
+        let input: &str = "1 7 4|6 2 5|8 9 3\n\
+                           9 8 2|7 1 3|5 4 6\n\
+                           3 5 6|8 9 4|2 1 7\n\
+                           -----+-----+-----\n\
+                           8 1 3|9 5 2|7 6 4\n\
+                           2 9 7|3 4 6|1 8 5\n\
+                           4 6 5|1 7 8|3 2 9\n\
+                           -----+-----+-----\n\
+                           7 4 8|2 3 9|6 5 1\n\
+                           6 3 9|5 8 1|4 7 2\n\
+                           5 2 1|4 6 7|9 3 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<DoubleDown, _>(sudoku, obs);

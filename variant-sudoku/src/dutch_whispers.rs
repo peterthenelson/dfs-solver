@@ -336,15 +336,17 @@ mod test {
     #[test]
     fn test_dutch_whisper_too_close() {
         // 8 and 5 are too close
-        let input: &str = "85.......\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n";
+        let input: &str = "8 5 .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n";
         assert_dutch_whisper_result(input, Some("DW_TOO_CLOSE"));
     }
 
@@ -352,15 +354,17 @@ mod test {
     fn test_dutch_whisper_sudoku_interaction() {
         // [0, 2] must be a 1 for DWs reasons, but it's ruled out for
         // Sudoku reasons.
-        let input: &str = "95......1\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n";
+        let input: &str = "9 5 .|. . .|. . 1\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n";
         assert_dutch_whisper_result(input, Some("DG_CELL_NO_VALS"));
     }
 
@@ -368,30 +372,34 @@ mod test {
     fn test_dutch_whisper_squeeze() {
         // [0, 4] is squeezed between 8 and 2 -- there are not values that work
         // for both.
-        let input: &str = "...8.....\n\
-                           ....2....\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n";
+        let input: &str = ". . .|8 . .|. . .\n\
+                           . . .|. 2 .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n";
         assert_dutch_whisper_result(input, Some("DG_CELL_NO_VALS"));
     }
 
     #[test]
     fn test_dutch_whisper_valid_fill() {
         // Valid fill
-        let input: &str = "15928....\n\
-                           ....3....\n\
-                           ....7....\n\
-                           ....2....\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n\
-                           .........\n";
+        let input: &str = "1 5 9|2 8 .|. . .\n\
+                           . . .|. 3 .|. . .\n\
+                           . . .|. 7 .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. 2 .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           -----+-----+-----\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n\
+                           . . .|. . .|. . .\n";
         assert_dutch_whisper_result(input, None);
     }
 }

@@ -105,15 +105,17 @@ mod test {
 
     #[test]
     fn test_three_color_theorem_solution() {
-        let input: &str = "456392178\n\
-                           273851694\n\
-                           198476352\n\
-                           784563921\n\
-                           615249837\n\
-                           329187465\n\
-                           562914783\n\
-                           931728546\n\
-                           84763521.\n";
+        let input: &str = "4 5 6|3 9 2|1 7 8\n\
+                           2 7 3|8 5 1|6 9 4\n\
+                           1 9 8|4 7 6|3 5 2\n\
+                           -----+-----+-----\n\
+                           7 8 4|5 6 3|9 2 1\n\
+                           6 1 5|2 4 9|8 3 7\n\
+                           3 2 9|1 8 7|4 6 5\n\
+                           -----+-----+-----\n\
+                           5 6 2|9 1 4|7 8 3\n\
+                           9 3 1|7 2 8|5 4 6\n\
+                           8 4 7|6 3 5|2 1 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<ThreeColorTheorem, _>(sudoku, obs);

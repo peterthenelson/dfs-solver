@@ -584,10 +584,11 @@ mod test {
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
         let mut puzzle1 = four_standard_parse(
-            "2..3\n\
-             ....\n\
-             ....\n\
-             4...\n"
+            "2 .|. 3\n\
+             . .|. .\n\
+             ---+---\n\
+             . .|. .\n\
+             4 .|. .\n"
         ).unwrap();
         replay_givens(&mut puzzle1);
         // x1 contains two cells -- the length digit and the next
@@ -606,10 +607,11 @@ mod test {
         assert!(x4.contains(&puzzle1, [3, 0]));
         assert!(x4.contains(&puzzle1, [0, 0]));
         let mut puzzle2 = four_standard_parse(
-            "....\n\
-             .21.\n\
-             .43.\n\
-             ....\n"
+            ". .|. .\n\
+             . 2|1 .\n\
+             ---+---\n\
+             . 4|3 .\n\
+             . .|. .\n"
         ).unwrap();
         replay_givens(&mut puzzle2);
         // These all contain their length cell, but since it's empty, they don't
@@ -631,10 +633,11 @@ mod test {
         let x3 = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4 = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
         let mut puzzle1 = four_standard_parse(
-            "2..3\n\
-             ....\n\
-             ....\n\
-             4...\n"
+            "2 .|. 3\n\
+             . .|. .\n\
+             ---+---\n\
+             . .|. .\n\
+             4 .|. .\n"
         ).unwrap();
         replay_givens(&mut puzzle1);
         assert_eq!(x1.length(&puzzle1).unwrap(), ([0, 0], StdVal::new(2)));
@@ -642,10 +645,11 @@ mod test {
         assert_eq!(x3.length(&puzzle1).unwrap(), ([0, 0], StdVal::new(2)));
         assert_eq!(x4.length(&puzzle1).unwrap(), ([3, 0], StdVal::new(4)));
         let puzzle2 = four_standard_parse(
-            "....\n\
-             .21.\n\
-             .43.\n\
-             ....\n"
+            ". .|. .\n\
+             . 2|1 .\n\
+             ---+---\n\
+             . 4|3 .\n\
+             . .|. .\n"
         ).unwrap();
         assert!(x1.length(&puzzle2).is_none());
         assert!(x2.length(&puzzle2).is_none());
@@ -660,10 +664,11 @@ mod test {
         let x3: XSum<1, 4, 4, 4> = XSum { direction: XSumDirection::CD, index: 0, target: 5 };
         let x4: XSum<1, 4, 4, 4> = XSum { direction: XSumDirection::CU, index: 0, target: 5 };
         // Imagine this puzzle:
-        // 2..3
-        // ....
-        // ....
-        // 4...
+        // 2 .|. 3
+        // . .|. .
+        // ---+---
+        // . .|. .
+        // 4 .|. .
         assert_eq!(x1.xrange(2).collect::<Vec<_>>(), vec![[0, 1]]);
         assert_eq!(x2.xrange(3).collect::<Vec<_>>(), vec![[0, 2], [0, 1]]);
         assert_eq!(x3.xrange(2).collect::<Vec<_>>(), vec![[1, 0]]);
@@ -688,10 +693,11 @@ mod test {
         let x7 = XSum{ direction: XSumDirection::CD, index: 2, target: 6 };
 
         let puzzle = four_standard_parse(
-            "2134\n\
-             ..4.\n\
-             432.\n\
-             ....\n"
+            "2 1|3 4\n\
+             . .|4 .\n\
+             ---+---\n\
+             4 3|2 .\n\
+             . .|. .\n"
         ).unwrap();
 
         for (x, expected) in vec![
@@ -731,10 +737,11 @@ mod test {
         let x6 = XSum{ direction: XSumDirection::RL, index: 0, target: 20 };
 
         let puzzle = four_standard_parse(
-            "....\n\
-             .234\n\
-             .4..\n\
-             4312\n"
+            ". .|. .\n\
+             . 2|3 4\n\
+             ---+---\n\
+             . 4|. .\n\
+             4 3|1 2\n"
         ).unwrap();
 
         for (x, expected) in vec![

@@ -346,10 +346,11 @@ mod test {
         let cage6 = Cage{ cells: vec![[0, 1], [0, 2]], target: Some(5), exclusive: true };
 
         let puzzle = four_standard_parse(
-            "122.\n\
-             ..34\n\
-             4...\n\
-             ..4.\n"
+            "1 2|2 .\n\
+             . .|3 4\n\
+             ---+---\n\
+             4 .|. .\n\
+             . .|4 .\n"
         ).unwrap();
 
         for (c, expected) in vec![
@@ -407,11 +408,13 @@ mod test {
         let mut finder = FindFirstSolution::new(&mut puzzle, &ranker, &mut constraint, None);
         let maybe_solution = finder.solve()?;
         assert!(maybe_solution.is_some());
-        let expected: &str = "3412\n\
-                              2143\n\
-                              4231\n\
-                              1324\n";
-        assert_eq!(format!("{:?}", maybe_solution.unwrap().state()), expected);
+        let expected: &str = "3 4|1 2\n\
+                              2 1|4 3\n\
+                              ---+---\n\
+                              4 2|3 1\n\
+                              1 3|2 4\n";
+        let solution = maybe_solution.unwrap().state();
+        assert_eq!(solution.overlay().serialize_pretty(&solution), expected);
         Ok(())
     }
 }

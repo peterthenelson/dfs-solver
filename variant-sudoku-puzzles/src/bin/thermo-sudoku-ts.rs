@@ -19,15 +19,17 @@ impl PuzzleSetter for ThermoSudokuTs {
     fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(nine_standard_parse(
-            ".........\n\
-             .........\n\
-             ........8\n\
-             .........\n\
-             ....6....\n\
-             .........\n\
-             8........\n\
-             .........\n\
-             .........\n"
+            ". . .|. . .|. . .\n\
+             . . .|. . .|. . .\n\
+             . . .|. . .|. . 8\n\
+             -----+-----+-----\n\
+             . . .|. . .|. . .\n\
+             . . .|. 6 .|. . .\n\
+             . . .|. . .|. . .\n\
+             -----+-----+-----\n\
+             8 . .|. . .|. . .\n\
+             . . .|. . .|. . .\n\
+             . . .|. . .|. . .\n"
         ).unwrap())
     }
 
@@ -69,15 +71,17 @@ mod test {
 
     #[test]
     fn test_thermo_sudoku_ts() {
-        let input: &str = "486351297\n\
-                           319728456\n\
-                           725694318\n\
-                           234517869\n\
-                           158963742\n\
-                           967842135\n\
-                           892135674\n\
-                           543276981\n\
-                           67148952.\n";
+        let input: &str = "4 8 6|3 5 1|2 9 7\n\
+                           3 1 9|7 2 8|4 5 6\n\
+                           7 2 5|6 9 4|3 1 8\n\
+                           -----+-----+-----\n\
+                           2 3 4|5 1 7|8 6 9\n\
+                           1 5 8|9 6 3|7 4 2\n\
+                           9 6 7|8 4 2|1 3 5\n\
+                           -----+-----+-----\n\
+                           8 9 2|1 3 5|6 7 4\n\
+                           5 4 3|2 7 6|9 8 1\n\
+                           6 7 1|4 8 9|5 2 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<ThermoSudokuTs, _>(sudoku, obs);

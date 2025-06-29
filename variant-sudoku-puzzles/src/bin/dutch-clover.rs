@@ -19,15 +19,17 @@ impl PuzzleSetter for DutchClover {
     fn setup() -> (NineStd, Self::Ranker, Self::Constraint) {
         // The given digits in real puzzle but can be overridden in in test.
         Self::setup_with_givens(nine_standard_parse(
-            "..5.6.7..\n\
-             .........\n\
-             ....3.4.5\n\
-             .........\n\
-             .........\n\
-             .........\n\
-             2.3.4....\n\
-             .........\n\
-             ..6.7.8..\n"
+            ". . 5|. 6 .|7 . .\n\
+             . . .|. . .|. . .\n\
+             . . .|. 3 .|4 . 5\n\
+             -----+-----+-----\n\
+             . . .|. . .|. . .\n\
+             . . .|. . .|. . .\n\
+             . . .|. . .|. . .\n\
+             -----+-----+-----\n\
+             2 . 3|. 4 .|. . .\n\
+             . . .|. . .|. . .\n\
+             . . 6|. 7 .|8 . .\n"
         ).unwrap())
     }
 
@@ -61,15 +63,17 @@ mod test {
 
     #[test]
     fn test_dutch_clover_solution() {
-        let input: &str = "495162738\n\
-                           738495162\n\
-                           162738495\n\
-                           951627384\n\
-                           384951627\n\
-                           627384951\n\
-                           273849516\n\
-                           849516273\n\
-                           51627384.\n";
+        let input: &str = "4 9 5|1 6 2|7 3 8\n\
+                           7 3 8|4 9 5|1 6 2\n\
+                           1 6 2|7 3 8|4 9 5\n\
+                           -----+-----+-----\n\
+                           9 5 1|6 2 7|3 8 4\n\
+                           3 8 4|9 5 1|6 2 7\n\
+                           6 2 7|3 8 4|9 5 1\n\
+                           -----+-----+-----\n\
+                           2 7 3|8 4 9|5 1 6\n\
+                           8 4 9|5 1 6|2 7 3\n\
+                           5 1 6|2 7 3|8 4 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
         solve_with_given::<DutchClover, _>(sudoku, obs);
