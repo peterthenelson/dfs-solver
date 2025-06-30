@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
+use crate::color_util::color_fib_palette;
 use crate::constraint::Constraint;
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value};
 use crate::index_util::{check_orthogonally_adjacent, expand_orthogonal_polyline};
@@ -248,6 +249,7 @@ pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
 pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     blacks: Vec<KropkiDotChain>,
     black_remaining: HashMap<Index, VBitSet<StdVal<MIN, MAX>>>,
+    black_colors: Vec<(u8, u8, u8)>,
     kb_feature: Key<Feature>,
     kb_conflict_attr: Key<Attribution>,
     kb_if_attr: Key<Attribution>,
@@ -268,9 +270,11 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
                 covered.insert(cell);
             }
         }
+        let black_colors = color_fib_palette((200, 200, 0), chains.len(), 50.0);
         let mut kc = Self {
             blacks: chains,
             black_remaining: HashMap::new(),
+            black_colors,
             kb_feature: Key::register(KROPKI_BLACK_FEATURE),
             kb_conflict_attr: Key::register(KROPKI_BLACK_CONFLICT_ATTRIBUTION),
             kb_if_attr: Key::register(KROPKI_BLACK_INFEASIBLE_ATTRIBUTION),
@@ -435,11 +439,12 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
                 return Some((200, 0, 0));
             }
         }
-        if let Some(_) = self.black_remaining.get(&index) {
-            Some((200, 200, 0))
-        } else {
-            None
+        for (i, b) in self.blacks.iter().enumerate() {
+            if b.contains(index) {
+                return Some(self.black_colors[i])
+            }
         }
+        None
     }
 }
 

@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
+use crate::{color_util::{color_fib_palette, color_scale}, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
 
 // TODO: Add support for slow thermos
 
@@ -72,6 +72,7 @@ pub const THERMO_BULB_FEATURE: &str = "THERMO_BULB";
 
 pub struct ThermoChecker<const MIN: u8, const MAX: u8> {
     thermos: Vec<Thermo>,
+    thermo_colors: Vec<(u8, u8, u8)>,
     init_ranges: HashMap<Index, Range<MIN, MAX>>,
     thermo_feature: Key<Feature>,
     thermo_bulb_feature: Key<Feature>,
@@ -131,8 +132,10 @@ impl <const MIN: u8, const MAX: u8> ThermoChecker<MIN, MAX> {
                     .or_insert(r1);
             }
         }
+        let thermo_colors = color_fib_palette((200, 200, 0), thermos.len(), 50.0);
         Self {
             thermos,
+            thermo_colors,
             init_ranges,
             thermo_feature: Key::register(THERMO_FEATURE),
             thermo_bulb_feature: Key::register(THERMO_BULB_FEATURE),
@@ -233,11 +236,11 @@ Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
                 return Some((200, 0, 0));
             }
         }
-        for t in &self.thermos {
+        for (i, t) in self.thermos.iter().enumerate() {
             if t.cells[0] == index {
-                return Some((200, 200, 0))
+                return Some(self.thermo_colors[i])
             } else if t.contains(index) {
-                return Some((150, 150, 0))
+                return Some(color_scale(self.thermo_colors[i], 0.75))
             }
         }
         None

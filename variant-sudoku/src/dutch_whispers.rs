@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use crate::color_util::{color_ave, polarity_color};
+use crate::color_util::{color_ave, color_polarity};
 use crate::constraint::Constraint;
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::index_util::{check_adjacent, expand_polyline};
@@ -292,10 +292,10 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
         }
         if let Some(rem) = self.remaining.get(&index) {
             if let Some(v) = puzzle.get(index) {
-                return Some(polarity_color(1, 9, v.val()))
+                return Some(color_polarity(1, 9, v.val()))
             }
             let polarities = rem.iter()
-                .map(|v| polarity_color(1, 9, v.val()))
+                .map(|v| color_polarity(1, 9, v.val()))
                 .collect::<Vec<_>>();
             Some(color_ave(&polarities))
         } else {

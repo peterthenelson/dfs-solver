@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
+use crate::color_util::color_fib_palette;
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::constraint::Constraint;
 use crate::index_util::{check_orthogonally_connected};
@@ -101,6 +102,7 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     remaining: Vec<Option<u8>>,
     empty: Vec<usize>,
     cage_sets: Vec<VBitSet<StdVal<MIN, MAX>>>,
+    colors: Vec<(u8, u8, u8)>,
     cage_feature: Key<Feature>,
     cage_dupe_attr: Key<Attribution>,
     cage_over_attr: Key<Attribution>,
@@ -123,8 +125,9 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         let remaining = cages.iter().map(|c| c.target).collect();
         let empty = cages.iter().map(|c| c.cells.len()).collect();
         let cage_sets = vec![VBitSet::<StdVal<MIN, MAX>>::full(); cages.len()];
+        let colors = color_fib_palette((200, 200, 0), cages.len(), 50.0);
         CageChecker {
-            cages, remaining, empty, cage_sets, illegal: None,
+            cages, remaining, empty, cage_sets, colors, illegal: None,
             cage_feature: Key::register(CAGE_FEATURE),
             cage_dupe_attr: Key::register(CAGE_DUPE_ATTRIBUTION),
             cage_over_attr: Key::register(CAGE_OVER_ATTRIBUTION),
@@ -323,8 +326,10 @@ Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
                     if r == 0 {
                         return Some((0, 200, 0));
                     }
+                } else if self.empty[i] == 0 {
+                    return Some((0, 200, 0));
                 }
-                return Some((200, 200, 0));
+                return Some(self.colors[i]);
             }
         }
         None
