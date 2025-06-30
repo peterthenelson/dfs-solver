@@ -389,7 +389,7 @@ pub const DG_ONE_CELL_ATTRIBUTION: &str = "DG_VAL_ONE_CELL";
 /// go in index A or B). Note that NUM_POSSIBLE is the (most important!) feature
 /// that indicates how many possible indices are left for a particular value in
 /// a region.
-pub struct StdRanker {
+pub struct StdRanker<O: Overlay> {
     cell_weights: FeatureVec<CoVec>,
     val_weights: FeatureVec<CoVec>,
     cell_possible: Key<Feature>,
@@ -401,6 +401,7 @@ pub struct StdRanker {
     one_val_attr: Key<Attribution>,
     no_cells_attr: Key<Attribution>,
     one_cell_attr: Key<Attribution>,
+    _marker: PhantomData<O>,
 }
 
 impl <V: Value> RankerRegionInfo<V> {
@@ -414,7 +415,7 @@ impl <V: Value> RankerRegionInfo<V> {
     }
 }
 
-impl StdRanker {
+impl <O: Overlay> StdRanker<O> {
     pub fn new(cell_weights: FeatureVec<CoVec>, val_weights: FeatureVec<CoVec>, combine_features: fn (usize, f64, f64) -> f64) -> Self {
         StdRanker {
             cell_weights,
@@ -428,6 +429,7 @@ impl StdRanker {
             one_val_attr: Key::register(DG_ONE_VAL_ATTRIBUTION),
             no_cells_attr: Key::register(DG_NO_CELLS_ATTRIBUTION),
             one_cell_attr: Key::register(DG_ONE_CELL_ATTRIBUTION),
+            _marker: PhantomData,
         }
     }
 
@@ -461,7 +463,7 @@ impl StdRanker {
         )
     }
 
-    fn annotate<V: Value, O: Overlay>(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
+    fn annotate<V: Value>(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
         let grid = ranking.cells_mut();
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
@@ -475,7 +477,7 @@ impl StdRanker {
         }
     }
 
-    fn to_constraint_result<V: Value, O: Overlay>(&self, ranking: &RankingInfo<V>, puzzle: &State<V, O>) -> ConstraintResult<V> {
+    fn to_constraint_result<V: Value>(&self, ranking: &RankingInfo<V>, puzzle: &State<V, O>) -> ConstraintResult<V> {
         let grid = ranking.cells();
         for r in 0..grid.rows() {
             for c in 0..grid.cols() {
@@ -521,7 +523,7 @@ enum SRChoice<V: Value> {
     ValueInRegion(V, Vec<Index>),
 }
 
-impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
+impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
     fn init_ranking(&self, puzzle: &State<V, O>) -> RankingInfo<V> {
         let (n, m) = puzzle.overlay().grid_dims();
         let mut cells = DecisionGrid::<V, Raw>::full(n, m);
@@ -556,9 +558,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
                 let mut info = ranking.region_info(puzzle, layer, p);
-                // TODO: Maybe we can get rid of this bizarro casting by putting
-                // the overlay in PhantomData?
-                let top_val = <Self as Ranker<V, O>>::score_region_info(self, &mut info);
+                let top_val = self.score_region_info(&mut info);
                 top_choice = top_choice.map(|(ch, s_old)| {
                     if let Some((v, c, s)) = top_val {
                         if s > s_old {

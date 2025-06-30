@@ -13,7 +13,7 @@ pub struct DutchMagic;
 impl PuzzleSetter for DutchMagic {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type Ranker = StdRanker;
+    type Ranker = StdRanker<Self::Overlay>;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { Some("dutch-magic".into()) }

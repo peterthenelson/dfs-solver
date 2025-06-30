@@ -11,7 +11,7 @@ pub struct DutchClover;
 impl PuzzleSetter for DutchClover {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type Ranker = StdRanker;
+    type Ranker = StdRanker<Self::Overlay>;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
     
     fn name() -> Option<String> { Some("dutch-clover".into()) }

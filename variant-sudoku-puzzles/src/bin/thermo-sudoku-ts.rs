@@ -11,7 +11,7 @@ pub struct ThermoSudokuTs;
 impl PuzzleSetter for ThermoSudokuTs {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type Ranker = StdRanker;
+    type Ranker = StdRanker<Self::Overlay>;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
     
     fn name() -> Option<String> { Some("thermo-sudoku-ts".into()) }

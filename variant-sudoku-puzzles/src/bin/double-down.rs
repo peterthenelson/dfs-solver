@@ -12,7 +12,7 @@ pub struct DoubleDown;
 impl PuzzleSetter for DoubleDown {
     type Value = NineStdVal;
     type Overlay = NineStdOverlay;
-    type Ranker = StdRanker;
+    type Ranker = StdRanker<Self::Overlay>;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { Some("double-down".into()) }

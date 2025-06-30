@@ -753,7 +753,7 @@ mod test {
     impl PuzzleSetter for GwLineSetter {
         type Value = TestVal;
         type Overlay = GwOverlay;
-        type Ranker = StdRanker;
+        type Ranker = StdRanker<Self::Overlay>;
         type Constraint = GwLineConstraint;
         fn setup() -> (GwLine, Self::Ranker, Self::Constraint) {
             Self::setup_with_givens(GwLine::new(GwOverlay {}))
@@ -766,7 +766,7 @@ mod test {
     impl PuzzleSetter for GwSmartLineSetter {
         type Value = TestVal;
         type Overlay = GwOverlay;
-        type Ranker = StdRanker;
+        type Ranker = StdRanker<Self::Overlay>;
         type Constraint = GwSmartLineConstraint;
         fn setup() -> (GwLine, Self::Ranker, Self::Constraint) {
             Self::setup_with_givens(GwLine::new(GwOverlay {}))

@@ -403,7 +403,7 @@ mod test {
     impl PuzzleSetter for E2ECage {
         type Value = FourStdVal;
         type Overlay = FourStdOverlay;
-        type Ranker = StdRanker;
+        type Ranker = StdRanker<Self::Overlay>;
         type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
         fn setup() -> (FourStd, Self::Ranker, Self::Constraint) {
             Self::setup_with_givens(FourStd::new(four_standard_overlay()))

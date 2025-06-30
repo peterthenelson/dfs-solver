@@ -33,7 +33,7 @@ impl OneMoreTurn {
 impl PuzzleSetter for OneMoreTurn {
     type Value = NineStdVal;
     type Overlay = IrregularOverlay<9, 9>;
-    type Ranker = StdRanker;
+    type Ranker = StdRanker<Self::Overlay>;
     type Constraint = MultiConstraint<Self::Value, Self::Overlay>;
 
     fn name() -> Option<String> { Some("one-more-turn".into()) }
