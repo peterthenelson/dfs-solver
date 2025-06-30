@@ -281,11 +281,20 @@ pub struct RankingInfo<V: Value> {
     // features to or restrict available values in a DecisionGrid.
     cells: DecisionGrid<V, Raw>,
 
-    // TODO: Add info for RegionLayers in the Overlay.
+    // The feature for # of possibilities in the value-in-region FeatureVecs.
+    val_possible: Key<Feature>,
+
+    // TODO: What value-in-region- or region-centric information can Constraints
+    // provide to the ranker? If any, put it here.
 }
 
 impl <V: Value> RankingInfo<V> {
-    pub fn new(cells: DecisionGrid<V, Raw>) -> Self { Self { cells } }
+    pub fn new(cells: DecisionGrid<V, Raw>) -> Self {
+        Self {
+            cells,
+            val_possible: Key::register(DG_VAL_POSSIBLE_FEATURE),
+        }
+    }
 
     pub fn cells(&self) -> &DecisionGrid<V, Raw> {
         &self.cells
@@ -301,8 +310,42 @@ impl <V: Value> RankingInfo<V> {
     ) -> Option<(Index, f64)> {
         self.cells.score_against(combine, puzzle, scorer)
     }
-}
 
+    /// Give a value-in-region-centric view of the grid (i.e., the positive
+    /// positive constraints implied by the overlay).
+    pub fn region_info<O: Overlay>(
+        &self, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
+    ) -> RankerRegionInfo<V> {
+        let mut info = RankerRegionInfo::new();
+        for index in puzzle.overlay().region_iter(layer, p) {
+            if let Some(val) = puzzle.get(index) {
+                info.filled.insert(&val);
+                let cc = info.cell_choices.get_mut(&val);
+                cc.clear();
+                cc.push(index);
+                continue;
+            }
+            let g = self.cells.get(index);
+            for v in g.0.iter() {
+                info.cell_choices.get_mut(&v).push(index);
+                info.feature_vecs.get_mut(&v).extend(&g.1);
+            }
+        }
+        for v in V::possibilities() {
+            if info.filled.contains(&v) {
+                continue;
+            }
+            // TODO: Should we normalize the other feature values by
+            // 1/alternatives? Otherwise we're implicitly overweighting
+            // towards choosing a ::ValueInRegion over a ::Cell.
+            info.feature_vecs.get_mut(&v).add(
+                &self.val_possible,
+                info.cell_choices.get(&v).len() as f64,
+            );
+        }
+        info
+    }
+}
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
 /// either be a cell ("Here are the mutually exclusive and exhaustive
@@ -317,14 +360,8 @@ pub trait Ranker<V: Value, O: Overlay> {
     // Note: the ranker must not suggest already filled cells.
     fn rank(&self, step: usize, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) -> (ConstraintResult<V>, Option<BranchPoint<V>>);
 
-    /// Exposes how the ranker looks at the grid when calculating candidates
-    /// in regions (i.e., the positive constraints implied by the overlay).
-    /// Useful for debugging without needing to duplicate the implementation of
-    /// the ranker. Implementations may return None if they don't generate
-    /// candidates in this way.
-    fn region_info<S>(
-        &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
-    ) -> RankerRegionInfo<V>;
+    // Score the region info.
+    fn score_region_info(&self, region_info: &mut RankerRegionInfo<V>) -> Option<(V, Vec<Index>, f64)> ;
 }
 
 pub struct RankerRegionInfo<V: Value> {
@@ -334,7 +371,7 @@ pub struct RankerRegionInfo<V: Value> {
     pub cell_choices: VDenseMap<V, Vec<Index>>,
     // Feature vectors for a given value.
     pub feature_vecs: VDenseMap<V, FeatureVec<Raw>>,
-    p_v_: PhantomData<V>,
+    _marker: PhantomData<V>,
 }
 
 pub const DG_CELL_POSSIBLE_FEATURE: &str = "DG_CELL_POSSIBLE";
@@ -356,7 +393,6 @@ pub struct StdRanker {
     cell_weights: FeatureVec<CoVec>,
     val_weights: FeatureVec<CoVec>,
     cell_possible: Key<Feature>,
-    val_possible: Key<Feature>,
     combinator: fn (usize, f64, f64) -> f64,
     empty_attr: Key<Attribution>,
     top_cell_attr: Key<Attribution>,
@@ -373,7 +409,7 @@ impl <V: Value> RankerRegionInfo<V> {
             filled: VBitSet::<V>::empty(),
             cell_choices: VDenseMap::<V, Vec<Index>>::empty(),
             feature_vecs: VDenseMap::<V, FeatureVec<Raw>>::empty(),
-            p_v_: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -384,7 +420,6 @@ impl StdRanker {
             cell_weights,
             val_weights,
             cell_possible: Key::register(DG_CELL_POSSIBLE_FEATURE),
-            val_possible: Key::register(DG_VAL_POSSIBLE_FEATURE),
             combinator: combine_features,
             empty_attr: Key::register(DG_EMPTY_ATTRIBUTION),
             top_cell_attr: Key::register(DG_TOP_CELL_ATTRIBUTION),
@@ -460,7 +495,7 @@ impl StdRanker {
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
-                let info = self.region_info(grid, puzzle, layer, p);
+                let info = ranking.region_info(puzzle, layer, p);
                 for v in V::possibilities() {
                     if info.filled.contains(&v) {
                         continue;
@@ -503,6 +538,8 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
     fn rank(&self, step: usize, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) -> (ConstraintResult<V>, Option<BranchPoint<V>>) {
         self.annotate(ranking, puzzle);
         let top_cell = ranking.score_against(self.combinator, puzzle, &self.cell_weights);
+        // TODO: Should be able to score and check for early exits in one pass,
+        // avoiding duplicate creation of region_infos
         let cr = self.to_constraint_result(&ranking, puzzle);
         match &cr {
             ConstraintResult::Contradiction(_) | ConstraintResult::Certainty(_, _) => {
@@ -515,26 +552,21 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         } else {
             return (ConstraintResult::Ok, Some(BranchPoint::empty(step, self.empty_attr)));
         };
-        // TODO: Factor this into the RankingInfo and the init_ranking method
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
-                let mut info = self.region_info(ranking.cells_mut(), puzzle, layer, p);
-                for v in V::possibilities() {
-                    if info.filled.contains(&v) {
-                        continue;
-                    }
-                    let fv = info.feature_vecs.get_mut(&v);
-                    fv.score_against(self.combinator, &self.val_weights);
-                    let score = fv.try_scored().unwrap().score();
-                    top_choice = top_choice.map(|(c, s)| {
-                        if score > s { 
-                            (SRChoice::ValueInRegion(v, info.cell_choices.get(&v).clone()), score)
-                        } else {
-                            (c, s)
+                let mut info = ranking.region_info(puzzle, layer, p);
+                // TODO: Maybe we can get rid of this bizarro casting by putting
+                // the overlay in PhantomData?
+                let top_val = <Self as Ranker<V, O>>::score_region_info(self, &mut info);
+                top_choice = top_choice.map(|(ch, s_old)| {
+                    if let Some((v, c, s)) = top_val {
+                        if s > s_old {
+                            return (SRChoice::ValueInRegion(v, c), s);
                         }
-                    });
-                }
+                    }
+                    (ch, s_old)
+                });
             }
         }
         let bp = match top_choice {
@@ -552,36 +584,25 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker {
         (ConstraintResult::Ok, Some(bp))
     }
 
-    fn region_info<S>(
-        &self, grid: &DecisionGrid<V, S>, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
-    ) -> RankerRegionInfo<V> {
-        let mut info = RankerRegionInfo::new();
-        for index in puzzle.overlay().region_iter(layer, p) {
-            if let Some(val) = puzzle.get(index) {
-                info.filled.insert(&val);
-                let cc = info.cell_choices.get_mut(&val);
-                cc.clear();
-                cc.push(index);
-                continue;
-            }
-            let g = grid.get(index);
-            for v in g.0.iter() {
-                info.cell_choices.get_mut(&v).push(index);
-                info.feature_vecs.get_mut(&v).extend(&g.1);
-            }
-        }
+    fn score_region_info(&self, region_info: &mut RankerRegionInfo<V>) -> Option<(V, Vec<Index>, f64)> {
+        let mut top_choice = None;
         for v in V::possibilities() {
-            if info.filled.contains(&v) {
+            if region_info.filled.contains(&v) {
                 continue;
             }
-            // TODO: Should we normalize the other feature values by
-            // 1/alternatives? Otherwise we're implicitly overweighting
-            // towards choosing a ::ValueInRegion over a ::Cell.
-            info.feature_vecs.get_mut(&v).add(
-                &self.val_possible,
-                info.cell_choices.get(&v).len() as f64,
-            );
+            let fv = region_info.feature_vecs.get_mut(&v);
+            fv.score_against(self.combinator, &self.val_weights);
+            let score = fv.try_scored().unwrap().score();
+            top_choice = top_choice.map_or_else(
+                || Some((v, region_info.cell_choices.get(&v).clone(), score)).clone(),
+                 |(v_old, c_old, s_old)| {
+                    Some(if score > s_old { 
+                        (v, region_info.cell_choices.get(&v).clone(), score)
+                    } else {
+                        (v_old, c_old, s_old)
+                    })
+                });
         }
-        info
+        top_choice
     }
 }

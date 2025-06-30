@@ -7,7 +7,7 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState},
+    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState},
 };
 
 pub trait ConstraintSplitter<P: PuzzleSetter> {
@@ -244,8 +244,8 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     let at = val_at_index::<P, N, M>(state, vb, cursor);
     match (at.val, at.region_index) {
         (Some(v), Some(p)) => {
-            let info = state.solver.ranker().region_info(
-                ranking.cells(), state.solver.state(), layer, p,
+            let info = ranking.region_info(
+                state.solver.state(), layer, p,
             );
             let cells = info.cell_choices.get(&v).iter()
                 .map(|c| format!("{:?}", c))
@@ -538,7 +538,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
         // Note: We are assuming that all rows have the same size (and same for cols, boxes).
         let mut infos = vec![];
         for p in 0..overlay.regions_in_layer(layer) {
-            infos.push(state.solver.ranker().region_info(&ranking.cells(), state.solver.state(), layer, p));
+            infos.push(ranking.region_info(state.solver.state(), layer, p));
         }
         for r in 0..N {
             for c in 0..M {

@@ -1,8 +1,6 @@
 use std::{collections::HashMap, fmt::Debug};
 use crate::{color_util::{color_fib_palette, color_scale}, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
 
-// TODO: Add support for slow thermos
-
 #[derive(Debug, Clone)]
 pub struct Thermo {
     pub cells: Vec<Index>,

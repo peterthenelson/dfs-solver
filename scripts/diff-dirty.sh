@@ -1,3 +1,6 @@
+# TODO: Make the util scripts (list-* and snapshot-stats) libraries so we can
+# source them and avoid weird versioning issues when running the diff scripts
+# (while we are also updating the scripts themselves).
 set -euo pipefail
 git add .
 if git diff --cached --quiet; then
