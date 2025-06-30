@@ -2,4 +2,4 @@
 # another script
 set -euo pipefail
 source ./scripts/lib.sh
-list_puzzles
+list_benchmarks

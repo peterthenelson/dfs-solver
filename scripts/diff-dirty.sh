@@ -1,25 +1,23 @@
-# TODO: Make the util scripts (list-* and snapshot-stats) libraries so we can
-# source them and avoid weird versioning issues when running the diff scripts
-# (while we are also updating the scripts themselves).
 set -euo pipefail
+source ./scripts/lib.sh
 git add .
 if git diff --cached --quiet; then
   echo "No staged changes to compare against base."
   exit 1
 fi
 git stash push -m "Temporary stash for diff-stats"
-ID_BASE=$(./scripts/snapshot-stats.sh --exist_skip)
+ID_BASE=$(snapshot_stats --exist_skip)
 git stash pop
-ID_EXP=$(./scripts/snapshot-stats.sh --exist_redo)
+ID_EXP=$(snapshot_stats --exist_redo)
 mkdir -p "stats/${ID_BASE}-diff"
-for PUZZLE in $(./scripts/list-puzzles.sh); do
+for PUZZLE in $(list_puzzles); do
   touch "stats/${ID_BASE}/${PUZZLE}.json"
   touch "stats/${ID_EXP}/${PUZZLE}.json"
   cargo run --release --bin diff-stat -- \
     "stats/${ID_BASE}/${PUZZLE}.json" "stats/${ID_EXP}/${PUZZLE}.json" \
     > "stats/${ID_BASE}-diff/${PUZZLE}.json"
 done
-for BENCH in $(./scripts/list-benches.sh); do
+for BENCH in $(list_benchmarks); do
   touch "stats/${ID_BASE}/${BENCH}.json"
   touch "stats/${ID_EXP}/${BENCH}.json"
   cargo run --release --bin diff-bench -- \

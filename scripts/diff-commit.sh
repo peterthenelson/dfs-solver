@@ -1,4 +1,6 @@
 set -euo pipefail
+source ./scripts/lib.sh
+
 if [[ "$#" -ne 1 ]]; then
   echo "Usage: $0 <commit-hash>"
   exit 1
@@ -24,19 +26,19 @@ MSG=$(git log -1 --pretty=format:%s "$EXP")
 echo "Running diff for commit: $MSG"
 BASE=$(git rev-parse "${EXP}^")
 git checkout "$BASE"
-ID_BASE=$(./scripts/snapshot-stats.sh --exist_skip)
+ID_BASE=$(snapshot_stats --exist_skip)
 git checkout "$EXP"
-ID_EXP=$(./scripts/snapshot-stats.sh --exist_skip)
+ID_EXP=$(snapshot_stats --exist_skip)
 git checkout - >/dev/null 2>&1
 mkdir -p "stats/${ID_EXP}-commit-diff"
-for PUZZLE in $(./scripts/list-puzzles.sh); do
+for PUZZLE in $(list_puzzles); do
   touch "stats/${ID_BASE}/${PUZZLE}.json"
   touch "stats/${ID_EXP}/${PUZZLE}.json"
   cargo run --release --bin diff-stat -- \
     "stats/${ID_BASE}/${PUZZLE}.json" "stats/${ID_EXP}/${PUZZLE}.json" \
     > "stats/${ID_EXP}-commit-diff/${PUZZLE}.json"
 done
-for BENCH in $(./scripts/list-benches.sh); do
+for BENCH in $(list_benchmarks); do
   touch "stats/${ID_BASE}/${BENCH}.json"
   touch "stats/${ID_EXP}/${BENCH}.json"
   cargo run --release --bin diff-bench -- \
