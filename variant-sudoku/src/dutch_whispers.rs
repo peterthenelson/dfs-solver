@@ -290,10 +290,10 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
                 return Some((200, 0, 0));
             }
         }
-        if let Some(v) = puzzle.get(index) {
-            return Some(polarity_color(1, 9, v.val()))
-        }
         if let Some(rem) = self.remaining.get(&index) {
+            if let Some(v) = puzzle.get(index) {
+                return Some(polarity_color(1, 9, v.val()))
+            }
             let polarities = rem.iter()
                 .map(|v| polarity_color(1, 9, v.val()))
                 .collect::<Vec<_>>();

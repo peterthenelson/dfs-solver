@@ -7,8 +7,24 @@ use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    color_util::color_lerp, constraint::Constraint, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState},
 };
+
+pub trait ConstraintSplitter<P: PuzzleSetter> {
+    fn as_multi(constraint: &P::Constraint) -> Option<&MultiConstraint<P::Value, P::Overlay>>;
+}
+pub struct NullConstraintSplitter;
+impl <P: PuzzleSetter> ConstraintSplitter<P> for NullConstraintSplitter {
+    fn as_multi(_: &P::Constraint) -> Option<&MultiConstraint<P::Value, P::Overlay>> {
+        None
+    }
+}
+impl <V: Value, O: Overlay, P: PuzzleSetter<Value = V, Overlay = O, Constraint = MultiConstraint<V, O>>>
+ConstraintSplitter<P> for P {
+    fn as_multi(constraint: &P::Constraint) -> Option<&MultiConstraint<P::Value, P::Overlay>> {
+        Some(constraint)
+    }
+}
 
 pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
     let [r, c] = state.grid_pos;
@@ -28,6 +44,38 @@ pub fn grid_wasd<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: Ke
         _ => return false,
     }
     true
+}
+
+pub fn constraint_c<'a, P: PuzzleSetter, CS: ConstraintSplitter<P>>(
+    state: &mut TuiState<'a, P>,
+    key_event: KeyEvent,
+) -> bool {
+    match state.mode {
+        Mode::Constraints | Mode::ConstraintsRaw => {},
+        _ => return false,
+    };
+    match key_event.code {
+        KeyCode::Char('c') => {
+            state.constraint_index = if let Some(m) = CS::as_multi(state.solver.constraint()) {
+                if let Some(i) = state.constraint_index {
+                    if i+1 < m.num_constraints() {
+                        // Increase the index if possible
+                        Some(i+1)
+                    } else {
+                        // Wraps back around to unselected
+                        None
+                    }
+                } else {
+                    // Unselected goes to constraint [0]
+                    Some(0)
+                }
+            } else {
+                None
+            };
+            true
+        },
+        _ => false,
+    }
 }
 
 pub fn text_area_ws<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
@@ -109,8 +157,25 @@ pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'st
     lines
 }
 
-pub fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'static>> {
-    if let Some(s) = state.solver.constraint().debug_at(state.solver.state(), state.grid_pos) {
+pub fn constraint_lines<'a, P: PuzzleSetter, CS: ConstraintSplitter<P>>(
+    state: &TuiState<'a, P>,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let (name, debug_str) = if let Some((m, i)) = CS::as_multi(state.solver.constraint()).zip(state.constraint_index) {
+        let constraint = m.constraint(i);
+        (
+            format!("Constraint[{}]", i),
+            constraint.debug_at(state.solver.state(), state.grid_pos),
+        )
+    } else {
+        (
+            "Constraint[*]".to_string(),
+            state.solver.constraint().debug_at(state.solver.state(), state.grid_pos),
+        )
+    };
+    lines.push(Line::from(vec![name.into(), " -- ".into(), "[C]".blue(), " to change focused constraint".italic()]));
+    lines.push(Line::from(""));
+    lines.extend(if let Some(s) = debug_str {
         s.lines()
             .map(|line| Line::from(if line.chars().nth(0) == Some(' ') {
                     line.to_string().into()
@@ -120,11 +185,32 @@ pub fn constraint_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Lin
             .collect::<Vec<Line>>()
     } else {
         vec!["No constraint information for this cell".italic().into()]
-    }
+    });
+    lines
 }
 
-pub fn constraint_raw_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'static>> {
-    to_lines(&*format!("{:?}", state.solver.constraint()))
+pub fn constraint_raw_lines<'a, P: PuzzleSetter, CS: ConstraintSplitter<P>>(
+    state: &TuiState<'a, P>,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    if let Some((m, i)) = CS::as_multi(state.solver.constraint()).zip(state.constraint_index) {
+        let constraint = m.constraint(i);
+        lines.push(Line::from(vec![
+            format!("Constraint[{}]", i).into(), " -- ".into(),
+            "[C]".blue(), " to change focused constraint".italic(),
+        ]));
+        lines.push(Line::from(""));
+        lines.extend(to_lines(&*format!("{:?}", constraint)));
+
+    } else {
+        lines.push(Line::from(vec![
+            "Constraint[*]".into(), " -- ".into(),
+            "[C]".blue(), " to change focused constraint".italic(),
+        ]));
+        lines.push(Line::from(""));
+        lines.extend(to_lines(&*format!("{:?}", state.solver.constraint())));
+    }
+    lines
 }
 
 pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
@@ -184,15 +270,15 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     }
 }
 
-pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSplitter<P>>(
     state: &TuiState<'a, P>,
 ) -> Vec<Line<'static>> {
     match state.mode {
         Mode::Readme => readme_lines(),
         Mode::Stack => stack_lines(state),
         Mode::PossibilityHeatmap => possible_value_lines::<P, N, M>(state),
-        Mode::Constraints => constraint_lines::<P>(state),
-        Mode::ConstraintsRaw => constraint_raw_lines::<P>(state),
+        Mode::Constraints => constraint_lines::<P, CS>(state),
+        Mode::ConstraintsRaw => constraint_raw_lines::<P, CS>(state),
     }
 }
 
@@ -242,7 +328,7 @@ pub enum GridType<P: PuzzleSetter> {
     // Just show the puzzle itself, like normal.
     Puzzle,
     // Highlight cells based on the constraints.
-    Constraints(Option<usize>),
+    Constraints,
     // Highlight cells which could be a particular value.
     // Note: The usize is the index in the relevant region layer
     HighlightPossible(P::Value, Key<RegionLayer>, usize),
@@ -257,7 +343,7 @@ impl <P: PuzzleSetter> GridType<P> {
         match self {
             GridType::HighlightPossible(_, _, _) => ViewBy::Cell,
             GridType::Heatmap(vb, _) => *vb,
-            GridType::Constraints(_) | GridType::Puzzle => ViewBy::Cell,
+            GridType::Constraints | GridType::Puzzle => ViewBy::Cell,
         }
     }
 }
@@ -389,7 +475,7 @@ fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     hm
 }
 
-fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSplitter<P>>(
     state: &TuiState<'a, P>,
     grid_type: GridType<P>,
 ) -> [[Option<Color>; M]; N] {
@@ -398,11 +484,15 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let layer = match grid_type {
         // These first several types return early.
         GridType::Puzzle => return hm,
-        GridType::Constraints(_) => {
+        GridType::Constraints => {
             for r in 0..N {
                 for c in 0..M {
-                    hm[r][c] = state.solver.constraint().debug_highlight(state.solver.state(), [r, c])
-                        .map(|(r, g, b)| Color::Rgb(r, g, b));
+                    let hl = if let Some((m, i)) = CS::as_multi(state.solver.constraint()).zip(state.constraint_index) {
+                        m.constraint(i).debug_highlight(state.solver.state(), [r, c])
+                    } else {
+                        state.solver.constraint().debug_highlight(state.solver.state(), [r, c])
+                    };
+                    hm[r][c] = hl.map(|(r, g, b)| Color::Rgb(r, g, b));
                 }
             }
             return hm;
@@ -464,7 +554,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     hm
 }
 
-pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSplitter<P>>(
     state: &TuiState<'a, P>,
     grid_type: GridType<P>,
 ) -> GridStyledValues<P, N, M> {
@@ -479,12 +569,12 @@ pub fn grid_styled_values<'a, P: PuzzleSetter, const N: usize, const M: usize>(
                 }
             },
             GridType::HighlightPossible(_, _, _) => None,
-            GridType::Constraints(_) => Some(state.grid_pos),
+            GridType::Constraints => Some(state.grid_pos),
             GridType::Puzzle => Some(state.grid_pos),
         },
         vals: gen_val(state, grid_type),
         fg: gen_fg(state, grid_type),
-        bg: gen_bg(state, grid_type),
+        bg: gen_bg::<P, N, M, CS>(state, grid_type),
     }
 }
 
@@ -598,12 +688,12 @@ fn grid_line<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     Line::from(spans)
 }
 
-pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+pub fn grid_text<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSplitter<P>>(
     state: &TuiState<'a, P>,
     so: &Option<StdOverlay<N, M>>,
     grid_type: GridType<P>,
 ) -> Text<'static> {
-    let svals = grid_styled_values(state, grid_type);
+    let svals = grid_styled_values::<P, N, M, CS>(state, grid_type);
     let mut lines = vec![];
     lines.push(grid_top::<P, N, M>(so));
     if let Some(overlay) = so {
@@ -656,7 +746,7 @@ fn upper_left_type<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     }).unwrap_or(fallback)
 }
 
-pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSplitter<P>>(
     state: &TuiState<'a, P>,
     so: &Option<StdOverlay<N, M>>,
     frame: &mut Frame,
@@ -680,15 +770,18 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
         Mode::PossibilityHeatmap => {},
         Mode::Constraints => {
             frame.render_widget(
-                // TODO: Add constraint cycling to select specific constraints
-                Paragraph::new(grid_text(state, so, GridType::Constraints(None))).centered().block(block),
+                Paragraph::new(
+                    grid_text::<P, N, M, CS>(state, so, GridType::Constraints)
+                ).centered().block(block),
                 area,
             );
             return;
         },
         _ => {
             frame.render_widget(
-                Paragraph::new(grid_text(state, so, GridType::Puzzle)).centered().block(block),
+                Paragraph::new(
+                    grid_text::<P, N, M, CS>(state, so, GridType::Puzzle)
+                ).centered().block(block),
                 area,
             );
             return;
@@ -698,10 +791,10 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (ul, ur, ll, lr) = (
-        grid_text(state, so, upper_left_type::<P, N, M>(state)),
-        grid_text(state, so, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
-        grid_text(state, so, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
-        grid_text(state, so, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),
+        grid_text::<P, N, M, CS>(state, so, upper_left_type::<P, N, M>(state)),
+        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
+        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
+        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),
     );
     let grid_rows = Layout::default()
         .direction(Direction::Vertical)

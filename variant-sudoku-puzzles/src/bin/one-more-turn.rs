@@ -7,6 +7,7 @@ use variant_sudoku::sudoku::NineStdVal;
 use variant_sudoku::cages::{CageBuilder, CageChecker, CAGE_FEATURE};
 use variant_sudoku::tui::solve_main;
 use variant_sudoku::tui_std::{DefaultTui, NullOverlayStandardizer};
+use variant_sudoku::tui_util::NullConstraintSplitter;
 
 // https://logic-masters.de/Raetselportal/Raetsel/zeigen.php?chlang=en&id=0007LE
 pub struct OneMoreTurn;
@@ -70,7 +71,14 @@ impl PuzzleSetter for OneMoreTurn {
 }
 
 pub fn main() {
-    solve_main::<OneMoreTurn, DefaultTui<OneMoreTurn, 9, 9, NullOverlayStandardizer<9, 9>>>();
+    solve_main::<
+        OneMoreTurn,
+        DefaultTui<
+            OneMoreTurn, 9, 9,
+            NullOverlayStandardizer<9, 9>,
+            NullConstraintSplitter
+        >
+    >();
 }
 
 #[cfg(test)]

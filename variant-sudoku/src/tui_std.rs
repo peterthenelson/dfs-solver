@@ -26,8 +26,15 @@ use crate::{
     },
     tui::{Tui, TuiState},
     tui_util::{
-        draw_grid, draw_text_area, grid_dims, grid_wasd, scroll_lines, text_area_ws
-    },
+        constraint_c,
+        draw_grid,
+        draw_text_area,
+        grid_dims,
+        grid_wasd,
+        scroll_lines,
+        text_area_ws,
+        ConstraintSplitter
+    }
 };
 
 fn adjust_len(i: usize, v: &Vec<Line>) -> usize {
@@ -66,12 +73,11 @@ impl <P: PuzzleSetter<Value = FourStdVal, Overlay = FourStdOverlay>> OverlayStan
     fn to_std(overlay: &P::Overlay) -> Option<StdOverlay<4, 4>> { Some(overlay.clone()) }
 }
 
-pub struct DefaultTui<P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>>(PhantomData<(P, OS)>);
-pub type NineStdTui<P> = DefaultTui<P, 9, 9, NineStd>;
-pub type EightStdTui<P> = DefaultTui<P, 8, 8, EightStd>;
-pub type SixStdTui<P> = DefaultTui<P, 6, 6, SixStd>;
-pub type FourStdTui<P> = DefaultTui<P, 4, 4, FourStd>;
-
+pub struct DefaultTui<P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>, CS: ConstraintSplitter<P>>(PhantomData<(P, OS, CS)>);
+pub type NineStdTui<P> = DefaultTui<P, 9, 9, NineStd, P>;
+pub type EightStdTui<P> = DefaultTui<P, 8, 8, EightStd, P>;
+pub type SixStdTui<P> = DefaultTui<P, 6, 6, SixStd, P>;
+pub type FourStdTui<P> = DefaultTui<P, 4, 4, FourStd, P>;
 
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util {
@@ -91,12 +97,13 @@ pub mod test_util {
     }
 }
 
-impl <P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>> DefaultTui<P, N, M, OS> {
+impl <P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>, CS: ConstraintSplitter<P>>
+DefaultTui<P, N, M, OS, CS> {
     pub fn new() -> Self { Self(PhantomData) }
 }
 
-impl <P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>>
-Tui<P> for DefaultTui<P, N, M, OS> {
+impl <P: PuzzleSetter, const N: usize, const M: usize, OS: OverlayStandardizer<P, N, M>, CS: ConstraintSplitter<P>>
+Tui<P> for DefaultTui<P, N, M, OS, CS> {
     fn init<'a>(state: &mut TuiState<'a, P>) {
         // Wish this could be static
         let (n, m) = state.solver.state().overlay().grid_dims();
@@ -106,7 +113,7 @@ Tui<P> for DefaultTui<P, N, M, OS> {
     }
 
     fn update<'a>(state: &mut TuiState<'a, P>) {
-        state.scroll_lines = scroll_lines::<P, N, M>(state);
+        state.scroll_lines = scroll_lines::<P, N, M, CS>(state);
         state.scroll_pos = adjust_len(state.scroll_pos, &state.scroll_lines);
         state.grid_dims = grid_dims::<P, N, M>(state);
         state.grid_pos = adjust_pos(state.grid_pos, state.grid_dims);
@@ -118,16 +125,18 @@ Tui<P> for DefaultTui<P, N, M, OS> {
     }
 
     fn on_grid_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent) {
-        let _ = grid_wasd(state, key_event);
+        if grid_wasd(state, key_event) { return }
+        if constraint_c::<P, CS>(state, key_event) { return }
     }
 
     fn on_text_area_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent) {
-        let _ = text_area_ws(state, key_event);
+        if text_area_ws(state, key_event) { return }
+        if constraint_c::<P, CS>(state, key_event) { return }
     }
 
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         let so = OS::to_std(state.solver.state().overlay());
-        draw_grid(state, &so, frame, area);
+        draw_grid::<P, N, M, CS>(state, &so, frame, area);
     }
 
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
