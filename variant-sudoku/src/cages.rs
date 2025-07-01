@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use crate::color_util::color_fib_palette;
+use crate::color_util::{color_fib_palette, color_planar_graph, find_undirected_edges};
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::constraint::Constraint;
-use crate::index_util::{check_orthogonally_connected};
+use crate::index_util::{check_orthogonally_connected, collections_orthogonally_neighboring};
 use crate::ranker::RankingInfo;
 use crate::sudoku::{unpack_stdval_vals, StdVal};
 
@@ -125,7 +125,11 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         let remaining = cages.iter().map(|c| c.target).collect();
         let empty = cages.iter().map(|c| c.cells.len()).collect();
         let cage_sets = vec![VBitSet::<StdVal<MIN, MAX>>::full(); cages.len()];
-        let colors = color_fib_palette((200, 200, 0), cages.len(), 50.0);
+        let edges = find_undirected_edges(&cages, |c1, c2| {
+            collections_orthogonally_neighboring(&c1.cells, &c2.cells)
+        });
+        let palette = color_fib_palette((200, 200, 0), 5, 50.0);
+        let colors = color_planar_graph(edges, &palette);
         CageChecker {
             cages, remaining, empty, cage_sets, colors, illegal: None,
             cage_feature: Key::register(CAGE_FEATURE),

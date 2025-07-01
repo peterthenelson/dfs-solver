@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Debug};
-use crate::{color_util::{color_fib_palette, color_scale}, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
+use crate::{color_util::{color_fib_palette, color_planar_graph, color_scale, find_undirected_edges}, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, collections_neighboring, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
 
 #[derive(Debug, Clone)]
 pub struct Thermo {
@@ -130,7 +130,11 @@ impl <const MIN: u8, const MAX: u8> ThermoChecker<MIN, MAX> {
                     .or_insert(r1);
             }
         }
-        let thermo_colors = color_fib_palette((200, 200, 0), thermos.len(), 50.0);
+        let edges = find_undirected_edges(&thermos, |t1, t2| {
+            collections_neighboring(&t1.cells, &t2.cells)
+        });
+        let palette = color_fib_palette((200, 200, 0), 5, 50.0);
+        let thermo_colors = color_planar_graph(edges, &palette);
         Self {
             thermos,
             thermo_colors,

@@ -85,16 +85,171 @@ pub fn color_fib_palette(prototype: (u8, u8, u8), n: usize, radius: f32) -> Vec<
         ));
         palette.push(rgb);
     }
-    let stride = (n / 3).max(1);
-    let mut interleaved = Vec::with_capacity(n);
-    for i in 0..stride {
-        let mut j = 0;
-        loop {
-            let idx = i + j * stride;
-            if idx >= n { break; }
-            interleaved.push(palette[idx]);
-            j += 1;
+    palette
+}
+
+struct ColorGraph {
+    n: usize,
+    edges: Vec<Vec<usize>>,
+    enabled: Vec<bool>,
+    color_ids: Vec<Option<u8>>,
+}
+
+impl ColorGraph {
+    fn new(edges: Vec<Vec<usize>>) -> Self {
+        let n = edges.len();
+        let enabled = vec![true; n];
+        let color_ids = vec![None; n];
+        let max_id = edges.iter()
+            .map(|ids| {
+                ids.iter().fold(0 as usize, |i, j| i.max(*j))
+            })
+            .fold(0 as usize, |i, j| { i.max(j) });
+        if max_id >= n {
+            panic!("Invalid node id found in edges: {} (max acceptable is {}", max_id, n-1);
+        }
+        Self {
+            n,
+            edges,
+            enabled,
+            color_ids,
         }
     }
-    interleaved
+
+    fn degree(&self, i: usize) -> usize {
+        if !self.enabled[i] {
+            panic!("Cannot call degree({}) on disabled node", i);
+        }
+        self.edges[i].iter()
+            .filter(|id| self.enabled[**id])
+            .count()
+    }
+
+    fn is_empty(&self) -> bool {
+        (0..self.n).all(|i| !self.enabled[i])
+    }
+
+    fn find_max5_node(&self) -> usize {
+        if self.is_empty() {
+            panic!("Cannot call find_max5_node on an empty graph");
+        }
+        for i in 0..self.n {
+            if self.enabled[i] && self.degree(i) <= 5 {
+                return i;
+            }
+        }
+        panic!("Planarity violated: no node with degree <= 5 found!");
+    }
+
+    fn color(&mut self) {
+        self.color_ids = vec![None; self.n];
+        let mut stack = Vec::with_capacity(self.n);
+        while !self.is_empty() {
+            let id = self.find_max5_node();
+            stack.push(id);
+            self.enabled[id] = false;
+        }
+        while !stack.is_empty() {
+            let id = stack.pop().unwrap();
+            let neighbor_colors = self.edges[id].iter().filter_map(|neighbor| {
+                self.color_ids[*neighbor]
+            }).collect::<Vec<_>>();
+            for color_id in 0..6 {
+                if !neighbor_colors.contains(&color_id) {
+                    self.color_ids[id] = Some(color_id);
+                    break;
+                }
+            }
+            if self.color_ids[id].is_none() {
+                panic!("Unexpectedly failed to color node: {}", id);
+            }
+            self.enabled[id] = true;
+        }
+    }
+}
+
+/// Helper that assists in calling color_planar_graph.
+pub fn find_undirected_edges<T, F: Fn(&T, &T) -> bool>(nodes: &Vec<T>, adjacent: F) -> Vec<Vec<usize>> {
+    let mut edges = vec![Vec::new(); nodes.len()];
+    for i in 0..(nodes.len()-1) {
+        for j in (i+1)..nodes.len() {
+            if adjacent(&nodes[i], &nodes[j]) {
+                edges[i].push(j);
+                edges[j].push(i);
+            }
+        }
+    }
+    for i in 0..nodes.len() {
+        edges[i].sort();
+    }
+    edges
+}
+
+/// Color a planar graph using a max of five colors.
+/// Notes:
+/// - N = edges.len() = the number of nodes
+/// - edges must be a valid graph in adjacency list form for a graph of size
+///   N with ids 0..N
+/// - palette.len() >= 5
+/// - return value is len = N
+pub fn color_planar_graph(edges: Vec<Vec<usize>>, palette: &Vec<(u8, u8, u8)>) -> Vec<(u8, u8, u8)> {
+    let mut g = ColorGraph::new(edges);
+    if palette.len() < 5 {
+        panic!("color_planar_graph requires palettes with at least 5 colors; got {}", palette.len());
+    }
+    g.color();
+    g.color_ids.iter().map(|color_id| {
+        if let Some(cid) = color_id {
+            palette[*cid as usize]
+        } else {
+            panic!("Unexpected uncolored node!")
+        }
+    }).collect()
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+    use super::*;
+
+    #[test]
+    fn test_color_planar_graph() {
+        //    D
+        //  / | \
+        // A--C--E--F
+        //  \ | /
+        //    B
+        let readable_graph = HashMap::from([
+            ('A', vec!['B', 'C', 'D']),
+            ('B', vec!['A', 'C', 'E']),
+            ('C', vec!['A', 'B', 'D', 'E']),
+            ('D', vec!['A', 'C', 'E']),
+            ('E', vec!['B', 'C', 'D', 'F']),
+            ('F', vec!['E']),
+        ]);
+        let rgbbw = vec![
+            (255, 0, 0), (0, 255, 0), (0, 0, 255), (0, 0, 0), (255, 255, 255),
+        ];
+        let colors = color_planar_graph(
+            find_undirected_edges(
+                &vec!['A', 'B', 'C', 'D', 'E', 'F'],
+                |a, b| {
+                    readable_graph.get(a).unwrap().contains(b)
+                },
+            ),
+            &rgbbw,
+        );
+        let color_map = ['A', 'B', 'C', 'D', 'E', 'F']
+            .iter().zip(colors)
+            .map(|(id, c)| (*id, c))
+            .collect::<HashMap<_, _>>();
+        for id in ['A', 'B', 'C', 'D', 'E', 'F'] {
+            let c = color_map[&id];
+            assert!(rgbbw.contains(&c));
+            for neighbor in &readable_graph[&id] {
+                let c2 = color_map[neighbor];
+                assert_ne!(c, c2);
+            }
+        }
+    }
 }

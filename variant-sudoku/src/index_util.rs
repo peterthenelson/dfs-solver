@@ -57,23 +57,29 @@ pub fn check_adjacent(c1: Index, c2: Index) -> Result<(), String> {
     }
 }
 
-pub fn check_orthogonally_connected(cells: &Vec<Index>) -> Result<(), String> {
+fn checked_unite(uf: &mut DisjointSet<Index>, index: &Index, r_diff: i32, c_diff: i32) {
+    let (rp, cp) = (index[0] as i32 + r_diff, index[1] as i32 + c_diff);
+    if rp < 0 || cp < 0 {
+        return;
+    }
+    let ip = [rp as usize, cp as usize];
+    if uf.contains(&ip) {
+        uf.unite(&ip, index);
+    }
+}
+
+pub fn check_connected(cells: &Vec<Index>) -> Result<(), String> {
     let mut uf: DisjointSet<Index> = DisjointSet::new();
     for cell in cells {
-        let [r, c] = *cell;
-        uf.insert(&[r, c]);
-        if r > 0 && uf.contains(&[r-1, c]) {
-            uf.unite(&[r-1, c], &[r, c]);
-        }
-        if uf.contains(&[r+1, c]) {
-            uf.unite(&[r+1, c], &[r, c]);
-        }
-        if c > 0 && uf.contains(&[r, c-1]) {
-            uf.unite(&[r, c-1], &[r, c]);
-        }
-        if uf.contains(&[r, c+1]) {
-            uf.unite(&[r, c+1], &[r, c]);
-        }
+        uf.insert(cell);
+        checked_unite(&mut uf, cell, -1, 0);
+        checked_unite(&mut uf, cell, 1, 0);
+        checked_unite(&mut uf, cell, 0, -1);
+        checked_unite(&mut uf, cell, 0, 1);
+        checked_unite(&mut uf, cell, -1, -1);
+        checked_unite(&mut uf, cell, -1, 1);
+        checked_unite(&mut uf, cell, 1, -1);
+        checked_unite(&mut uf, cell, 1, 1);
     }
     let mut rep = None;
     for cell in cells {
@@ -90,6 +96,46 @@ pub fn check_orthogonally_connected(cells: &Vec<Index>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub fn collections_neighboring(cells1: &Vec<Index>, cells2: &Vec<Index>) -> bool {
+    let mut joined = Vec::with_capacity(cells1.len() + cells2.len());
+    joined.extend(cells1.iter());
+    joined.extend(cells2.iter());
+    check_connected(&joined).is_ok()
+}
+
+pub fn check_orthogonally_connected(cells: &Vec<Index>) -> Result<(), String> {
+    let mut uf: DisjointSet<Index> = DisjointSet::new();
+    for cell in cells {
+        uf.insert(cell);
+        checked_unite(&mut uf, cell, -1, 0);
+        checked_unite(&mut uf, cell, 1, 0);
+        checked_unite(&mut uf, cell, 0, -1);
+        checked_unite(&mut uf, cell, 0, 1);
+    }
+    let mut rep = None;
+    for cell in cells {
+        let p = uf.find(cell);
+        if let Some(r) = rep {
+            if r != p {
+                return Err(format!(
+                    "Cell {:?} belongs to a different orthogonally connected \
+                     component than {:?}", *cell, r,
+                ));
+            }
+        } else {
+            rep = Some(p)
+        }
+    }
+    Ok(())
+}
+
+pub fn collections_orthogonally_neighboring(cells1: &Vec<Index>, cells2: &Vec<Index>) -> bool {
+    let mut joined = Vec::with_capacity(cells1.len() + cells2.len());
+    joined.extend(cells1.iter());
+    joined.extend(cells2.iter());
+    check_orthogonally_connected(&joined).is_ok()
 }
 
 fn norm_delta(from_u: usize, to_u: usize) -> i32 {
