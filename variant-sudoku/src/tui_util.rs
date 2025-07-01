@@ -440,7 +440,7 @@ fn gen_val<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     vm
 }
 
-fn gen_heatmap_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
+fn gen_possibilities_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color {
     let max = P::Value::cardinality();
     let ratio = n_possibilities as f32 / max as f32;
     let (r, g, b) = color_lerp((0, 255, 0), (255, 0, 0), ratio);
@@ -523,7 +523,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
                         if state.solver.state().get([r, c]).is_some() {
                             continue;
                         }
-                        hm[r][c] = Some(gen_heatmap_color::<P>(ranking.cells().get([r, c]).0.len()))
+                        hm[r][c] = Some(gen_possibilities_color::<P>(ranking.cells().get([r, c]).0.len()))
                     }
                 }
                 return hm;
@@ -547,7 +547,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
                 if infos[p].filled.contains(&v) {
                     continue;
                 }
-                hm[r][c] = Some(gen_heatmap_color::<P>(infos[p].cell_choices.get(&v).len()));
+                hm[r][c] = Some(gen_possibilities_color::<P>(infos[p].cell_choices.get(&v).len()));
             }
         }
     }
