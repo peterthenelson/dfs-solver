@@ -191,6 +191,7 @@ pub enum Pane {
 pub enum Mode {
     Readme = 1,
     PossibilityHeatmap,
+    ScoreHeatmap,
     Stack,
     Constraints,
     ConstraintsRaw,

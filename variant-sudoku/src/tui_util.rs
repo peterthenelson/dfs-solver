@@ -1,13 +1,13 @@
 /// Tui implementations can be implemented however they choose, but these are
 /// some generic implementations of a collection of useful tasks. They are used
 /// to implement the standard Tui impls.
-use std::fmt::Display;
+use std::{f64, fmt::Display};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
 };
 use crate::{
-    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState},
+    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
 };
 
 pub trait ConstraintSplitter<P: PuzzleSetter> {
@@ -270,6 +270,71 @@ pub fn possible_value_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>
     }
 }
 
+pub fn score_lines<'a, P: PuzzleSetter, const N: usize, const M: usize>(
+    state: &TuiState<'a, P>
+) -> Vec<Line<'static>> {
+    if state.solver.ranking_info().is_none() {
+        return vec!["No RankingInfo Available".italic().into()];
+    }
+    let ranking = state.solver.ranking_info().as_ref().unwrap();
+    let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
+    let layer = match vb {
+        // This case returns early.
+        ViewBy::Cell => {
+            if let Some(_) = state.solver.state().get(cursor) {
+                return vec![];
+            }
+            let fv = ranking.cells().get(state.grid_pos).1;
+            if fv.try_scored().is_err() {
+                // This can occur during extended backtracking
+                return vec![];
+            }
+            let mut lines = vec![
+                Line::from(vec!["Score for cell ".into(), format!("{:?}:", state.grid_pos).blue()]).italic(),
+                format!("{}", fv.try_scored().unwrap().score()).magenta().into(),
+                "".into(),
+                "Features:".italic().into(),
+            ];
+            lines.extend(
+                to_lines(&*format!("{}", fv))
+                    .into_iter().map(|l| l.cyan()),
+            );
+            return lines;
+        },
+        // These 3 cases are all handled the same, indexed by layer.
+        vb => vb.region_layer().unwrap(),
+    };
+    let at = val_at_index::<P, N, M>(state, vb, cursor);
+    match (at.val, at.region_index) {
+        (Some(v), Some(p)) => {
+            let mut info = ranking.region_info(
+                state.solver.state(), layer, p,
+            );
+            if info.filled.contains(&v) {
+                return vec![];
+            }
+            state.solver.ranker().score_region_info(&mut info);
+            let fv = info.feature_vecs.get(&v);
+            let mut lines = vec![
+                Line::from(vec![
+                    format!("Score for {} #{}'s ", vb, p+1).into(),
+                    v.to_string().green(),
+                    ":".into(),
+                ]).italic(),
+                format!("{}", fv.try_scored().unwrap().score()).magenta().into(),
+                "".into(),
+                "Features:".italic().into(),
+            ];
+            lines.extend(
+                to_lines(&*format!("{}", fv))
+                    .into_iter().map(|l| l.cyan()),
+            );
+            lines
+        },
+        _ => vec!["Overlay could not derive a value from the cursor".italic().into()],
+    }
+}
+
 pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSplitter<P>>(
     state: &TuiState<'a, P>,
 ) -> Vec<Line<'static>> {
@@ -277,6 +342,7 @@ pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: Con
         Mode::Readme => readme_lines(),
         Mode::Stack => stack_lines(state),
         Mode::PossibilityHeatmap => possible_value_lines::<P, N, M>(state),
+        Mode::ScoreHeatmap => score_lines::<P, N, M>(state),
         Mode::Constraints => constraint_lines::<P, CS>(state),
         Mode::ConstraintsRaw => constraint_raw_lines::<P, CS>(state),
     }
@@ -318,9 +384,8 @@ impl Display for ViewBy {
 }
 
 /// The relevant heatmap types
-/// TODO: Add Score to this
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorBy { Possibilities }
+pub enum ColorBy { Possibilities, Score }
 
 /// The different types of grid display you can render.
 #[derive(Debug, PartialEq, Eq)]
@@ -447,6 +512,12 @@ fn gen_possibilities_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color
     Color::Rgb(r, g, b)
 }
 
+fn gen_score_color<'a, P: PuzzleSetter>(score: f64, max_score: f64) -> Color {
+    let ratio = (score / max_score) as f32;
+    let (r, g, b) = color_lerp((0, 0, 255), (255, 255, 0), ratio);
+    Color::Rgb(r, g, b)
+}
+
 fn gen_fg<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     state: &TuiState<'a, P>,
     grid_type: GridType<P>,
@@ -481,7 +552,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
 ) -> [[Option<Color>; M]; N] {
     let mut hm = [[None; M]; N];
     let overlay = state.solver.state().overlay();
-    let layer = match grid_type {
+    let (layer, cb) = match grid_type {
         // These first several types return early.
         GridType::Puzzle => return hm,
         GridType::Constraints => {
@@ -516,14 +587,32 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
             }
             return hm;
         },
-        GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities) => {
+        GridType::Heatmap(ViewBy::Cell, cb) => {
             if let Some(ranking) = state.solver.ranking_info() {
+                let mut ranking = ranking.clone();
+                state.solver.ranker().ensure_scored(&mut ranking, state.solver.state());
+                let top_score = if let Some(s) = ranking.top_score() {
+                    s
+                } else {
+                    // The puzzle must be full if this is the case
+                    return hm;
+                };
                 for r in 0..N {
                     for c in 0..M {
                         if state.solver.state().get([r, c]).is_some() {
                             continue;
                         }
-                        hm[r][c] = Some(gen_possibilities_color::<P>(ranking.cells().get([r, c]).0.len()))
+                        let g = ranking.cells().get([r, c]);
+                        hm[r][c] = match cb {
+                            ColorBy::Possibilities => {
+                                Some(gen_possibilities_color::<P>(g.0.len()))
+                            },
+                            ColorBy::Score => {
+                                g.1.try_scored().ok().map(|scored|
+                                    gen_score_color::<P>(scored.score(), top_score)
+                                )
+                            },
+                        };
                     }
                 }
                 return hm;
@@ -532,9 +621,17 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
             }
         },
         // These 3 cases are all handled the same, indexed by layer.
-        GridType::Heatmap(vb, ColorBy::Possibilities) => vb.region_layer().unwrap(),
+        GridType::Heatmap(vb, cb) => (vb.region_layer().unwrap(), cb),
     };
     if let Some(ranking) = state.solver.ranking_info() {
+        let mut ranking = ranking.clone();
+        state.solver.ranker().ensure_scored(&mut ranking, state.solver.state());
+        let top_score = if let Some(s) = ranking.top_score() {
+            s
+        } else {
+            // The puzzle must be full if this is the case
+            return hm;
+        };
         // Note: We are assuming that all rows have the same size (and same for cols, boxes).
         let mut infos = vec![];
         for p in 0..overlay.regions_in_layer(layer) {
@@ -547,7 +644,19 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
                 if infos[p].filled.contains(&v) {
                     continue;
                 }
-                hm[r][c] = Some(gen_possibilities_color::<P>(infos[p].cell_choices.get(&v).len()));
+                hm[r][c] = Some(match cb {
+                    ColorBy::Possibilities => {
+                        let n_possibilities = infos[p].cell_choices.get(&v).len();
+                        gen_possibilities_color::<P>(n_possibilities)
+                    },
+                    ColorBy::Score => {
+                        state.solver.ranker().score_region_info(&mut infos[p]);
+                        gen_score_color::<P>(
+                            infos[p].feature_vecs.get(&v).try_scored().unwrap().score(),
+                            top_score,
+                        )
+                    },
+                });
             }
         }
     }
@@ -724,14 +833,15 @@ pub fn grid_dims<'a, P: PuzzleSetter, const N: usize, const M: usize>(
     let supports_rcb = layers.contains(&ROWS_LAYER) && layers.contains(&COLS_LAYER) && layers.contains(&BOXES_LAYER);
     match state.mode {
         Mode::PossibilityHeatmap if supports_rcb => [rows*2, cols*2],
+        Mode::ScoreHeatmap if supports_rcb => [rows*2, cols*2],
         _ => [rows, cols],
     }
 }
 
 fn upper_left_type<'a, P: PuzzleSetter, const N: usize, const M: usize>(
-    state: &TuiState<'a, P>,
+    state: &TuiState<'a, P>, cb: ColorBy,
 ) -> GridType<P> {
-    let fallback = GridType::Heatmap(ViewBy::Cell, ColorBy::Possibilities);
+    let fallback = GridType::Heatmap(ViewBy::Cell, cb);
     let (cursor, vb) = heatmap_cursor::<N, M>(state.grid_pos);
     if vb == ViewBy::Cell {
         return fallback;
@@ -756,6 +866,7 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: Constr
     let title_text = match state.mode {
         Mode::Constraints => "Focus Cell to See Constraints",
         Mode::PossibilityHeatmap => "Heatmap of Possible Values",
+        Mode::ScoreHeatmap => "Heatmap of Scores",
         _ => "Puzzle State",
     };
     let title = Line::from(if is_active {
@@ -767,7 +878,7 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: Constr
         .title(title.centered())
         .border_set(if is_active { border::DOUBLE } else { border::PLAIN });
     match state.mode {
-        Mode::PossibilityHeatmap => {},
+        Mode::PossibilityHeatmap | Mode::ScoreHeatmap => {},
         Mode::Constraints => {
             frame.render_widget(
                 Paragraph::new(
@@ -790,11 +901,16 @@ pub fn draw_grid<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: Constr
     // Otherwise do a 2x2 block of grids
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let cb = match &state.mode {
+        Mode::ScoreHeatmap => ColorBy::Score,
+        Mode::PossibilityHeatmap => ColorBy::Possibilities,
+        m => panic!("upper_left_type doesn't make sense in mode: {:?}", m),
+    };
     let (ul, ur, ll, lr) = (
-        grid_text::<P, N, M, CS>(state, so, upper_left_type::<P, N, M>(state)),
-        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Row, ColorBy::Possibilities)),
-        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Col, ColorBy::Possibilities)),
-        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Box, ColorBy::Possibilities)),
+        grid_text::<P, N, M, CS>(state, so, upper_left_type::<P, N, M>(state, cb)),
+        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Row, cb)),
+        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Col, cb)),
+        grid_text::<P, N, M, CS>(state, so, GridType::Heatmap(ViewBy::Box, cb)),
     );
     let grid_rows = Layout::default()
         .direction(Direction::Vertical)
@@ -822,6 +938,7 @@ pub fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut 
         Mode::Constraints => "Constraints for Cell",
         Mode::ConstraintsRaw => "Full Constraint Dump",
         Mode::PossibilityHeatmap => "Possible Vals/Cells",
+        Mode::ScoreHeatmap => "Ranker Scores",
     };
     let title = Line::from(if is_active {
         title_text.bold()
