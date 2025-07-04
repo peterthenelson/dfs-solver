@@ -90,8 +90,8 @@ pub mod test_util {
             let ranker_ref = $ranker;
             let constraint_ref = $constraint;
             interactive_debug::<
-                FakeSetter<_, _, _, _, _>,
-                $stdtui<FakeSetter<_, _, _, _, _>>
+                FakeSetter<_, _, _, _>,
+                $stdtui<FakeSetter<_, _, _, _>>
             >(puzzle_ref, ranker_ref, constraint_ref)
         }};
     }

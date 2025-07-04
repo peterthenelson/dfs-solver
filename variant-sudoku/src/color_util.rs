@@ -6,6 +6,13 @@ pub fn color_ave2(a: (u8, u8, u8), b: (u8, u8, u8)) -> (u8, u8, u8) {
     (r, g, b)
 }
 
+pub fn color_opt_ave2(opt_a: Option<(u8, u8, u8)>, opt_b: Option<(u8, u8, u8)>) -> Option<(u8, u8, u8)> {
+    match (opt_a, opt_b) {
+        (Some(a), Some(b)) => Some(color_ave2(a, b)),
+        (opt_a, opt_b) => opt_a.or(opt_b),
+    }
+}
+
 pub fn color_ave(colors: &Vec<(u8, u8, u8)>) -> (u8, u8, u8) {
     let sum = colors.iter().fold((0.0, 0.0, 0.0), |a, b| {
         (a.0 + b.0 as f32, a.1 + b.1 as f32, a.2 + b.2 as f32)
@@ -105,7 +112,7 @@ impl ColorGraph {
                 ids.iter().fold(0 as usize, |i, j| i.max(*j))
             })
             .fold(0 as usize, |i, j| { i.max(j) });
-        if max_id >= n {
+        if n > 0 && max_id >= n {
             panic!("Invalid node id found in edges: {} (max acceptable is {}", max_id, n-1);
         }
         Self {
@@ -171,6 +178,9 @@ impl ColorGraph {
 /// Helper that assists in calling color_planar_graph.
 pub fn find_undirected_edges<T, F: Fn(&T, &T) -> bool>(nodes: &Vec<T>, adjacent: F) -> Vec<Vec<usize>> {
     let mut edges = vec![Vec::new(); nodes.len()];
+    if nodes.is_empty() {
+        return edges;
+    }
     for i in 0..(nodes.len()-1) {
         for j in (i+1)..nodes.len() {
             if adjacent(&nodes[i], &nodes[j]) {
