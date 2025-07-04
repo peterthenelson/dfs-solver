@@ -512,8 +512,8 @@ fn gen_possibilities_color<'a, P: PuzzleSetter>(n_possibilities: usize) -> Color
     Color::Rgb(r, g, b)
 }
 
-fn gen_score_color<'a, P: PuzzleSetter>(score: f64, max_score: f64) -> Color {
-    let ratio = (score / max_score) as f32;
+fn gen_score_color<'a, P: PuzzleSetter>(score: f64, score_range: (f64, f64)) -> Color {
+    let ratio = ((score - score_range.0) / (score_range.1 - score_range.0)) as f32;
     let (r, g, b) = color_lerp((0, 0, 255), (255, 255, 0), ratio);
     Color::Rgb(r, g, b)
 }
@@ -591,8 +591,8 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
             if let Some(ranking) = state.solver.ranking_info() {
                 let mut ranking = ranking.clone();
                 state.solver.ranker().ensure_scored(&mut ranking, state.solver.state());
-                let top_score = if let Some(s) = ranking.top_score() {
-                    s
+                let score_range = if let Some(r) = ranking.score_range() {
+                    r
                 } else {
                     // The puzzle must be full if this is the case
                     return hm;
@@ -609,7 +609,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
                             },
                             ColorBy::Score => {
                                 g.1.try_scored().ok().map(|scored|
-                                    gen_score_color::<P>(scored.score(), top_score)
+                                    gen_score_color::<P>(scored.score(), score_range)
                                 )
                             },
                         };
@@ -626,8 +626,8 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
     if let Some(ranking) = state.solver.ranking_info() {
         let mut ranking = ranking.clone();
         state.solver.ranker().ensure_scored(&mut ranking, state.solver.state());
-        let top_score = if let Some(s) = ranking.top_score() {
-            s
+        let score_range = if let Some(r) = ranking.score_range() {
+            r
         } else {
             // The puzzle must be full if this is the case
             return hm;
@@ -653,7 +653,7 @@ fn gen_bg<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: ConstraintSpl
                         state.solver.ranker().score_region_info(&mut infos[p]);
                         gen_score_color::<P>(
                             infos[p].feature_vecs.get(&v).try_scored().unwrap().score(),
-                            top_score,
+                            score_range,
                         )
                     },
                 });

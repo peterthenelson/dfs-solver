@@ -177,8 +177,9 @@ pub struct DecisionGrid<V: Value, S> {
     rows: usize,
     cols: usize,
     grid: Box<[(VBitSet<V>, FeatureVec<Raw>)]>,
-    top: Option<(Index, f64)>,
     scored: bool,
+    top_cell: Option<Index>,
+    score_range: Option<(f64, f64)>,
     _marker: PhantomData<(V, S)>,
 }
 
@@ -196,11 +197,15 @@ impl <V: Value, S> DecisionGrid<V, S> {
         (s, f)
     }
 
+    pub fn is_scored(&self) -> bool { self.scored }
+
     // Note: This may still be None when scored is true (i.e., if the puzzle is
     // full).
-    pub fn top(&self) -> Option<(Index, f64)> {
-        self.top
-    }
+    pub fn score_range(&self) -> Option<(f64, f64)> { self.score_range }
+
+    // Note: This may still be None when scored is true (i.e., if the puzzle is
+    // full).
+    pub fn top_cell(&self) -> Option<Index> { self.top_cell }
 }
 
 impl<V: Value> DecisionGrid<V, Raw> {
@@ -209,8 +214,9 @@ impl<V: Value> DecisionGrid<V, Raw> {
             rows,
             cols,
             grid: vec![(VBitSet::<V>::empty(), FeatureVec::new()); rows * cols].into_boxed_slice(),
-            top: None,
             scored: false,
+            top_cell: None,
+            score_range: None,
             _marker: PhantomData,
         }
     }
@@ -220,15 +226,18 @@ impl<V: Value> DecisionGrid<V, Raw> {
             rows,
             cols,
             grid: vec![(VBitSet::<V>::full(), FeatureVec::new()); rows * cols].into_boxed_slice(),
-            top: None,
             scored: false,
+            top_cell: None,
+            score_range: None,
             _marker: PhantomData,
         }
     }
 
     pub fn get_mut(&mut self, index: Index) -> (&mut VBitSet<V>, &mut FeatureVec<Raw>) {
         let (s, f) = &mut self.grid[index[0] * self.cols + index[1]];
-        self.top = None;
+        self.scored = false;
+        self.top_cell = None;
+        self.score_range = None;
         (s, f)
     }
 
@@ -237,7 +246,9 @@ impl<V: Value> DecisionGrid<V, Raw> {
     pub fn combine_with(&mut self, other: &DecisionGrid<V, Raw>) {
         assert!(self.rows == other.rows && self.cols == other.cols,
                 "Cannot combine grids of different sizes");
-        self.top = None;
+        self.scored = false;
+        self.top_cell = None;
+        self.score_range = None;
         for i in 0..self.rows {
             for j in 0..self.cols {
                 let a = self.get_mut([i, j]);
@@ -248,8 +259,10 @@ impl<V: Value> DecisionGrid<V, Raw> {
         }
     }
 
-    pub fn score_against<O: Overlay, S: Scorer>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, scorer: &S) -> Option<(Index, f64)> {
-        self.top = None;
+    pub fn score_against<O: Overlay, S: Scorer>(&mut self, combine: fn(usize, f64, f64) -> f64, puzzle: &State<V, O>, scorer: &S) -> Option<(Index, (f64, f64))> {
+        self.scored = false;
+        self.top_cell = None;
+        self.score_range = None;
         for r in 0..self.rows {
             for c in 0..self.cols {
                 if puzzle.get([r, c]).is_some() {
@@ -257,13 +270,25 @@ impl<V: Value> DecisionGrid<V, Raw> {
                 }
                 let cell = &mut self.grid[r * self.cols + c];
                 let score = cell.1.score_against(combine, scorer);
-                self.top = self.top.map_or(Some(([r, c], score)), |(i, s)| {
-                    Some(if score > s { ([r, c], score) } else { (i, s) })
-                });
+                if self.top_cell.is_none() {
+                    self.top_cell = Some([r, c]);
+                    self.score_range = Some((score, score));
+                } else {
+                    let (slo, shi) = self.score_range.unwrap();
+                    if score > shi {
+                        self.top_cell = Some([r, c]);
+                    }
+                    self.score_range = Some((slo.min(score), shi.max(score)));
+                }
             }
         }
         self.scored = true;
-        self.top
+        if self.top_cell.is_none() {
+            None
+        } else {
+            let (slo, shi) = self.score_range.unwrap();
+            Some((self.top_cell.unwrap(), (slo, shi)))
+        }
     }
 
     pub fn try_scored(&self) -> Result<&DecisionGrid<V, Scored>, Error> {
@@ -294,9 +319,12 @@ pub struct RankingInfo<V: Value> {
     // The feature for # of possibilities in the value-in-region FeatureVecs.
     val_possible: Key<Feature>,
 
-    // The max score found, if any (only applicable after rank() call).
-    // TODO: Keep track of min score too.
-    top_score: Option<f64>,
+    // Has scoring been run and completed.
+    scored: bool,
+
+    // The range of scores found, if any (only present when scored and at least
+    // one cell is empty).
+    score_range: Option<(f64, f64)>,
 
     // TODO: What value-in-region- or region-centric information can Constraints
     // provide to the ranker? If any, put it here.
@@ -307,7 +335,8 @@ impl <V: Value> RankingInfo<V> {
         Self {
             cells,
             val_possible: Key::register(DG_VAL_POSSIBLE_FEATURE),
-            top_score: None,
+            scored: false,
+            score_range: None,
         }
     }
 
@@ -317,13 +346,6 @@ impl <V: Value> RankingInfo<V> {
 
     pub fn cells_mut(&mut self) -> &mut DecisionGrid<V, Raw> {
         &mut self.cells
-    }
-
-    pub fn score_against<O: Overlay, S: Scorer>(
-        &mut self, combine: fn(usize, f64, f64) -> f64,
-        puzzle: &State<V, O>, scorer: &S,
-    ) -> Option<(Index, f64)> {
-        self.cells.score_against(combine, puzzle, scorer)
     }
 
     /// Give a value-in-region-centric view of the grid (i.e., the positive
@@ -361,7 +383,9 @@ impl <V: Value> RankingInfo<V> {
         info
     }
 
-    pub fn top_score(&self) -> Option<f64> { self.top_score }
+    pub fn is_scored(&self) -> bool { self.scored }
+
+    pub fn score_range(&self) -> Option<(f64, f64)> { self.score_range }
 }
 
 /// A ranker finds the "best" place in the grid to make a guess. This could
@@ -559,7 +583,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
 
     fn rank(&self, step: usize, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) -> (ConstraintResult<V>, Option<BranchPoint<V>>) {
         self.annotate(ranking, puzzle);
-        let top_cell = ranking.score_against(self.combinator, puzzle, &self.cell_weights);
+        let cell_result = ranking.cells_mut().score_against(self.combinator, puzzle, &self.cell_weights);
         // TODO: Should be able to score and check for early exits in one pass,
         // avoiding duplicate creation of region_infos
         let cr = self.to_constraint_result(&ranking, puzzle);
@@ -569,16 +593,19 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
             },
             ConstraintResult::Ok => {},
         };
-        let mut top_choice = if let Some((i, s)) = top_cell {
-            Some((SRChoice::Cell(i), s))
-        } else {
+        if cell_result.is_none() {
             return (ConstraintResult::Ok, Some(BranchPoint::empty(step, self.empty_attr)));
-        };
+        }
+        let (i, (mut slo, mut shi)) = cell_result.unwrap();
+        let mut top_choice = Some((SRChoice::Cell(i), shi));
         let overlay = puzzle.overlay();
         for layer in overlay.region_layers() {
             for p in 0..overlay.regions_in_layer(layer) {
                 let mut info = ranking.region_info(puzzle, layer, p);
                 let top_val = self.score_region_info(&mut info);
+                (slo, shi) = top_val.as_ref().map_or((slo, shi), |(_, _, s)| {
+                    (slo.min(*s), shi.max(*s))
+                });
                 top_choice = top_choice.map(|(ch, s_old)| {
                     if let Some((v, c, s)) = top_val {
                         if s > s_old {
@@ -589,7 +616,8 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
                 });
             }
         }
-        ranking.top_score = Some(top_choice.as_ref().unwrap().1);
+        ranking.scored = true;
+        ranking.score_range = Some((slo, shi));
         let bp = match top_choice {
             Some((SRChoice::Cell(index), _)) => {
                 BranchPoint::for_cell(
@@ -606,15 +634,15 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
     }
 
     fn ensure_scored(&self, ranking: &mut RankingInfo<V>, puzzle: &State<V, O>) {
-        if ranking.top_score().is_some() {
+        if ranking.is_scored() {
             return;
         }
-        let mut top_score = if let Ok(scored) = ranking.cells_mut().try_scored() {
-            scored.top()
+        let mut score_range = if let Ok(scored) = ranking.cells_mut().try_scored() {
+            scored.top_cell().zip(scored.score_range())
         } else {
-            ranking.score_against(self.combinator, puzzle, &self.cell_weights)
-        }.map(|(_, s)| s);
-        if top_score.is_none() {
+            ranking.cells_mut().score_against(self.combinator, puzzle, &self.cell_weights)
+        }.map(|(_, r)| r);
+        if score_range.is_none() {
             return;
         }
         let overlay = puzzle.overlay();
@@ -622,18 +650,16 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
             for p in 0..overlay.regions_in_layer(layer) {
                 let mut info = ranking.region_info(puzzle, layer, p);
                 let top_val = self.score_region_info(&mut info);
-                top_score = top_score.map(|s_old| {
+                score_range = score_range.map(|(slo, shi)| {
                     if let Some((_, _, s)) = top_val {
-                        if s > s_old {
-                            return s
-                        }
+                        (slo.min(s), shi.max(s))
+                    } else {
+                        (slo, shi)
                     }
-                    s_old
                 });
             }
         }
-        ranking.top_score = top_score;
-        
+        ranking.score_range = score_range;
     }
 
     fn score_region_info(&self, region_info: &mut RankerRegionInfo<V>) -> Option<(V, Vec<Index>, f64)> {
