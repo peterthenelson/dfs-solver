@@ -13,6 +13,7 @@ pub mod cages;
 pub mod irregular;
 pub mod kropki;
 pub mod magic_squares;
+pub mod parity_shading;
 pub mod thermos;
 pub mod whispers;
 pub mod dutch_whispers;
