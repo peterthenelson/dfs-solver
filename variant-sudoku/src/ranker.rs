@@ -611,7 +611,7 @@ impl <V: Value, O: Overlay> Ranker<V, O> for StdRanker<O> {
                 });
                 top_choice = top_choice.map(|(ch, s_old)| {
                     if let Some((v, c, s)) = top_val {
-                        if s > s_old {
+                        if s > s_old && c.len() > 0 {
                             return (SRChoice::ValueInRegion(v, c), s);
                         }
                     }

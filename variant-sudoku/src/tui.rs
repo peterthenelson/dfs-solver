@@ -86,7 +86,9 @@ pub mod test_util {
     ) {
         let (mut s, r, mut c) = P::setup_with_givens(given);
         let mut finder = FindFirstSolution::new(&mut s, &r, &mut c, Some(&mut observer));
-        let _ = finder.solve().expect("Puzzle solver returned an error:");
+        let _ = finder.solve()
+            .expect("Puzzle solver returned an error:")
+            .expect("Puzzle solver didn't find a solution");
     }
 
     /// You can use the interactive debugger in your tests to debug problems.

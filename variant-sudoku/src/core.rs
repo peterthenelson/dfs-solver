@@ -807,6 +807,12 @@ impl <V: Value, O: Overlay> State<V, O> {
         }
     }
 
+    pub fn clone_with_overlay(&self, overlay: O) -> Self {
+        let mut clone = self.clone();
+        clone.overlay = overlay;
+        clone
+    }
+
     pub fn with_givens(overlay: O, given: VGrid<V>) -> Result<Self, Error> {
         let (n, m) = overlay.grid_dims();
         if given.rows() != n || given.cols() != m {
