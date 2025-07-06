@@ -28,9 +28,12 @@ use crate::{
     tui_util::{
         constraint_c,
         draw_grid,
+        draw_modal,
         draw_text_area,
         grid_dims,
+        grid_m,
         grid_wasd,
+        modal_event,
         scroll_lines,
         text_area_ws,
         ConstraintSplitter
@@ -125,6 +128,7 @@ Tui<P> for DefaultTui<P, N, M, OS, CS> {
     }
 
     fn on_grid_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent) {
+        if grid_m(state, key_event) { return }
         if grid_wasd(state, key_event) { return }
         if constraint_c::<P, CS>(state, key_event) { return }
     }
@@ -134,6 +138,10 @@ Tui<P> for DefaultTui<P, N, M, OS, CS> {
         if constraint_c::<P, CS>(state, key_event) { return }
     }
 
+    fn on_modal_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent) {
+        if modal_event(state, key_event) { return }
+    }
+
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         let so = OS::to_std(state.solver.state().overlay());
         draw_grid::<P, N, M, CS>(state, &so, frame, area);
@@ -141,5 +149,9 @@ Tui<P> for DefaultTui<P, N, M, OS, CS> {
 
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
         draw_text_area(state, frame, area);
+    }
+
+    fn draw_modal<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
+        draw_modal(state, frame, area);
     }
 }

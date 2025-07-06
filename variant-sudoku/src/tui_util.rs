@@ -5,10 +5,10 @@
 use std::{f64, fmt::Display};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
-    layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Padding, Paragraph}, Frame
+    layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Clear, Padding, Paragraph}, Frame
 };
 use crate::{
-    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Mode, Pane, TuiState}
+    color_util::color_lerp, constraint::{Constraint, MultiConstraint}, core::{BranchOver, Index, Key, Overlay, RegionLayer, VMap, VSet, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER}, ranker::Ranker, solver::{DfsSolverState, DfsSolverView, PuzzleSetter}, sudoku::StdOverlay, tui::{Modal, Mode, Pane, TuiState}
 };
 
 pub trait ConstraintSplitter<P: PuzzleSetter> {
@@ -24,6 +24,52 @@ impl <V: Value, O: Overlay, P: PuzzleSetter<Value = V, Overlay = O, Constraint =
 ConstraintSplitter<P> for P {
     fn as_multi(constraint: &P::Constraint) -> Option<&MultiConstraint<P::Value, P::Overlay>> {
         Some(constraint)
+    }
+}
+
+pub fn modal_event<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
+    match &state.modal {
+        Some(Modal::ManualEntry([r, c])) => {
+            match key_event.code {
+                KeyCode::Char(ch) => {
+                    match P::Value::parse(ch.to_string().as_str()) {
+                        Ok(v) => {
+                            state.solver.manual_step([*r, *c], v).unwrap();
+                            state.modal = None;
+                        },
+                        Err(e) => {
+                            state.modal = Some(Modal::Error(format!("{:?}", e)));
+                        },
+                    }
+                },
+                _ => {},
+            };
+            true
+        },
+        Some(Modal::Error(_)) => {
+            state.modal = None;
+            true
+        },
+        None => false,
+    }
+}
+
+pub fn grid_m<'a, P: PuzzleSetter>(state: &mut TuiState<'a, P>, key_event: KeyEvent) -> bool {
+    match key_event.code {
+        KeyCode::Char('m') => {
+            let [r, c] = state.grid_pos;
+            let (n, m) = state.solver.state().overlay().grid_dims();
+            if r < n && c < m && state.solver.state().get([r, c]).is_none() {
+                state.modal = match state.solver.solver_state() {
+                    DfsSolverState::Advancing(_) => Some(Modal::ManualEntry([r, c])),
+                    s => Some(Modal::Error(format!("Cannot enter items in state {:?}", s))),
+                };
+                true
+            } else {
+                false
+            }
+        },
+        _ => false,
     }
 }
 
@@ -102,9 +148,10 @@ pub fn readme_lines() -> Vec<Line<'static>> {
         Line::from(vec!["[N]".blue(), "ext -- Move forward one step".into()]),
         Line::from(vec!["Ctrl+Z".blue(), " -- Undo and/or pop decision".into()]),
         Line::from(vec!["[J]".blue(), "ump -- Move forward to next non-trivial decision".into()]),
+        Line::from(vec!["[M]".blue(), "anual -- Manually enter a digit".into()]),
         Line::from(vec!["Ctrl+R".blue(), " -- Reset puzzle".into()]),
         Line::from(vec!["[P]".blue(), "lay/Pause -- Move forward until pressed again".into()]),
-        // TODO: Manual step, force backtrack, breakpoints.
+        // TODO: force backtrack, breakpoints.
     ]
 }
 
@@ -959,4 +1006,33 @@ pub fn draw_text_area<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut 
         Paragraph::new(text).left_aligned().block(block),
         area,
     );
+}
+
+pub fn draw_modal<'a, P: PuzzleSetter>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect) {
+    let (title, text) = match &state.modal {
+        Some(Modal::ManualEntry([r, c])) => {
+            (
+                "Manual Entry", 
+                Text::from(vec![
+                    Line::from(""),
+                    Line::from(format!("Select the value to enter at {:?}", [r, c])),
+                    Line::from(""),
+                ]),
+            )
+        },
+        Some(Modal::Error(s)) => {
+            (
+                "Error",
+                Text::from(vec![
+                    Line::from(""),
+                    Line::from(s.as_str()),
+                    Line::from(""),
+                ]),
+            )
+        },
+        None => return,
+    };
+    let block = Block::bordered().title(title);
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(text).centered().block(block), area);
 }

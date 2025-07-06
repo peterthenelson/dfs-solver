@@ -199,6 +199,13 @@ pub enum Mode {
     ConstraintsRaw,
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Modal {
+    ManualEntry(Index),
+    Error(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TuiStateEvent {
     Ignore,
@@ -224,6 +231,7 @@ pub struct TuiState<'a, P: PuzzleSetter> {
     pub mode: Mode,
     pub active: Pane,
     pub exit: Option<Status>,
+    pub modal: Option<Modal>,
 }
 
 /// Support for integrating a particular State implementation with the generic
@@ -236,8 +244,10 @@ pub trait Tui<P: PuzzleSetter> {
     fn update<'a>(state: &mut TuiState<'a, P>);
     fn on_grid_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent);
     fn on_text_area_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent);
+    fn on_modal_event<'a>(state: &mut TuiState<'a, P>, key_event: KeyEvent);
     fn draw_grid<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect);
     fn draw_text_area<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect);
+    fn draw_modal<'a>(state: &TuiState<'a, P>, frame: &mut Frame, area: Rect);
 }
 
 impl <'a, P: PuzzleSetter> TuiState<'a, P> {
@@ -254,6 +264,7 @@ impl <'a, P: PuzzleSetter> TuiState<'a, P> {
             mode: Mode::Readme,
             active: Pane::Grid,
             exit: None,
+            modal: None,
         }
     }
 
@@ -286,15 +297,19 @@ fn tui_run<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>, terminal
     T::init(state);
     while state.exit.is_none() {
         terminal.draw(|frame| {
-            let (g, ta) = tui_draw::<P, T>(state, frame);
+            let (g, ta, m) = tui_draw::<P, T>(state, frame);
             T::draw_grid(state, frame, g);
             T::draw_text_area(state, frame, ta);
+            T::draw_modal(state, frame, m);
         })?;
         match tui_handle_events::<P, T>(state)? {
             Some(TuiStateEvent::ModeUpdate) => T::on_mode_change(state),
-            Some(TuiStateEvent::Delegate(ke)) => match state.active.clone() {
-                Pane::Grid => T::on_grid_event(state, ke),
-                Pane::TextArea => T::on_text_area_event(state, ke),
+            Some(TuiStateEvent::Delegate(ke)) => match &state.modal {
+                Some(_) => T::on_modal_event(state, ke),
+                None => match &state.active {
+                    Pane::Grid => T::on_grid_event(state, ke),
+                    Pane::TextArea => T::on_text_area_event(state, ke),
+                },
             },
             _ => {},
         }
@@ -309,7 +324,19 @@ fn tui_run<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>, terminal
     }
 }
 
-fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut Frame) -> (Rect, Rect) {
+fn modal_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::vertical([
+        ratatui::layout::Constraint::Percentage(percent_y)
+    ]).flex(ratatui::layout::Flex::Center);
+    let horizontal = Layout::horizontal([
+        ratatui::layout::Constraint::Percentage(percent_x)
+    ]).flex(ratatui::layout::Flex::Center);
+    let [area] = vertical.areas(area);
+    let [area] = horizontal.areas(area);
+    area
+}
+
+fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut Frame) -> (Rect, Rect, Rect) {
     let size = frame.area();
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -396,7 +423,7 @@ fn tui_draw<'a, P: PuzzleSetter, T: Tui<P>>(state: &TuiState<'a, P>, frame: &mut
         Paragraph::new(instructions).centered(),
         footer_area,
     );
-    (grid_area, text_area)
+    (grid_area, text_area, modal_area(frame.area(), 30, 20))
 }
 
 fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>) -> io::Result<Option<TuiStateEvent>> {
@@ -404,7 +431,16 @@ fn tui_handle_events<'a, P: PuzzleSetter, T: Tui<P>>(state: &mut TuiState<'a, P>
     if !has_event {
         return Ok(None);
     }
-    Ok(Some(match event::read()? {
+    let ev = event::read()?;
+    if state.modal.is_some() {
+        match &ev {
+            Event::Key(ke) if ke.kind == KeyEventKind::Press => {
+                return Ok(Some(TuiStateEvent::Delegate(*ke)));
+            },
+            _ => {},
+        }
+    }
+    Ok(Some(match ev {
         Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match key_event.code {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 state.exit(Status::Ok);
