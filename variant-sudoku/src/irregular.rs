@@ -8,6 +8,7 @@ use crate::ranker::RankingInfo;
 pub struct IrregularOverlay<const N: usize, const M: usize> {
     regions: Vec<Vec<Index>>,
     index_to_region_and_offset: HashMap<Index, (usize, usize)>,
+    // TODO: Support custom regions here too
 }
 
 impl <const N: usize, const M: usize> IrregularOverlay<N, M> {
@@ -117,27 +118,36 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
     fn region_layers(&self) -> Vec<Key<RegionLayer>> {
         vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]
     }
+
+    fn add_region_layer(&mut self, _layer: Key<RegionLayer>) { todo!() }
     
     fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             N
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             M
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             self.regions.len()
         } else {
             panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
         }
     }
 
+    fn add_region_in_layer(&mut self, _layer: Key<RegionLayer>, _positive_constraint: bool, _cells: Vec<Index>) -> usize {
+        todo!()
+    }
+
+    fn has_positive_constraint(&self, _layer: Key<RegionLayer>, _index: usize) -> bool {
+        // TODO update when adding custom ones
+        true
+    }
+
     fn cells_in_region(&self, layer: Key<RegionLayer>, _: usize) -> usize {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             M
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             N
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             self.regions[0].len()
         } else {
             panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
@@ -145,12 +155,11 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
     }
 
     fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)> {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             Some((index[0], index[1]))
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             Some((index[1], index[0]))
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             self.index_to_region_and_offset.get(&index).copied()
         } else {
             panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
@@ -158,18 +167,17 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
     }
     
     fn region_iter(&self, layer: Key<RegionLayer>, index: usize) -> Self::Iter<'_> {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             IrregularOverlayIterator {
                 overlay: self, 
                 state: IrregularOverlayIteratorState::Row(index, 0),
             }
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             IrregularOverlayIterator {
                 overlay: self, 
                 state: IrregularOverlayIteratorState::Col(index, 0),
             }
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             IrregularOverlayIterator {
                 overlay: self, 
                 state: IrregularOverlayIteratorState::Box(index, 0),
@@ -180,20 +188,19 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
     }
 
     fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index> {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             if index < N && offset < M {
                 Some([index, offset])
             } else {
                 None
             }
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             if index < M && offset < N {
                 Some([offset, index])
             } else {
                 None
             }
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             if index < self.regions.len() && offset < self.regions[0].len() {
                 Some(self.nth_in_box(index, offset))
             } else {

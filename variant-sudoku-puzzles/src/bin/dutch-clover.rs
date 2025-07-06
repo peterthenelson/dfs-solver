@@ -42,7 +42,7 @@ impl PuzzleSetter for DutchClover {
             dw.polyline(vec![[6, 8], [6, 0], [7, 0], [7, 8], [8, 8], [8, 0]]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             DutchWhisperChecker::new(whispers),
         ]);
         let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![

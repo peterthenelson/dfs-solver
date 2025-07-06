@@ -192,7 +192,6 @@ mod test {
         setup: &str, 
         expected: Option<&'static str>,
     ) {
-        let mut puzzle = four_standard_parse(setup).unwrap();
         let pb = ParityShadingBuilder::new();
         let shadings = vec![
             pb.even([0, 0]),
@@ -201,8 +200,9 @@ mod test {
             pb.odd([0, 3]),
         ];
         let ranker = StdRanker::default();
+        let mut puzzle = four_standard_parse(setup).unwrap();
         let mut constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             ParityShadingChecker::new(shadings),
         ]);
         let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();

@@ -49,7 +49,7 @@ impl PuzzleSetter for ThermoSudokuTs {
             tb.polyline(vec![[8, 2], [7, 2], [7, 0], [8, 0], [8, 1]]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             ThermoChecker::new(thermos),
         ]);
         let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![

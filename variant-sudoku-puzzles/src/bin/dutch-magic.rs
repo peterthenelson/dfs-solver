@@ -47,7 +47,7 @@ impl PuzzleSetter for DutchMagic {
             MagicSquare::new([7, 3]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             CageChecker::new(cages),
             DutchWhisperChecker::new(whispers),
             MagicSquareChecker::new(squares),

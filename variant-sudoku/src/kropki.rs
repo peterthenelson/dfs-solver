@@ -696,7 +696,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
 
 #[cfg(test)]
 mod test {
-    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{four_standard_parse, six_standard_parse, unpack_stdval_vals, StdChecker}};
+    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{four_standard_parse, six_standard_overlay, unpack_stdval_vals, SixStdVal, StdChecker}};
     use super::*;
 
     fn assert_black_possible<const MIN: u8, const MAX: u8>(
@@ -1080,15 +1080,16 @@ mod test {
         setup: &str, 
         expected: Option<&'static str>,
     ) {
-        let mut puzzle = six_standard_parse(setup).unwrap();
-        let kb = KropkiBuilder::new(puzzle.overlay());
+        let overlay = six_standard_overlay();
+        let kb = KropkiBuilder::new(&overlay);
         let kropkis = vec![
             kb.b_polyline(vec![[1, 0], [1, 2]]),
             kb.b_across([1, 4]),
         ];
         let ranker = StdRanker::default();
+        let mut puzzle = overlay.parse_state::<SixStdVal>(setup).unwrap();
         let mut constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(&overlay),
             KropkiChecker::new(kropkis),
         ]);
         let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();
@@ -1170,7 +1171,7 @@ mod test {
         ];
         let ranker = StdRanker::default();
         let mut constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             KropkiChecker::new(kropkis),
         ]);
         let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();

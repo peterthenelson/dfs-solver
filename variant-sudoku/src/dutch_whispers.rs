@@ -306,7 +306,7 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
 
 #[cfg(test)]
 mod test {
-    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{nine_standard_overlay, nine_standard_parse, StdChecker}};
+    use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{nine_standard_overlay, StdChecker}};
     use super::*;
 
     #[test]
@@ -343,12 +343,13 @@ mod test {
         setup: &str, 
         expected: Option<&'static str>,
     ) {
-        let mut puzzle = nine_standard_parse(setup).unwrap();
-        let db = DutchWhisperBuilder::new(puzzle.overlay());
+        let overlay = nine_standard_overlay();
+        let db = DutchWhisperBuilder::new(&overlay);
         let whispers = vec![db.polyline(vec![[0, 0], [0, 4], [4, 4]])];
         let ranker = StdRanker::default();
+        let mut puzzle = overlay.parse_state::<NineStdVal>(setup).unwrap();
         let mut constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(&overlay),
             DutchWhisperChecker::new(whispers),
         ]);
         let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();

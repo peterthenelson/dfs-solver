@@ -353,7 +353,7 @@ impl <V: Value> RankingInfo<V> {
     pub fn region_info<O: Overlay>(
         &self, puzzle: &State<V, O>, layer: Key<RegionLayer>, p: usize,
     ) -> RankerRegionInfo<V> {
-        let mut info = RankerRegionInfo::new();
+        let mut info = RankerRegionInfo::new(puzzle.overlay().has_positive_constraint(layer, p));
         for index in puzzle.overlay().region_iter(layer, p) {
             if let Some(val) = puzzle.get(index) {
                 info.filled.insert(&val);
@@ -409,6 +409,8 @@ pub trait Ranker<V: Value, O: Overlay> {
 }
 
 pub struct RankerRegionInfo<V: Value> {
+    // Is there a positive constraint for this region?
+    pub positive_constraint: bool,
     // Values that have already been filled into the puzzle.
     pub filled: VBitSet<V>,
     // Cells that a given value can go into.
@@ -449,8 +451,9 @@ pub struct StdRanker<O: Overlay> {
 }
 
 impl <V: Value> RankerRegionInfo<V> {
-    pub fn new() -> Self {
+    pub fn new(positive_constraint: bool) -> Self {
         Self {
+            positive_constraint,
             filled: VBitSet::<V>::empty(),
             cell_choices: VDenseMap::<V, Vec<Index>>::empty(),
             feature_vecs: VDenseMap::<V, FeatureVec<Raw>>::empty(),
@@ -543,7 +546,7 @@ impl <O: Overlay> StdRanker<O> {
             for p in 0..overlay.regions_in_layer(layer) {
                 let info = ranking.region_info(puzzle, layer, p);
                 for v in V::possibilities() {
-                    if info.filled.contains(&v) {
+                    if info.filled.contains(&v) || !info.positive_constraint {
                         continue;
                     }
                     let choices = info.cell_choices.get(&v);

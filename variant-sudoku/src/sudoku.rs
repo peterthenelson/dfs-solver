@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
+
 use crate::core::{Attribution, ConstraintResult, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 use crate::index_util::parse_val_grid;
@@ -187,18 +188,20 @@ pub const UNDO_MISMATCH_ERROR: Error = Error::new_const("Undo value mismatch");
 pub const ILLEGAL_ACTION_RC: Error = Error::new_const("A row/col violation already exists; can't apply further actions.");
 pub const ILLEGAL_ACTION_BOX: Error = Error::new_const("A box violation already exists; can't apply further actions.");
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct StdOverlay<const N: usize, const M: usize> {
     br: usize,
     bc: usize,
     bh: usize,
     bw: usize,
+    custom_layers: Vec<(Key<RegionLayer>, Vec<(bool, Vec<Index>)>)>,
 }
 
 enum StdOverlayIteratorState {
     Row(usize, Option<Index>, usize),
     Col(usize, Option<Index>, usize),
     Box(usize, Option<Index>, usize, usize),
+    Custom(usize, usize, Option<Index>, usize),
 }
 
 pub struct StdOverlayIterator<'a, const N: usize, const M: usize> {
@@ -248,6 +251,36 @@ impl <'a, const N: usize, const M: usize> StdOverlayIterator<'a, N, M> {
             overlay,
             state: StdOverlayIteratorState::Box(b, Some(box_index), 0, 0),
         }
+    }
+
+    pub fn custom_region(overlay: &'a StdOverlay<N, M>, layer: Key<RegionLayer>, index: usize) -> Self {
+        for (layer_index, cl) in overlay.custom_layers.iter().enumerate() {
+            if cl.0 == layer {
+                if index >= cl.1.len() {
+                    panic!("There are only {} regions in layer {}; got index {}", cl.1.len(), layer.name(), index);
+                }
+                return Self {
+                    overlay,
+                    state: StdOverlayIteratorState::Custom(layer_index, index, None, 0),
+                }
+            }
+        }
+        panic!("No such layer exists: {}", layer.name());
+    }
+
+    pub fn others_in_custom_region(overlay: &'a StdOverlay<N, M>, layer: Key<RegionLayer>, cell: Index) -> Self {
+        let (index, _) = overlay.enclosing_region_and_offset(layer, cell).expect(
+            format!("Expected cell {:?} to be in a region in layer {}", cell, layer.name()).as_str(),
+        );
+        for (layer_index, cl) in overlay.custom_layers.iter().enumerate() {
+            if cl.0 == layer {
+                return Self {
+                    overlay,
+                    state: StdOverlayIteratorState::Custom(layer_index, index, Some(cell), 0),
+                }
+            }
+        }
+        panic!("No such layer exists: {}", layer.name());
     }
 }
 
@@ -304,6 +337,21 @@ impl <'a, const N: usize, const M: usize> Iterator for StdOverlayIterator<'a, N,
                     StdOverlayIteratorState::Box(b, skip, br, bc+1)
                 };
             },
+            StdOverlayIteratorState::Custom(layer_index, index, skip, i) => {
+                let cells = &self.overlay.custom_layers[layer_index].1[index].1;
+                if i >= cells.len() {
+                    return None;
+                }
+                if let Some(skip_index) = skip {
+                    if skip_index == cells[i] {
+                        self.state = StdOverlayIteratorState::Custom(layer_index, index, skip, i+1);
+                        return self.next();
+                    }
+                }
+                ret = cells[i];
+                self.state = StdOverlayIteratorState::Custom(layer_index, index, skip, i+1);
+
+            },
         }
         Some(ret)
     }
@@ -316,7 +364,7 @@ impl <const N: usize, const M: usize> StdOverlay<N, M> {
         } else if M != bc * bw {
             panic!("StdOverlay expected M == bc*bw, but {} != {}*{}", M, bc, bw);
         }
-        Self { br, bc, bh, bw }
+        Self { br, bc, bh, bw, custom_layers: Vec::new() }
     }
     pub fn box_rows(&self) -> usize { self.br }
     pub fn box_height(&self) -> usize { self.bh }
@@ -356,6 +404,12 @@ impl <const N: usize, const M: usize> StdOverlay<N, M> {
     pub fn others_in_box(&self, cell: Index) -> StdOverlayIterator<N, M> {
         StdOverlayIterator::others_in_box(self, cell)
     }
+    pub fn custom_region_iter(&self, layer: Key<RegionLayer>, index: usize) -> StdOverlayIterator<N, M> {
+        StdOverlayIterator::custom_region(self, layer, index)
+    }
+    pub fn others_in_custom_region(&self, layer: Key<RegionLayer>, cell: Index) -> StdOverlayIterator<N, M> {
+        StdOverlayIterator::others_in_custom_region(self, layer, cell)
+    }
     pub fn serialize_pretty<V: Value>(&self, s: &State<V, Self>) -> String {
         let mut result = String::new();
         for r in 0..N {
@@ -390,83 +444,152 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
     fn grid_dims(&self) -> (usize, usize) { (N, M) }
 
     fn region_layers(&self) -> Vec<Key<RegionLayer>> {
-        vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]
+        let mut layers = vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER];
+        if self.custom_layers.is_empty() {
+            return layers;
+        }
+        layers.extend(self.custom_layers.iter().map(|l| l.0));
+        layers
+    }
+
+    fn add_region_layer(&mut self, layer: Key<RegionLayer>) {
+        for cl in &self.custom_layers {
+            if cl.0 == layer {
+                return;
+            }
+        }
+        self.custom_layers.push((layer, Vec::new()));
     }
 
     fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             self.rows()
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             self.cols()
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             self.boxes()
         } else {
+            for cl in &self.custom_layers {
+                if cl.0 == layer {
+                    return cl.1.len();
+                }
+            }
             panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
 
-    fn cells_in_region(&self, layer: Key<RegionLayer>, _: usize) -> usize {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+    fn add_region_in_layer(&mut self, layer: Key<RegionLayer>, positive_constraint: bool, cells: Vec<Index>) -> usize {
+        for cl in self.custom_layers.iter_mut() {
+            if cl.0 == layer {
+                cl.1.push((positive_constraint, cells));
+                return cl.1.len() - 1;
+            }
+        }
+        panic!("Invalid region layer for StdOverlay: {}", layer.name())
+    }
+
+    fn cells_in_region(&self, layer: Key<RegionLayer>, index: usize) -> usize {
+        if layer == ROWS_LAYER {
             self.cols()
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             self.rows()
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             self.bh*self.bw
         } else {
+            for cl in &self.custom_layers {
+                if cl.0 == layer {
+                    return cl.1[index].1.len();
+                }
+            }
             panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
+    }
+
+    fn has_positive_constraint(&self, layer: Key<RegionLayer>, index: usize) -> bool {
+        if layer == ROWS_LAYER {
+            true
+        } else if layer == COLS_LAYER {
+            true
+        } else if layer == BOXES_LAYER {
+            true
+        } else {
+            for cl in &self.custom_layers {
+                if cl.0 == layer {
+                    return cl.1[index].0;
+                }
+            }
+            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+        }
+        
     }
 
     fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)> {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             Some((index[0], index[1]))
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             Some((index[1], index[0]))
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             let (b, [br, bc]) = self.to_box_coords(index);
             Some((b, br*self.bw+bc))
         } else {
+            for cl in &self.custom_layers {
+                if cl.0 == layer {
+                    for (region_index, region) in cl.1.iter().enumerate() {
+                        for (offset, cell) in region.1.iter().enumerate() {
+                            if *cell == index {
+                                return Some((region_index, offset))
+                            }
+                        }
+                    }
+                    return None;
+                }
+            }
             panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
 
     fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index> {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             if index < self.rows() && offset < self.cols() {
                 Some([index, offset])
             } else {
                 None
             }
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             if index < self.cols() && offset < self.rows() {
                 Some([offset, index])
             } else {
                 None
             }
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             if index < self.boxes() && offset < self.bh*self.bw {
                 Some(self.from_box_coords(index, [offset / self.bw, offset % self.bw]))
             } else {
                 None
             }
         } else {
+            for cl in &self.custom_layers {
+                if cl.0 == layer {
+                    return Some(cl.1[index].1[offset])
+                }
+            }
             panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
 
     fn region_iter(&self, layer: Key<RegionLayer>, index: usize) -> Self::Iter<'_> {
-        let id = layer.id();
-        if id == ROWS_LAYER.id() {
+        if layer == ROWS_LAYER {
             self.row_iter(index)
-        } else if id == COLS_LAYER.id() {
+        } else if layer == COLS_LAYER {
             self.col_iter(index)
-        } else if id == BOXES_LAYER.id() {
+        } else if layer == BOXES_LAYER {
             self.box_iter(index)
         } else {
+            for cl in &self.custom_layers {
+                if cl.0 == layer {
+                    return self.custom_region_iter(layer, index);
+                }
+            }
             panic!("Invalid region layer for StdOverlay: {}", layer.name())
         }
     }
@@ -477,7 +600,18 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         }
         let (b1, _) = self.to_box_coords(i1);
         let (b2, _) = self.to_box_coords(i2);
-        b1 == b2
+        if b1 == b2 { return true; }
+        if self.custom_layers.is_empty() {
+            return false;
+        }
+        for cl in &self.custom_layers {
+            for region in &cl.1 {
+                if region.1.contains(&i1) && region.1.contains(&i2) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {
@@ -530,12 +664,12 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N, M, MIN, MAX> {
-    pub fn new(state: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>) -> Self {
+    pub fn new(overlay: &StdOverlay<N, M>) -> Self {
         return Self {
-            overlay: state.overlay().clone(),
+            overlay: overlay.clone(),
             row: std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full()),
             col: std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full()),
-            boxes: vec![VBitSet::<StdVal<MIN, MAX>>::full(); state.overlay().boxes()].into_boxed_slice(),
+            boxes: vec![VBitSet::<StdVal<MIN, MAX>>::full(); overlay.boxes()].into_boxed_slice(),
             row_attr: Key::register(ROW_CONFLICT_ATTRIBUTION),
             col_attr: Key::register(COL_CONFLICT_ATTRIBUTION),
             box_attr: Key::register(BOX_CONFLICT_ATTRIBUTION),
@@ -821,7 +955,7 @@ mod test {
     #[test]
     fn test_sudoku_row_violation() {
         let mut sudoku = nine_standard_empty();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut checker = StdChecker::new(sudoku.overlay());
         apply2(&mut sudoku, &mut checker, [5, 3], StdVal(1));
         apply2(&mut sudoku, &mut checker, [5, 4], StdVal(3));
         let mut ranking = StdRanker::default().init_ranking(&sudoku);
@@ -836,7 +970,7 @@ mod test {
     #[test]
     fn test_sudoku_col_violation() {
         let mut sudoku = nine_standard_empty();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut checker = StdChecker::new(sudoku.overlay());
         apply2(&mut sudoku, &mut checker, [1, 3], StdVal(2));
         apply2(&mut sudoku, &mut checker, [3, 3], StdVal(7));
         let mut ranking = StdRanker::default().init_ranking(&sudoku);
@@ -851,7 +985,7 @@ mod test {
     #[test]
     fn test_sudoku_box_violation() {
         let mut sudoku = nine_standard_empty();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut checker = StdChecker::new(sudoku.overlay());
         apply2(&mut sudoku, &mut checker, [3, 0], StdVal(8));
         apply2(&mut sudoku, &mut checker, [4, 1], StdVal(2));
         let mut ranking = StdRanker::default().init_ranking(&sudoku);
@@ -922,9 +1056,9 @@ mod test {
                            9 1 4|8 3 5|. 7 6\n\
                            . 3 .|7 . 1|4 9 5\n\
                            5 6 7|4 2 9|. 1 3\n";
-        let mut sudoku = nine_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut sudoku = nine_standard_parse(input).unwrap();
+        let mut checker = StdChecker::new(sudoku.overlay());
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
@@ -953,9 +1087,9 @@ mod test {
                            ---+---+---+---\n\
                            . 7|1 3|. .|. 6\n\
                            4 6|. .|8 .|. .\n";
-        let mut sudoku = eight_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut sudoku = eight_standard_parse(input).unwrap();
+        let mut checker = StdChecker::new(sudoku.overlay());
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
@@ -981,9 +1115,9 @@ mod test {
                            -----+-----\n\
                            . 6 4|. 3 1\n\
                            . . 1|. 4 6\n";
-        let mut sudoku = six_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut sudoku = six_standard_parse(input).unwrap();
+        let mut checker = StdChecker::new(sudoku.overlay());
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {
@@ -1006,9 +1140,9 @@ mod test {
                            ---+---\n\
                            2 .|. 3\n\
                            4 .|1 2\n";
-        let mut sudoku = four_standard_parse(input).unwrap();
         let ranker = StdRanker::default();
-        let mut checker = StdChecker::new(&sudoku);
+        let mut sudoku = four_standard_parse(input).unwrap();
+        let mut checker = StdChecker::new(sudoku.overlay());
         let mut finder = FindFirstSolution::new(
             &mut sudoku, &ranker, &mut checker, None);
         match finder.solve() {

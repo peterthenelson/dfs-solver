@@ -14,6 +14,7 @@ pub mod irregular;
 pub mod kropki;
 pub mod magic_squares;
 pub mod parity_shading;
+pub mod region_constraint;
 pub mod simple_constraint;
 pub mod thermos;
 pub mod whispers;

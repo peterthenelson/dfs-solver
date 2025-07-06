@@ -15,9 +15,6 @@ pub struct SimpleConstraint<V: Value, O: Overlay> {
 
 impl <V: Value, O: Overlay> Debug for SimpleConstraint<V, O> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(name) = &self.name {
-            write!(f, "{}:\n", name)?;
-        }
         if let Some(ds) = &self.debug_str {
             write!(f, "  {}\n", ds)?;
         }
@@ -48,11 +45,13 @@ mod test {
     use crate::{constraint::{test_util::{assert_contradiction, assert_no_contradiction}, MultiConstraint}, core::Key, ranker::StdRanker, solver::test_util::PuzzleReplay, sudoku::{four_standard_parse, FourStdOverlay, FourStdVal, StdChecker}};
     use super::*;
 
+    // This is a 4x4 puzzle with a SimpleConstraint asserting that [0, 0] > 2.
+    // Call with different givens and an expectation for it to return a
+    // contradiction (or not).
     fn assert_simple_constraint_result(
         setup: &str, 
         expected: Option<&'static str>,
     ) {
-        let mut puzzle = four_standard_parse(setup).unwrap();
         let ranker = StdRanker::default();
         let simple = SimpleConstraint {
             name: Some("[0,0] > 2".to_string()),
@@ -68,8 +67,9 @@ mod test {
             debug_at: None,
             debug_highlight: None,
         };
+        let mut puzzle = four_standard_parse(setup).unwrap();
         let mut constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             simple,
         ]);
         let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut constraint, None).replay().unwrap();

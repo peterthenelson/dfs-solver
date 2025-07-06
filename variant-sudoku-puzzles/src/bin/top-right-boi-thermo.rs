@@ -37,7 +37,7 @@ impl PuzzleSetter for TopRightBoiThermo {
             tb.polyline(vec![[5, 8], [7, 6]]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             ThermoChecker::new(thermos),
         ]);
         let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![

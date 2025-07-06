@@ -558,12 +558,18 @@ pub fn readable_key<KT: KeyType>(id: usize) -> Option<Key<KT>> {
     })
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone)]
 pub struct Key<KT: KeyType>{
     name: &'static str,
     id: usize,
     _state: PhantomData<KT>,
 }
+
+impl <KT: KeyType> PartialEq for Key<KT> {
+    fn eq(&self, other: &Self) -> bool { self.id == other.id }
+    fn ne(&self, other: &Self) -> bool { self.id != other.id }
+}
+impl <KT: KeyType> Eq for Key<KT> {}
 
 impl <KT: KeyType> Key<KT> {
     pub fn register(name: &'static str) -> Self {
@@ -741,8 +747,11 @@ pub trait Stateful<V: Value>: {
 pub trait Overlay: Clone + Debug {
     type Iter<'a>: Iterator<Item = Index> where Self: 'a;
     fn grid_dims(&self) -> (usize, usize);
+    fn add_region_layer(&mut self, layer: Key<RegionLayer>);
     fn region_layers(&self) -> Vec<Key<RegionLayer>>;
     fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize;
+    fn add_region_in_layer(&mut self, layer: Key<RegionLayer>, positive_constraint: bool, cells: Vec<Index>) -> usize;
+    fn has_positive_constraint(&self, layer: Key<RegionLayer>, index: usize) -> bool;
     fn cells_in_region(&self, layer: Key<RegionLayer>, index: usize) -> usize;
     fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)>;
     fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index>;
@@ -906,7 +915,16 @@ pub mod test_util {
         type Iter<'a> = std::vec::IntoIter<Index>;
         fn grid_dims(&self) -> (usize, usize) { (1, N) }
         fn region_layers(&self) -> Vec<Key<RegionLayer>> { vec![] }
+        fn add_region_layer(&mut self, _: Key<RegionLayer>) {
+            panic!("Cannot add region layers!")
+        }
         fn regions_in_layer(&self, _: Key<RegionLayer>) -> usize {
+            panic!("No region layers exist!")
+        }
+        fn add_region_in_layer(&mut self, _: Key<RegionLayer>, _: bool, _: Vec<Index>) -> usize {
+            panic!("Cannot add region layers!")
+        }
+        fn has_positive_constraint(&self, _: Key<RegionLayer>, _: usize) -> bool {
             panic!("No region layers exist!")
         }
         fn cells_in_region(&self, _: Key<RegionLayer>, _: usize) -> usize {

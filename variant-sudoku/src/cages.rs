@@ -390,8 +390,8 @@ mod test {
             (cage5, Some("CAGE_SUM_INFEASIBLE")),
             (cage6, Some("CAGE_DUPE")),
         ] {
-            let mut puzzle = puzzle.clone();
             let ranker = StdRanker::default();
+            let mut puzzle = puzzle.clone();
             let mut cage_checker = CageChecker::new(vec![c]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut cage_checker, None).replay().unwrap();
             if let Some(attr) = expected {
@@ -424,7 +424,7 @@ mod test {
                 cb.across(6, [3, 2], 2),
             ];
             let constraint = MultiConstraint::new(vec_box::vec_box![
-                StdChecker::new(&given),
+                StdChecker::new(given.overlay()),
                 CageChecker::new(cages),
             ]);
             (given, StdRanker::default(), constraint)

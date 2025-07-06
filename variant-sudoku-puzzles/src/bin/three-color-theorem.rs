@@ -82,7 +82,7 @@ impl PuzzleSetter for ThreeColorTheorem {
             kb.b_across([8, 6]),
         ];
         let constraint = MultiConstraint::new(vec_box::vec_box![
-            StdChecker::new(&puzzle),
+            StdChecker::new(puzzle.overlay()),
             CageChecker::new(cages),
             KropkiChecker::new(kropkis),
         ]);

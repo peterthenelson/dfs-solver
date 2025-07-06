@@ -1,6 +1,7 @@
 /// Tui implementations can be implemented however they choose, but these are
 /// some generic implementations of a collection of useful tasks. They are used
 /// to implement the standard Tui impls.
+/// TODO: Figure out how to represent custom regions in the UI
 use std::{f64, fmt::Display};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{

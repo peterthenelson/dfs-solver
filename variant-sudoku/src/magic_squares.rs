@@ -149,9 +149,7 @@ impl MagicSquareChecker {
 }
 
 impl Debug for MagicSquareChecker {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MagicSquareChecker: {:?}\n", self.squares)
-    }
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) }
 }
 
 impl Stateful<NineStdVal> for MagicSquareChecker {}
@@ -317,8 +315,8 @@ mod test {
             (ms5, Some("MAGIC_SQUARE_SUM_NOT_15")),
             (ms6, Some("MAGIC_SQUARE_SUM_INFEASIBLE")),
         ] {
-            let mut puzzle = puzzle.clone();
             let ranker = StdRanker::default();
+            let mut puzzle = puzzle.clone();
             let mut ms_checker = MagicSquareChecker::new(vec![ms]);
             let result = PuzzleReplay::new(&mut puzzle, &ranker, &mut ms_checker, None).replay().unwrap();
             if let Some(attr) = expected {

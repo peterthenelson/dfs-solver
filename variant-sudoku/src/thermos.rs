@@ -343,7 +343,7 @@ mod test {
                 tb.left([3, 2], 3),
             ];
             let constraint = MultiConstraint::new(vec_box::vec_box![
-                StdChecker::new(&given),
+                StdChecker::new(given.overlay()),
                 ThermoChecker::new(thermos),
             ]);
             (given, StdRanker::default(), constraint)
