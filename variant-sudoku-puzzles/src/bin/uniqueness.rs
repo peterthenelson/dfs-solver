@@ -29,34 +29,6 @@ impl PuzzleSetter for Uniqueness {
 
     fn setup_with_givens(given: NineStd) -> (NineStd, Self::Ranker, Self::Constraint) {
         let mut overlay = nine_standard_overlay();
-        let shadings = {
-            let pb = ParityShadingBuilder::new();
-            vec![
-                pb.even([0, 0]),
-                pb.odd([0, 5]),
-                pb.odd([1, 6]),
-                pb.odd([4, 1]),
-                pb.odd([5, 7]),
-                pb.odd([6, 0]),
-                pb.even([7, 1]),
-                pb.even([8, 2]),
-                pb.even([8, 6]),
-            ]
-        };
-        let kropkis = {
-            let kb = KropkiBuilder::new(&overlay);
-            vec![
-                kb.w_polyline(vec![[0, 5], [1, 5], [1, 7]]),
-                kb.b_polyline(vec![[2, 0], [2, 2]]),
-                kb.b_across([3, 6]),
-                kb.w_across([4, 0]),
-                kb.w_polyline(vec![[7, 2], [8, 2], [8, 3]]),
-            ]
-        };
-        let cages = {
-            let cb = CageBuilder::new(true, &overlay);
-            vec![cb.rect(37, [2, 4], [4, 5])]
-        };
         let parity_regions = {
             let mut rb = RegionContraintBuilder::new(&mut overlay, "PARITY");
             vec![
@@ -90,8 +62,38 @@ impl PuzzleSetter for Uniqueness {
                 ]),
             ]
         };
+        let shadings = {
+            let pb = ParityShadingBuilder::new();
+            vec![
+                pb.even([0, 0]),
+                pb.odd([0, 5]),
+                pb.odd([1, 6]),
+                pb.odd([4, 1]),
+                pb.odd([5, 7]),
+                pb.odd([6, 0]),
+                pb.even([7, 1]),
+                pb.even([8, 2]),
+                pb.even([8, 6]),
+            ]
+        };
+        let kropkis = {
+            let kb = KropkiBuilder::new(&overlay);
+            vec![
+                kb.w_polyline(vec![[0, 5], [1, 5], [1, 7]]),
+                kb.b_polyline(vec![[2, 0], [2, 2]]),
+                kb.b_across([3, 6]),
+                kb.w_across([4, 0]),
+                kb.w_polyline(vec![[7, 2], [8, 2], [8, 3]]),
+            ]
+        };
+        let cages = {
+            let cb = CageBuilder::new(true, &overlay);
+            vec![cb.rect(37, [2, 4], [4, 5])]
+        };
         let constraint = MultiConstraint::new(vec_box::vec_box![
             StdChecker::new(&overlay),
+            RegionConstraint::new("PARITY", parity_regions),
+            RegionConstraint::new("OTHER", other_regions),
             ParityShadingChecker::new(shadings),
             KropkiChecker::new(kropkis),
             CageChecker::new(cages),
@@ -115,14 +117,12 @@ impl PuzzleSetter for Uniqueness {
                     }
                 }),
             },
-            RegionConstraint::new("PARITY", parity_regions),
-            RegionConstraint::new("OTHER", other_regions),
         ]);
         let puzzle = given.clone_with_overlay(overlay);
         let ranker = StdRanker::with_additional_weights(FeatureVec::from_pairs(vec![
             (CAGE_FEATURE, 1.0),
-            (KROPKI_BLACK_FEATURE, 2.0),
-            (KROPKI_WHITE_FEATURE, 1.0),
+            (KROPKI_BLACK_FEATURE, 1.0),
+            (KROPKI_WHITE_FEATURE, 2.0),
         ]));
         (puzzle, ranker, constraint)
     }
@@ -139,17 +139,16 @@ mod test {
 
     #[test]
     fn test_uniqueness_solution() {
-        // TODO: Fill out the rest and check that the test fn works
         let input: &str = "6 3 7|1 5 9|4 2 8\n\
-                           1 . .|. . .|. . 3\n\
-                           8 . .|. . .|. . 5\n\
+                           1 5 9|4 2 8|7 6 3\n\
+                           8 4 2|6 7 3|1 9 5\n\
                            -----+-----+-----\n\
-                           5 . .|. . .|. . 1\n\
-                           2 . .|. . .|. . 4\n\
-                           4 . .|. . .|. . 2\n\
+                           5 7 8|2 9 4|6 3 1\n\
+                           2 1 3|5 8 6|9 7 4\n\
+                           4 9 6|7 3 1|8 5 2\n\
                            -----+-----+-----\n\
-                           3 . .|. . .|. . 9\n\
-                           7 . .|. . .|. . 6\n\
+                           3 2 1|8 6 7|5 4 9\n\
+                           7 8 5|9 4 2|3 1 6\n\
                            9 6 4|3 1 5|2 8 .\n";
         let sudoku = nine_standard_parse(input).unwrap();
         let obs = NullObserver;
