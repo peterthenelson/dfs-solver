@@ -747,8 +747,8 @@ pub trait Stateful<V: Value>: {
 pub trait Overlay: Clone + Debug {
     type Iter<'a>: Iterator<Item = Index> where Self: 'a;
     fn grid_dims(&self) -> (usize, usize);
-    fn add_region_layer(&mut self, layer: Key<RegionLayer>);
     fn region_layers(&self) -> Vec<Key<RegionLayer>>;
+    fn add_region_layer(&mut self, layer: Key<RegionLayer>);
     fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize;
     fn add_region_in_layer(&mut self, layer: Key<RegionLayer>, positive_constraint: bool, cells: Vec<Index>) -> usize;
     fn has_positive_constraint(&self, layer: Key<RegionLayer>, index: usize) -> bool;
@@ -775,6 +775,97 @@ pub trait Overlay: Clone + Debug {
     }
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error>;
     fn serialize_state<V: Value>(&self, s: &State<V, Self>) -> String;
+}
+
+/// Useful utility for efficiently supporting custom layers/regions in an
+/// Overlay
+#[derive(Clone, Debug)]
+pub struct CustomRegionLayers {
+    layers: Vec<Key<RegionLayer>>,
+    layer_to_offset: Vec<Option<usize>>,
+    positive_constraints: Vec<Vec<bool>>,
+    regions: Vec<Vec<Vec<Index>>>,
+    enclosing: Vec<HashMap<Index, (usize, usize)>>,
+}
+
+impl CustomRegionLayers {
+    pub fn new() -> Self {
+        Self {
+            layers: Vec::new(),
+            layer_to_offset: Vec::new(),
+            positive_constraints: Vec::new(),
+            regions: Vec::new(),
+            enclosing: Vec::new(),
+        }
+    }
+
+    fn layer_offset(&self, layer: Key<RegionLayer>) -> usize {
+        match self.layer_to_offset.get(layer.id()) {
+            Some(Some(offset)) => *offset,
+            _ => panic!("Invalid region layer: {}", layer.name()),
+        }
+    }
+
+    pub fn region_layers(&self) -> Vec<Key<RegionLayer>> {
+        self.layers.clone()
+    }
+
+    pub fn add_region_layer(&mut self, layer: Key<RegionLayer>) {
+        if self.layers.contains(&layer) {
+            return;
+        }
+        self.layers.push(layer);
+        self.positive_constraints.push(Vec::new());
+        self.regions.push(Vec::new());
+        self.enclosing.push(HashMap::new());
+        while self.layer_to_offset.len() <= layer.id() {
+            self.layer_to_offset.push(None);
+        }
+        self.layer_to_offset[layer.id()] = Some(self.layers.len() - 1);
+    }
+
+    pub fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
+        self.regions[self.layer_offset(layer)].len()
+    }
+
+    pub fn add_region_in_layer(&mut self, layer: Key<RegionLayer>, positive_constraint: bool, cells: Vec<Index>) -> usize {
+        let layer_offset = self.layer_offset(layer);
+        self.positive_constraints[layer_offset].push(positive_constraint);
+        let index = self.regions[layer_offset].len();
+        let enclosing = &mut self.enclosing[layer_offset];
+        for (i, c) in cells.iter().enumerate() {
+            enclosing.insert(*c, (index, i));
+        }
+        self.regions[layer_offset].push(cells);
+        index
+    }
+
+    pub fn cells_in_region(&self, layer: Key<RegionLayer>, index: usize) -> usize {
+        self.regions[self.layer_offset(layer)][index].len()
+    }
+
+    pub fn has_positive_constraint(&self, layer: Key<RegionLayer>, index: usize) -> bool {
+        self.positive_constraints[self.layer_offset(layer)][index]
+    }
+
+    pub fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)> {
+        self.enclosing[self.layer_offset(layer)].get(&index).map(|x| *x)
+    }
+
+    pub fn nth_in_region(&self, layer: Key<RegionLayer>, index: usize, offset: usize) -> Option<Index> {
+        self.regions[self.layer_offset(layer)][index].get(offset).map(|x| *x)
+    }
+
+    pub fn mutually_visible(&self, i1: Index, i2: Index) -> bool {
+        for cl in &self.regions {
+            for region in cl.iter() {
+                if region.contains(&i1) && region.contains(&i2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 /// The state of the puzzle being solved (whether empty, full, or partially

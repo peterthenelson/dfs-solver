@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::{LazyLock, Mutex};
 
-use crate::core::{Attribution, ConstraintResult, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
+use crate::core::{Attribution, ConstraintResult, CustomRegionLayers, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
 use crate::index_util::parse_val_grid;
 use crate::ranker::RankingInfo;
@@ -194,14 +194,14 @@ pub struct StdOverlay<const N: usize, const M: usize> {
     bc: usize,
     bh: usize,
     bw: usize,
-    custom_layers: Vec<(Key<RegionLayer>, Vec<(bool, Vec<Index>)>)>,
+    custom_layers: CustomRegionLayers,
 }
 
 enum StdOverlayIteratorState {
     Row(usize, Option<Index>, usize),
     Col(usize, Option<Index>, usize),
     Box(usize, Option<Index>, usize, usize),
-    Custom(usize, usize, Option<Index>, usize),
+    Custom(Key<RegionLayer>, usize, Option<Index>, usize),
 }
 
 pub struct StdOverlayIterator<'a, const N: usize, const M: usize> {
@@ -254,33 +254,21 @@ impl <'a, const N: usize, const M: usize> StdOverlayIterator<'a, N, M> {
     }
 
     pub fn custom_region(overlay: &'a StdOverlay<N, M>, layer: Key<RegionLayer>, index: usize) -> Self {
-        for (layer_index, cl) in overlay.custom_layers.iter().enumerate() {
-            if cl.0 == layer {
-                if index >= cl.1.len() {
-                    panic!("There are only {} regions in layer {}; got index {}", cl.1.len(), layer.name(), index);
-                }
-                return Self {
-                    overlay,
-                    state: StdOverlayIteratorState::Custom(layer_index, index, None, 0),
-                }
-            }
+        assert!(overlay.custom_layers.region_layers().contains(&layer));
+        return Self {
+            overlay,
+            state: StdOverlayIteratorState::Custom(layer, index, None, 0),
         }
-        panic!("No such layer exists: {}", layer.name());
     }
 
     pub fn others_in_custom_region(overlay: &'a StdOverlay<N, M>, layer: Key<RegionLayer>, cell: Index) -> Self {
         let (index, _) = overlay.enclosing_region_and_offset(layer, cell).expect(
             format!("Expected cell {:?} to be in a region in layer {}", cell, layer.name()).as_str(),
         );
-        for (layer_index, cl) in overlay.custom_layers.iter().enumerate() {
-            if cl.0 == layer {
-                return Self {
-                    overlay,
-                    state: StdOverlayIteratorState::Custom(layer_index, index, Some(cell), 0),
-                }
-            }
+        return Self {
+            overlay,
+            state: StdOverlayIteratorState::Custom(layer, index, Some(cell), 0),
         }
-        panic!("No such layer exists: {}", layer.name());
     }
 }
 
@@ -337,19 +325,19 @@ impl <'a, const N: usize, const M: usize> Iterator for StdOverlayIterator<'a, N,
                     StdOverlayIteratorState::Box(b, skip, br, bc+1)
                 };
             },
-            StdOverlayIteratorState::Custom(layer_index, index, skip, i) => {
-                let cells = &self.overlay.custom_layers[layer_index].1[index].1;
-                if i >= cells.len() {
+            StdOverlayIteratorState::Custom(layer, index, skip, i) => {
+                let cur = self.overlay.custom_layers.nth_in_region(layer, index, i);
+                if cur.is_none() {
                     return None;
                 }
                 if let Some(skip_index) = skip {
-                    if skip_index == cells[i] {
-                        self.state = StdOverlayIteratorState::Custom(layer_index, index, skip, i+1);
+                    if cur.unwrap() == skip_index {
+                        self.state = StdOverlayIteratorState::Custom(layer, index, skip, i+1);
                         return self.next();
                     }
                 }
-                ret = cells[i];
-                self.state = StdOverlayIteratorState::Custom(layer_index, index, skip, i+1);
+                ret = cur.unwrap();
+                self.state = StdOverlayIteratorState::Custom(layer, index, skip, i+1);
 
             },
         }
@@ -364,7 +352,7 @@ impl <const N: usize, const M: usize> StdOverlay<N, M> {
         } else if M != bc * bw {
             panic!("StdOverlay expected M == bc*bw, but {} != {}*{}", M, bc, bw);
         }
-        Self { br, bc, bh, bw, custom_layers: Vec::new() }
+        Self { br, bc, bh, bw, custom_layers: CustomRegionLayers::new() }
     }
     pub fn box_rows(&self) -> usize { self.br }
     pub fn box_height(&self) -> usize { self.bh }
@@ -445,20 +433,12 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
 
     fn region_layers(&self) -> Vec<Key<RegionLayer>> {
         let mut layers = vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER];
-        if self.custom_layers.is_empty() {
-            return layers;
-        }
-        layers.extend(self.custom_layers.iter().map(|l| l.0));
+        layers.extend(self.custom_layers.region_layers());
         layers
     }
 
     fn add_region_layer(&mut self, layer: Key<RegionLayer>) {
-        for cl in &self.custom_layers {
-            if cl.0 == layer {
-                return;
-            }
-        }
-        self.custom_layers.push((layer, Vec::new()));
+        self.custom_layers.add_region_layer(layer);
     }
 
     fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
@@ -469,23 +449,12 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             self.boxes()
         } else {
-            for cl in &self.custom_layers {
-                if cl.0 == layer {
-                    return cl.1.len();
-                }
-            }
-            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+            self.custom_layers.regions_in_layer(layer)
         }
     }
 
     fn add_region_in_layer(&mut self, layer: Key<RegionLayer>, positive_constraint: bool, cells: Vec<Index>) -> usize {
-        for cl in self.custom_layers.iter_mut() {
-            if cl.0 == layer {
-                cl.1.push((positive_constraint, cells));
-                return cl.1.len() - 1;
-            }
-        }
-        panic!("Invalid region layer for StdOverlay: {}", layer.name())
+        self.custom_layers.add_region_in_layer(layer, positive_constraint, cells)
     }
 
     fn cells_in_region(&self, layer: Key<RegionLayer>, index: usize) -> usize {
@@ -496,12 +465,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             self.bh*self.bw
         } else {
-            for cl in &self.custom_layers {
-                if cl.0 == layer {
-                    return cl.1[index].1.len();
-                }
-            }
-            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+            self.custom_layers.cells_in_region(layer, index)
         }
     }
 
@@ -513,14 +477,8 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             true
         } else {
-            for cl in &self.custom_layers {
-                if cl.0 == layer {
-                    return cl.1[index].0;
-                }
-            }
-            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+            self.custom_layers.has_positive_constraint(layer, index)
         }
-        
     }
 
     fn enclosing_region_and_offset(&self, layer: Key<RegionLayer>, index: Index) -> Option<(usize, usize)> {
@@ -532,19 +490,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
             let (b, [br, bc]) = self.to_box_coords(index);
             Some((b, br*self.bw+bc))
         } else {
-            for cl in &self.custom_layers {
-                if cl.0 == layer {
-                    for (region_index, region) in cl.1.iter().enumerate() {
-                        for (offset, cell) in region.1.iter().enumerate() {
-                            if *cell == index {
-                                return Some((region_index, offset))
-                            }
-                        }
-                    }
-                    return None;
-                }
-            }
-            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+            self.custom_layers.enclosing_region_and_offset(layer, index)
         }
     }
 
@@ -568,12 +514,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
                 None
             }
         } else {
-            for cl in &self.custom_layers {
-                if cl.0 == layer {
-                    return Some(cl.1[index].1[offset])
-                }
-            }
-            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+            self.nth_in_region(layer, index, offset)
         }
     }
 
@@ -585,12 +526,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             self.box_iter(index)
         } else {
-            for cl in &self.custom_layers {
-                if cl.0 == layer {
-                    return self.custom_region_iter(layer, index);
-                }
-            }
-            panic!("Invalid region layer for StdOverlay: {}", layer.name())
+            self.custom_region_iter(layer, index)
         }
     }
 
@@ -601,17 +537,7 @@ impl <const N: usize, const M: usize> Overlay for StdOverlay<N, M> {
         let (b1, _) = self.to_box_coords(i1);
         let (b2, _) = self.to_box_coords(i2);
         if b1 == b2 { return true; }
-        if self.custom_layers.is_empty() {
-            return false;
-        }
-        for cl in &self.custom_layers {
-            for region in &cl.1 {
-                if region.1.contains(&i1) && region.1.contains(&i2) {
-                    return true;
-                }
-            }
-        }
-        false
+        self.custom_layers.mutually_visible(i1, i2)
     }
 
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {
