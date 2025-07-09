@@ -1,5 +1,6 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug};
-use crate::constraint::Constraint;
+
+use crate::{constraint::Constraint, core::CustomRegionLayers};
 use crate::core::{Attribution, ConstraintResult, Error, Index, Key, Overlay, RegionLayer, State, Stateful, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::index_util::{parse_region_grid, parse_val_grid};
 use crate::ranker::RankingInfo;
@@ -8,7 +9,7 @@ use crate::ranker::RankingInfo;
 pub struct IrregularOverlay<const N: usize, const M: usize> {
     regions: Vec<Vec<Index>>,
     index_to_region_and_offset: HashMap<Index, (usize, usize)>,
-    // TODO: Support custom regions here too
+    custom_layers: CustomRegionLayers,
 }
 
 impl <const N: usize, const M: usize> IrregularOverlay<N, M> {
@@ -50,7 +51,7 @@ impl <const N: usize, const M: usize> IrregularOverlay<N, M> {
                 }
             }
         }
-        Ok(Self { regions, index_to_region_and_offset })
+        Ok(Self { regions, index_to_region_and_offset, custom_layers: CustomRegionLayers::new() })
     }
 
     pub fn from_grid(s: &str) -> Result<Self, Error> {
@@ -71,6 +72,7 @@ enum IrregularOverlayIteratorState {
     Row(usize, usize),
     Col(usize, usize),
     Box(usize, usize),
+    Custom(Key<RegionLayer>, usize, usize),
 }
 
 pub struct IrregularOverlayIterator<'a, const N: usize, const M: usize> {
@@ -105,6 +107,14 @@ impl <'a, const N: usize, const M: usize> Iterator for IrregularOverlayIterator<
                 ret = self.overlay.nth_in_box(bi, bo);
                 self.state = IrregularOverlayIteratorState::Box(bi, bo+1)
             },
+            IrregularOverlayIteratorState::Custom(layer, index, i) => {
+                let cur = self.overlay.custom_layers.nth_in_region(layer, index, i);
+                if cur.is_none() {
+                    return None;
+                }
+                ret = cur.unwrap();
+                self.state = IrregularOverlayIteratorState::Custom(layer, index, i+1);
+            },
         }
         Some(ret)
     }
@@ -116,10 +126,14 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
     fn grid_dims(&self) -> (usize, usize) { (N, M) }
 
     fn region_layers(&self) -> Vec<Key<RegionLayer>> {
-        vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER]
+        let mut layers = vec![ROWS_LAYER, COLS_LAYER, BOXES_LAYER];
+        layers.extend(self.custom_layers.region_layers());
+        layers
     }
 
-    fn add_region_layer(&mut self, _layer: Key<RegionLayer>) { todo!() }
+    fn add_region_layer(&mut self, layer: Key<RegionLayer>) {
+        self.custom_layers.add_region_layer(layer);
+    }
     
     fn regions_in_layer(&self, layer: Key<RegionLayer>) -> usize {
         if layer == ROWS_LAYER {
@@ -129,20 +143,27 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             self.regions.len()
         } else {
-            panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
+            self.custom_layers.regions_in_layer(layer)
         }
     }
 
-    fn add_region_in_layer(&mut self, _layer: Key<RegionLayer>, _positive_constraint: bool, _cells: Vec<Index>) -> usize {
-        todo!()
+    fn add_region_in_layer(&mut self, layer: Key<RegionLayer>, positive_constraint: bool, cells: Vec<Index>) -> usize {
+        self.custom_layers.add_region_in_layer(layer, positive_constraint, cells)
     }
 
-    fn has_positive_constraint(&self, _layer: Key<RegionLayer>, _index: usize) -> bool {
-        // TODO update when adding custom ones
-        true
+    fn has_positive_constraint(&self, layer: Key<RegionLayer>, index: usize) -> bool {
+        if layer == ROWS_LAYER {
+            true
+        } else if layer == COLS_LAYER {
+            true
+        } else if layer == BOXES_LAYER {
+            true
+        } else {
+            self.custom_layers.has_positive_constraint(layer, index)
+        }
     }
 
-    fn cells_in_region(&self, layer: Key<RegionLayer>, _: usize) -> usize {
+    fn cells_in_region(&self, layer: Key<RegionLayer>, index: usize) -> usize {
         if layer == ROWS_LAYER {
             M
         } else if layer == COLS_LAYER {
@@ -150,7 +171,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             self.regions[0].len()
         } else {
-            panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
+            self.custom_layers.cells_in_region(layer, index)
         }
     }
 
@@ -162,7 +183,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         } else if layer == BOXES_LAYER {
             self.index_to_region_and_offset.get(&index).copied()
         } else {
-            panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
+            self.custom_layers.enclosing_region_and_offset(layer, index)
         }
     }
     
@@ -183,7 +204,10 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
                 state: IrregularOverlayIteratorState::Box(index, 0),
             }
         } else {
-            panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
+            IrregularOverlayIterator {
+                overlay: self, 
+                state: IrregularOverlayIteratorState::Custom(layer, index, 0),
+            }
         }
     }
 
@@ -207,7 +231,7 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
                 None
             }
         } else {
-            panic!("Invalid region layer for IrregularOverlay: {}", layer.name())
+            self.nth_in_region(layer, index, offset)
         }
     }
 
@@ -215,7 +239,10 @@ impl <const N: usize, const M: usize> Overlay for IrregularOverlay<N, M> {
         if i1[0] == i2[0] || i1[1] == i2[1] {
             return true;
         }
-        self.index_to_region_and_offset[&i1].0 == self.index_to_region_and_offset[&i2].0
+        if self.index_to_region_and_offset[&i1].0 == self.index_to_region_and_offset[&i2].0 {
+            return true;
+        }
+        self.custom_layers.mutually_visible(i1, i2)
     }
 
     fn parse_state<V: Value>(&self, s: &str) -> Result<State<V, Self>, Error> {
