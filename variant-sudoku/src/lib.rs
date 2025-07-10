@@ -13,6 +13,7 @@ pub mod cages;
 pub mod irregular;
 pub mod kropki;
 pub mod magic_squares;
+pub mod numbered_rooms;
 pub mod parity_shading;
 pub mod region_constraint;
 pub mod simple_constraint;

@@ -206,6 +206,8 @@ pub struct XSumChecker<const MIN: u8, const MAX: u8, const N: usize, const M: us
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> XSumChecker<MIN, MAX, N, M> {
     pub fn new(xsums: Vec<XSum<MIN, MAX, N, M>>) -> Self {
+        // Would be nice to have this be static, but we can't.
+        assert!(MIN == 1, "MIN must be 1 for some xsum logic to make sense");
         let xsums_remaining = xsums.iter().map(|x| x.target as i16).collect();
         let xsums_empty = vec![None; xsums.len()];
         let grid = vec![None; N * M];
