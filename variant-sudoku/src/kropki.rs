@@ -1292,7 +1292,16 @@ mod test {
         assert_kropki_white_result(input, Some("KROPKI_WHITE_INFEASIBLE"));
     }
 
-    // TODO: Do a 1-3 contradiction
+    #[test]
+    fn test_kropki_white_contradiction() {
+        // Direct contradiction
+        let input: &str = "1 3|. .\n\
+                           . .|. .\n\
+                           ---+---\n\
+                           . .|. .\n\
+                           . .|. .\n";
+        assert_kropki_white_result(input, Some("KROPKI_WHITE_INFEASIBLE"));
+    }
 
     #[test]
     fn test_kropki_white_valid_fill() {
