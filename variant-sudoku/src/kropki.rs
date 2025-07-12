@@ -204,33 +204,49 @@ fn get_black_upper<const MIN: u8, const MAX: u8>(v: StdVal<MIN, MAX>) -> Option<
 }
 
 fn kropki_black_between<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>>(
-    left: &VS, right: &VS, mutually_visible: bool,
+    left: &VS, right: &Option<VS>, mutually_visible: bool,
 ) -> VBitSet<StdVal<MIN, MAX>> {
     let mut possible = VBitSet::<StdVal<MIN, MAX>>::empty();
-    for v in StdVal::<MIN, MAX>::possibilities() {
-        let (lower, upper) = (get_black_lower::<MIN, MAX>(v), get_black_upper::<MIN, MAX>(v));
-        if mutually_visible {
-            if lower.is_none() || upper.is_none() {
-                continue;
+    if let Some(right) = right {
+        for v in StdVal::<MIN, MAX>::possibilities() {
+            let (lower, upper) = (get_black_lower::<MIN, MAX>(v), get_black_upper::<MIN, MAX>(v));
+            if mutually_visible {
+                if lower.is_none() || upper.is_none() {
+                    continue;
+                }
+                let (l, u) = (lower.unwrap(), upper.unwrap());
+                if (left.contains(&l) && right.contains(&u)) ||
+                (left.contains(&u) && right.contains(&l)) {
+                    possible.insert(&v);
+                }
+            } else if lower.is_some() && upper.is_some() {
+                let (l, u) = (lower.unwrap(), upper.unwrap());
+                if (left.contains(&l) || left.contains(&u)) &&
+                (right.contains(&l) || right.contains(&u)) {
+                    possible.insert(&v);
+                }
+            } else if let Some(l) = lower {
+                if left.contains(&l) && right.contains(&l) {
+                    possible.insert(&v);
+                }
+            } else if let Some(u) = upper {
+                if left.contains(&u) && right.contains(&u) {
+                    possible.insert(&v);
+                }
             }
-            let (l, u) = (lower.unwrap(), upper.unwrap());
-            if (left.contains(&l) && right.contains(&u)) ||
-               (left.contains(&u) && right.contains(&l)) {
-                possible.insert(&v);
+        }
+    } else {
+        for v in StdVal::<MIN, MAX>::possibilities() {
+            let (lower, upper) = (get_black_lower::<MIN, MAX>(v), get_black_upper::<MIN, MAX>(v));
+            if let Some(l) = lower {
+                if left.contains(&l) {
+                    possible.insert(&v);
+                }
             }
-        } else if lower.is_some() && upper.is_some() {
-            let (l, u) = (lower.unwrap(), upper.unwrap());
-            if (left.contains(&l) || left.contains(&u)) &&
-               (right.contains(&l) || right.contains(&u)) {
-                possible.insert(&v);
-            }
-        } else if let Some(l) = lower {
-            if left.contains(&l) && right.contains(&l) {
-                possible.insert(&v);
-            }
-        } else if let Some(u) = upper {
-            if left.contains(&u) && right.contains(&u) {
-                possible.insert(&v);
+            if let Some(u) = upper {
+                if left.contains(&u) {
+                    possible.insert(&v);
+                }
             }
         }
     }
@@ -320,33 +336,49 @@ fn get_white_upper<const MIN: u8, const MAX: u8>(v: StdVal<MIN, MAX>) -> Option<
 }
 
 fn kropki_white_between<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>>(
-    left: &VS, right: &VS, mutually_visible: bool,
+    left: &VS, right: &Option<VS>, mutually_visible: bool,
 ) -> VBitSet<StdVal<MIN, MAX>> {
     let mut possible = VBitSet::<StdVal<MIN, MAX>>::empty();
-    for v in StdVal::<MIN, MAX>::possibilities() {
-        let (lower, upper) = (get_white_lower::<MIN, MAX>(v), get_white_upper::<MIN, MAX>(v));
-        if mutually_visible {
-            if lower.is_none() || upper.is_none() {
-                continue;
+    if let Some(right) = right {
+        for v in StdVal::<MIN, MAX>::possibilities() {
+            let (lower, upper) = (get_white_lower::<MIN, MAX>(v), get_white_upper::<MIN, MAX>(v));
+            if mutually_visible {
+                if lower.is_none() || upper.is_none() {
+                    continue;
+                }
+                let (l, u) = (lower.unwrap(), upper.unwrap());
+                if (left.contains(&l) && right.contains(&u)) ||
+                (left.contains(&u) && right.contains(&l)) {
+                    possible.insert(&v);
+                }
+            } else if lower.is_some() && upper.is_some() {
+                let (l, u) = (lower.unwrap(), upper.unwrap());
+                if (left.contains(&l) || left.contains(&u)) &&
+                (right.contains(&l) || right.contains(&u)) {
+                    possible.insert(&v);
+                }
+            } else if let Some(l) = lower {
+                if left.contains(&l) && right.contains(&l) {
+                    possible.insert(&v);
+                }
+            } else if let Some(u) = upper {
+                if left.contains(&u) && right.contains(&u) {
+                    possible.insert(&v);
+                }
             }
-            let (l, u) = (lower.unwrap(), upper.unwrap());
-            if (left.contains(&l) && right.contains(&u)) ||
-               (left.contains(&u) && right.contains(&l)) {
-                possible.insert(&v);
+        }
+    } else {
+        for v in StdVal::<MIN, MAX>::possibilities() {
+            let (lower, upper) = (get_white_lower::<MIN, MAX>(v), get_white_upper::<MIN, MAX>(v));
+            if let Some(l) = lower {
+                if left.contains(&l) {
+                    possible.insert(&v);
+                }
             }
-        } else if lower.is_some() && upper.is_some() {
-            let (l, u) = (lower.unwrap(), upper.unwrap());
-            if (left.contains(&l) || left.contains(&u)) &&
-               (right.contains(&l) || right.contains(&u)) {
-                possible.insert(&v);
-            }
-        } else if let Some(l) = lower {
-            if left.contains(&l) && right.contains(&l) {
-                possible.insert(&v);
-            }
-        } else if let Some(u) = upper {
-            if left.contains(&u) && right.contains(&u) {
-                possible.insert(&v);
+            if let Some(u) = upper {
+                if left.contains(&u) {
+                    possible.insert(&v);
+                }
             }
         }
     }
@@ -599,12 +631,22 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
                     if i < b.cells.len() - 1 {
                         let next = grid.get(b.cells[i+1]).0.clone();
                         grid.get_mut(*cell).0.intersect_with(
-                            &kropki_black_between::<MIN, MAX, _>(&prev, &next, b.mutually_visible)
+                            &kropki_black_between::<MIN, MAX, _>(&prev, &Some(next), b.mutually_visible)
+                        );
+                    } else {
+                        grid.get_mut(*cell).0.intersect_with(
+                            &kropki_black_between::<MIN, MAX, _>(&prev, &None, b.mutually_visible)
                         );
                     }
                     if !kropki_black_adj_ok::<MIN, MAX, _>(&prev, &grid.get(*cell).0) {
                         return ConstraintResult::Contradiction(self.kb_if_attr.clone());
                     }
+                } else {
+                    // Note: guaranteed that i < b.cells.len() - 1
+                    let next = grid.get(b.cells[i+1]).0.clone();
+                    grid.get_mut(*cell).0.intersect_with(
+                        &kropki_black_between::<MIN, MAX, _>(&next, &None, b.mutually_visible)
+                    );
                 }
             }
         }
@@ -615,12 +657,22 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
                     if i < w.cells.len() - 1 {
                         let next = grid.get(w.cells[i+1]).0.clone();
                         grid.get_mut(*cell).0.intersect_with(
-                            &kropki_white_between::<MIN, MAX, _>(&prev, &next, w.mutually_visible)
+                            &kropki_white_between::<MIN, MAX, _>(&prev, &Some(next), w.mutually_visible)
+                        );
+                    } else {
+                        grid.get_mut(*cell).0.intersect_with(
+                            &kropki_white_between::<MIN, MAX, _>(&prev, &None, w.mutually_visible)
                         );
                     }
                     if !kropki_white_adj_ok::<MIN, MAX, _>(&prev, &grid.get(*cell).0) {
                         return ConstraintResult::Contradiction(self.kw_if_attr.clone());
                     }
+                } else {
+                    // Note: guaranteed that i < w.cells.len() - 1
+                    let next = grid.get(w.cells[i+1]).0.clone();
+                    grid.get_mut(*cell).0.intersect_with(
+                        &kropki_white_between::<MIN, MAX, _>(&next, &None, w.mutually_visible)
+                    );
                 }
             }
         }
@@ -862,14 +914,17 @@ mod test {
     }
 
     fn assert_black_between<const MIN: u8, const MAX: u8>(
-        left: Vec<u8>, right: Vec<u8>, mutually_visible: bool, expected: Vec<u8>,
+        left: Vec<u8>, right: Option<Vec<u8>>, mutually_visible: bool, expected: Vec<u8>,
     ) {
         let left_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
             &left.iter().map(|v| StdVal::new(*v)).collect()
         );
-        let right_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
-            &right.iter().map(|v| StdVal::new(*v)).collect()
-        );
+        let right_copy = right.clone();
+        let right_set = right.map(|r| {
+            VBitSet::<StdVal<MIN, MAX>>::from_values(
+                &r.iter().map(|v| StdVal::new(*v)).collect()
+            )
+        });
         assert_eq!(
             unpack_stdval_vals::<MIN, MAX, _>(&kropki_black_between::<MIN, MAX, _>(
                 &left_set, &right_set, mutually_visible,
@@ -877,7 +932,7 @@ mod test {
             expected,
             "Expected valid (black) values between {:?} and {:?} (mutually \
              visible: {}) to be {:?}",
-            left, right, mutually_visible, expected
+            left, right_copy, mutually_visible, expected
         );
     }
 
@@ -885,33 +940,51 @@ mod test {
     fn test_kropki_black_between() {
         assert_black_between::<1, 9>(
             vec![1],
-            vec![2, 4, 8],
+            Some(vec![2, 4, 8]),
             true,
             vec![2],
         );
         assert_black_between::<1, 9>(
             vec![2, 8],
-            vec![2, 8],
+            Some(vec![2, 8]),
             true,
             vec![4],
         );
         assert_black_between::<1, 9>(
             vec![2, 8],
-            vec![2, 8],
+            Some(vec![2, 8]),
             false,
             vec![1, 4],
         );
         assert_black_between::<1, 9>(
             vec![3],
-            vec![3],
+            Some(vec![3]),
             false,
             vec![6],
         );
         assert_black_between::<1, 9>(
             vec![3],
-            vec![3],
+            Some(vec![3]),
             true,
             vec![],
+        );
+        assert_black_between::<1, 9>(
+            vec![1],
+            None,
+            true,
+            vec![2],
+        );
+        assert_black_between::<1, 9>(
+            vec![6],
+            None,
+            true,
+            vec![3],
+        );
+        assert_black_between::<1, 9>(
+            vec![2],
+            None,
+            true,
+            vec![1, 4],
         );
     }
 
@@ -1020,14 +1093,17 @@ mod test {
     }
 
     fn assert_white_between<const MIN: u8, const MAX: u8>(
-        left: Vec<u8>, right: Vec<u8>, mutually_visible: bool, expected: Vec<u8>,
+        left: Vec<u8>, right: Option<Vec<u8>>, mutually_visible: bool, expected: Vec<u8>,
     ) {
         let left_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
             &left.iter().map(|v| StdVal::new(*v)).collect()
         );
-        let right_set = VBitSet::<StdVal<MIN, MAX>>::from_values(
-            &right.iter().map(|v| StdVal::new(*v)).collect()
-        );
+        let right_copy = right.clone();
+        let right_set = right.map(|r| {
+            VBitSet::<StdVal<MIN, MAX>>::from_values(
+            &r.iter().map(|v| StdVal::new(*v)).collect()
+            )
+        });
         assert_eq!(
             unpack_stdval_vals::<MIN, MAX, _>(&kropki_white_between::<MIN, MAX, _>(
                 &left_set, &right_set, mutually_visible,
@@ -1035,7 +1111,7 @@ mod test {
             expected,
             "Expected valid (white) values between {:?} and {:?} (mutually \
              visible: {}) to be {:?}",
-            left, right, mutually_visible, expected
+            left, right_copy, mutually_visible, expected
         );
     }
 
@@ -1043,33 +1119,45 @@ mod test {
     fn test_kropki_white_between() {
         assert_white_between::<1, 9>(
             vec![1, 7],
-            vec![3, 5, 9],
+            Some(vec![3, 5, 9]),
             true,
             vec![2, 6, 8],
         );
         assert_white_between::<1, 9>(
             vec![1, 3],
-            vec![1, 3],
+            Some(vec![1, 3]),
             true,
             vec![2],
         );
         assert_white_between::<1, 9>(
             vec![1, 3],
-            vec![1, 3],
+            Some(vec![1, 3]),
             false,
             vec![2, 4],
         );
         assert_white_between::<1, 9>(
             vec![3],
-            vec![3],
+            Some(vec![3]),
             false,
             vec![2, 4],
         );
         assert_white_between::<1, 9>(
             vec![3],
-            vec![3],
+            Some(vec![3]),
             true,
             vec![],
+        );
+        assert_white_between::<1, 9>(
+            vec![1],
+            None,
+            true,
+            vec![2],
+        );
+        assert_white_between::<1, 9>(
+            vec![3],
+            None,
+            true,
+            vec![2, 4],
         );
     }
 
