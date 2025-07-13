@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Debug};
-use crate::{color_util::{color_fib_palette, color_planar_graph, color_scale, find_undirected_edges}, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, index_util::{check_adjacent, collections_neighboring, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
+use crate::{color_util::{color_fib_palette, color_planar_graph, color_scale, find_undirected_edges}, constraint::Constraint, core::{ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VSetMut}, illegal_move::IllegalMove, index_util::{check_adjacent, collections_neighboring, expand_polyline}, range_util::Range, ranker::RankingInfo, sudoku::StdVal};
 
 #[derive(Debug, Clone)]
 pub struct Thermo {
@@ -62,8 +62,6 @@ impl <const MIN: u8, const MAX: u8> ThermoBuilder<MIN, MAX> {
     }
 }
 
-pub const THERMO_ILLEGAL_ACTION: Error = Error::new_const("A thermo violation already exists; can't apply further actions.");
-pub const THERMO_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const THERMO_FEATURE: &str = "THERMO";
 pub const THERMO_BULB_FEATURE: &str = "THERMO_BULB";
 //pub const THERMO_CONFLICT_ATTRIBUTION: &str = "THERMO_CONFLICT";
@@ -75,7 +73,7 @@ pub struct ThermoChecker<const MIN: u8, const MAX: u8> {
     thermo_feature: Key<Feature>,
     thermo_bulb_feature: Key<Feature>,
     //thermo_conflict_attr: Key<Attribution>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
+    illegal: IllegalMove<StdVal<MIN, MAX>>,
 }
 
 fn thermo_init<const MIN: u8, const MAX: u8>(thermo: &Thermo) -> Vec<(Index, Range<MIN, MAX>)> {
@@ -142,16 +140,14 @@ impl <const MIN: u8, const MAX: u8> ThermoChecker<MIN, MAX> {
             thermo_feature: Key::register(THERMO_FEATURE),
             thermo_bulb_feature: Key::register(THERMO_BULB_FEATURE),
             //thermo_conflict_attr: Key::register(THERMO_CONFLICT_ATTRIBUTION),
-            illegal: None,
+            illegal: IllegalMove::new(),
         }
     }
 }
 
 impl <const MIN: u8, const MAX: u8> Debug for ThermoChecker<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         for t in &self.thermos {
             write!(f, " Thermo{:?}\n", t.cells)?;
             // TODO: Show something more useful?
@@ -162,15 +158,11 @@ impl <const MIN: u8, const MAX: u8> Debug for ThermoChecker<MIN, MAX> {
 
 impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for ThermoChecker<MIN, MAX> {
     fn reset(&mut self) {
-        self.illegal = None;
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, _: StdVal<MIN, MAX>) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(THERMO_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         for (_, t) in self.thermos.iter().enumerate() {
             if !t.contains(index) {
                 continue;
@@ -181,13 +173,8 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for ThermoChecker
     }
 
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(THERMO_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         // TODO: Keep track of values.
         Ok(())
@@ -198,8 +185,8 @@ impl <const MIN: u8, const MAX: u8, O: Overlay>
 Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
     fn name(&self) -> Option<String> { Some("ThermoChecker".to_string()) }
     fn check(&self, _: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         let grid = ranking.cells_mut();
         for t in &self.thermos {
@@ -219,12 +206,10 @@ Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<String> {
         let header = "ThermoChecker:\n";
         let mut lines = vec![];
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
-            }
-            // TODO: Provide useful info for the relevant thermos
+        if let Some(s) = self.illegal.debug_at(index) {
+            lines.push(format!("  {}", s));
         }
+        // TODO: Provide useful info for the relevant thermos
         if lines.is_empty() {
             None
         } else {
@@ -233,10 +218,8 @@ Constraint<StdVal<MIN, MAX>, O> for ThermoChecker<MIN, MAX> {
     }
 
     fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<(u8, u8, u8)> {
-        if let Some((i, _, _)) = &self.illegal {
-            if *i == index {
-                return Some((200, 0, 0));
-            }
+        if let Some(c) = self.illegal.debug_highlight(index) {
+            return Some(c);
         }
         for (i, t) in self.thermos.iter().enumerate() {
             if t.cells[0] == index {

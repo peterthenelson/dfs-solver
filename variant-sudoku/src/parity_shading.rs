@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug};
-use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut, Value}, ranker::RankingInfo, sudoku::StdVal};
+use crate::{constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut, Value}, illegal_move::IllegalMove, ranker::RankingInfo, sudoku::StdVal};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Parity { Even, Odd }
@@ -40,8 +40,6 @@ impl ParityShadingBuilder {
     }
 }
 
-pub const PARITY_SHADING_ILLEGAL_ACTION: Error = Error::new_const("A parity-shading violation already exists; can't apply further actions.");
-pub const PARITY_SHADING_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const PARITY_SHADING_FEATURE: &str = "PARITY_SHADING";
 pub const PARITY_SHADING_CONFLICT_ATTR: &str = "PARITY_SHADING_CONFLICT";
 
@@ -51,7 +49,7 @@ pub struct ParityShadingChecker<const MIN: u8, const MAX: u8> {
     colors: HashMap<Index, (u8, u8, u8)>,
     shading_feature: Key<Feature>,
     shading_conflict_attr: Key<Attribution>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
+    illegal: IllegalMove<StdVal<MIN, MAX>>,
 }
 
 impl <const MIN: u8, const MAX: u8> ParityShadingChecker<MIN, MAX> {
@@ -77,16 +75,14 @@ impl <const MIN: u8, const MAX: u8> ParityShadingChecker<MIN, MAX> {
             colors,
             shading_feature: Key::register(PARITY_SHADING_FEATURE),
             shading_conflict_attr: Key::register(PARITY_SHADING_CONFLICT_ATTR),
-            illegal: None
+            illegal: IllegalMove::new(),
         }
     }
 }
 
 impl <const MIN: u8, const MAX: u8> Debug for ParityShadingChecker<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         for (i, r) in self.remaining.iter() {
             write!(f, " [{:?}] => {}\n", i, r.to_string())?;
         }
@@ -98,18 +94,15 @@ impl <const MIN: u8, const MAX: u8>
 Stateful<StdVal<MIN, MAX>> for ParityShadingChecker<MIN, MAX> {
     fn reset(&mut self) {
         self.remaining = self.remaining_init.clone();
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(PARITY_SHADING_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         let rem = self.remaining.get_mut(&index);
         if let Some(r) = rem {
             if !r.contains(&value) {
-                self.illegal = Some((index, value, self.shading_conflict_attr));
+                self.illegal.set(index, value, self.shading_conflict_attr);
             } else {
                 *r = VBitSet::singleton(&value);
             }
@@ -118,13 +111,8 @@ Stateful<StdVal<MIN, MAX>> for ParityShadingChecker<MIN, MAX> {
     }
 
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(PARITY_SHADING_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         let rem = self.remaining.get_mut(&index);
         if let Some(r) = rem {
@@ -139,8 +127,8 @@ Constraint<StdVal<MIN, MAX>, O> for ParityShadingChecker<MIN, MAX> {
     fn name(&self) -> Option<String> { Some("ParityShading".to_string()) }
 
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         let grid = ranking.cells_mut();
         for (i, r) in &self.remaining {
@@ -157,10 +145,8 @@ Constraint<StdVal<MIN, MAX>, O> for ParityShadingChecker<MIN, MAX> {
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<String> {
         let header = "ParityShadingChecker:\n";
         let mut lines = vec![];
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            lines.push(format!("  {}", s));
         }
         for (i, r) in &self.remaining {
             if *i != index {

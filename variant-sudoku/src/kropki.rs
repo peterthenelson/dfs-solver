@@ -3,7 +3,8 @@ use std::fmt::Debug;
 use std::sync::{LazyLock, Mutex};
 use crate::color_util::{color_fib_palette, color_opt_ave2, color_planar_graph, find_undirected_edges};
 use crate::constraint::Constraint;
-use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value};
+use crate::core::{Attribution, ConstraintResult, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VBitSetRef, VSet, VSetMut, Value};
+use crate::illegal_move::IllegalMove;
 use crate::index_util::{check_orthogonally_adjacent, collections_orthogonally_neighboring, expand_orthogonal_polyline};
 use crate::memo::{FnToCalc, MemoLock};
 use crate::ranker::RankingInfo;
@@ -385,8 +386,6 @@ fn kropki_white_between<const MIN: u8, const MAX: u8, VS: VSet<StdVal<MIN, MAX>>
     possible
 }
 
-pub const KROPKI_ILLEGAL_ACTION: Error = Error::new_const("A kropki violation already exists; can't apply further actions.");
-pub const KROPKI_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const KROPKI_BLACK_FEATURE: &str = "KROPKI_BLACK";
 pub const KROPKI_BLACK_CONFLICT_ATTRIBUTION: &str = "KROPKI_BLACK_CONFLICT";
 pub const KROPKI_BLACK_INFEASIBLE_ATTRIBUTION: &str = "KROPKI_BLACK_INFEASIBLE";
@@ -428,7 +427,7 @@ pub struct KropkiChecker<const MIN: u8, const MAX: u8> {
     kw_feature: Key<Feature>,
     kw_conflict_attr: Key<Attribution>,
     kw_if_attr: Key<Attribution>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
+    illegal: IllegalMove<StdVal<MIN, MAX>>,
 }
 
 impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
@@ -451,7 +450,7 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
             kw_feature: Key::register(KROPKI_WHITE_FEATURE),
             kw_conflict_attr: Key::register(KROPKI_WHITE_CONFLICT_ATTRIBUTION),
             kw_if_attr: Key::register(KROPKI_WHITE_INFEASIBLE_ATTRIBUTION),
-            illegal: None,
+            illegal: IllegalMove::new(),
         };
         kc.reset();
         kc
@@ -460,9 +459,7 @@ impl <const MIN: u8, const MAX: u8> KropkiChecker<MIN, MAX> {
 
 impl <const MIN: u8, const MAX: u8> Debug for KropkiChecker<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         for (i, b) in self.blacks.iter().enumerate() {
             write!(f, " Black[{}]: ", i)?;
             for cell in &b.cells {
@@ -521,20 +518,16 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
                 }
             }
         }
-        self.illegal = None;
+        self.illegal.reset();
     }
 
     // TODO: We could be smarter about white chains (and share some logic with
     // the thermos).
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(KROPKI_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         let maybe_b_rem = if let Some(r) = self.black_remaining.get_mut(&index) {
             if !r.contains(&value) {
-                self.illegal = Some((index, value, self.kb_conflict_attr));
+                self.illegal.set(index, value, self.kb_conflict_attr);
                 return Ok(());
             }
             Some(r)
@@ -543,7 +536,7 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
         };
         let maybe_w_rem = if let Some(r) = self.white_remaining.get_mut(&index) {
             if !r.contains(&value) {
-                self.illegal = Some((index, value, self.kw_conflict_attr));
+                self.illegal.set(index, value, self.kw_conflict_attr);
                 return Ok(());
             }
             Some(r)
@@ -560,13 +553,8 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for KropkiChecker
     }
 
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), crate::core::Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(KROPKI_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         if self.black_remaining.contains_key(&index) {
             for b in &self.blacks {
@@ -606,8 +594,8 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
     fn name(&self) -> Option<String> { Some("KropkiChecker".to_string()) }
     fn check(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         let grid = ranking.cells_mut();
         for b in &self.blacks {
@@ -682,10 +670,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "KropkiChecker:\n";
         let mut lines = vec![];
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            lines.push(format!("  {}", s));
         }
         for (i, b) in self.blacks.iter().enumerate() {
             if !b.contains(index) {
@@ -723,10 +709,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for KropkiChecker<MIN, MAX> {
     }
 
     fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
-        if let Some((i, _, _)) = &self.illegal {
-            if *i == index {
-                return Some((200, 0, 0));
-            }
+        if let Some(c) = self.illegal.debug_highlight(index) {
+            return Some(c);
         }
         let mut b_color = None;
         for (i, b) in self.blacks.iter().enumerate() {

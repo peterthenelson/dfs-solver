@@ -4,6 +4,7 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::core::{Attribution, ConstraintResult, CustomRegionLayers, Error, Index, Key, Overlay, RegionLayer, State, Stateful, UVUnwrapped, UVWrapped, UVal, VBitSet, VSet, VSetMut, Value, BOXES_LAYER, COLS_LAYER, ROWS_LAYER};
 use crate::constraint::Constraint;
+use crate::illegal_move::IllegalMove;
 use crate::index_util::parse_val_grid;
 use crate::ranker::RankingInfo;
 
@@ -183,10 +184,6 @@ pub fn six_standard_empty() -> SixStd {
 pub fn four_standard_empty() -> FourStd {
     FourStd::new(four_standard_overlay())
 }
-
-pub const UNDO_MISMATCH_ERROR: Error = Error::new_const("Undo value mismatch");
-pub const ILLEGAL_ACTION_RC: Error = Error::new_const("A row/col violation already exists; can't apply further actions.");
-pub const ILLEGAL_ACTION_BOX: Error = Error::new_const("A box violation already exists; can't apply further actions.");
 
 #[derive(Clone, Debug)]
 pub struct StdOverlay<const N: usize, const M: usize> {
@@ -586,7 +583,7 @@ pub struct StdChecker<const N: usize, const M: usize, const MIN: u8, const MAX: 
     row_attr: Key<Attribution>,
     col_attr: Key<Attribution>,
     box_attr: Key<Attribution>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
+    illegal: IllegalMove<StdVal<MIN, MAX>>,
 }
 
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N, M, MIN, MAX> {
@@ -599,7 +596,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N
             row_attr: Key::register(ROW_CONFLICT_ATTRIBUTION),
             col_attr: Key::register(COL_CONFLICT_ATTRIBUTION),
             box_attr: Key::register(BOX_CONFLICT_ATTRIBUTION),
-            illegal: None,
+            illegal: IllegalMove::new(),
         }
     }
 }
@@ -607,9 +604,7 @@ impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8> StdChecker<N
 impl <const N: usize, const M: usize, const MIN: u8, const MAX: u8>
 Debug for StdChecker<N, M, MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         write!(f, "Unused vals by row:\n")?;
         for r in 0..N {
             write!(f, " {}: {}\n", r, self.row[r].to_string())?;
@@ -632,24 +627,20 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
         self.row = std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full());
         self.col = std::array::from_fn(|_| VBitSet::<StdVal<MIN, MAX>>::full());
         self.boxes = vec![VBitSet::<StdVal<MIN, MAX>>::full(); self.overlay.boxes()].into_boxed_slice();
-        self.illegal = None;
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(ILLEGAL_ACTION_RC);
-        }
+        self.illegal.check_unset()?;
         let (b, _) = self.overlay.to_box_coords(index);
         if !self.row[index[0]].contains(&value) {
-            self.illegal = Some((index, value, self.row_attr));
+            self.illegal.set(index, value, self.row_attr);
             return Ok(());
         } else if !self.col[index[1]].contains(&value) {
-            self.illegal = Some((index, value, self.col_attr));
+            self.illegal.set(index, value, self.col_attr);
             return Ok(());
         } else if !self.boxes[b].contains(&value){
-            self.illegal = Some((index, value, self.box_attr));
+            self.illegal.set(index, value, self.box_attr);
             return Ok(());
         }
         self.row[index[0]].remove(&value);
@@ -659,13 +650,8 @@ Stateful<StdVal<MIN, MAX>> for StdChecker<N, M, MIN, MAX> {
     }
 
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(UNDO_MISMATCH_ERROR);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         let (b, _) = self.overlay.to_box_coords(index);
         self.row[index[0]].insert(&value);
@@ -680,8 +666,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
     fn name(&self) -> Option<String> { Some("StdChecker".to_string()) }
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         let grid = ranking.cells_mut();
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         for r in 0..N {
             for c in 0..M {
@@ -700,10 +686,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
 
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "StdChecker:\n";
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                return Some(format!("{}  Illegal move: {} ({})", header, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            return Some(format!("{}  {}", header, s));
         }
         let [r, c] = index;
         let (b, _) = self.overlay.to_box_coords(index);
@@ -717,12 +701,7 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for StdChecker<N, M, MIN, MAX> {
     }
 
     fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
-        if let Some((i, _, _)) = &self.illegal {
-            if *i == index {
-                return Some((200, 0, 0));
-            }
-        }
-        None
+        self.illegal.debug_highlight(index)
     }
 }
 

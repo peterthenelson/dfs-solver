@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug, marker::PhantomData};
-use crate::{color_util::color_fib_palette, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RegionLayer, State, Stateful, VBitSet, VSet, VSetMut, Value}, ranker::RankingInfo};
+use crate::{color_util::color_fib_palette, constraint::Constraint, core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, RegionLayer, State, Stateful, VBitSet, VSet, VSetMut, Value}, illegal_move::IllegalMove, ranker::RankingInfo};
 
 pub struct Region<V: Value> {
     cells: Vec<Index>,
@@ -14,7 +14,7 @@ pub struct RegionConstraint<V: Value> {
     cell_to_region: HashMap<Index, usize>,
     region_feature: Key<Feature>,
     region_conflict_attr: Key<Attribution>,
-    illegal: Option<(Index, V, Key<Attribution>)>,
+    illegal: IllegalMove<V>,
 }
 
 pub struct RegionContraintBuilder<'a, V: Value, O: Overlay>(&'a mut O, Key<RegionLayer>, HashSet<Index>, PhantomData<V>);
@@ -51,8 +51,6 @@ impl <'a, V: Value, O: Overlay> RegionContraintBuilder<'a, V, O> {
     }
 }
 
-pub const REGION_CONSTRAINT_ILLEGAL_ACTION: Error = Error::new_const("A region-constraint violation already exists; can't apply further actions.");
-pub const REGION_CONSTRAINT_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const REGION_CONSTRAINT_FEATURE: &str = "REGION_CONSTRAINT";
 pub const REGION_CONSTRAINT_CONFLICT_ATTR: &str = "REGION_CONSTRAINT_CONFLICT";
 
@@ -74,13 +72,14 @@ impl <V: Value> RegionConstraint<V> {
             cell_to_region,
             region_feature: Key::register(REGION_CONSTRAINT_FEATURE),
             region_conflict_attr: Key::register(REGION_CONSTRAINT_CONFLICT_ATTR),
-            illegal: None,
+            illegal: IllegalMove::new(),
         }
     }
 }
 
 impl <V: Value> Debug for RegionConstraint<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.illegal.write_dbg(f)?;
         write!(f, "  Layer = {}\n", self.layer.name())?;
         for (i, rem) in self.remaining.iter().enumerate() {
             write!(f, "  [{}] remaining: {}\n", i, rem.to_string())?;
@@ -92,20 +91,17 @@ impl <V: Value> Debug for RegionConstraint<V> {
 impl <V: Value> Stateful<V> for RegionConstraint<V> {
     fn reset(&mut self) {
         self.remaining = vec![VBitSet::<V>::full(); self.regions.len()];
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, value: V) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(REGION_CONSTRAINT_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         if let Some(i) = self.cell_to_region.get(&index) {
             let rem = &mut self.remaining[*i];
             if rem.contains(&value) {
                 rem.remove(&value);
             } else {
-                self.illegal = Some((index, value, self.region_conflict_attr));
+                self.illegal.set(index, value, self.region_conflict_attr);
                 return Ok(());
             }
         }
@@ -113,13 +109,8 @@ impl <V: Value> Stateful<V> for RegionConstraint<V> {
     }
 
     fn undo(&mut self, index: Index, value: V) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(REGION_CONSTRAINT_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         if let Some(i) = self.cell_to_region.get(&index) {
             self.remaining[*i].insert(&value);
@@ -133,8 +124,8 @@ impl <V: Value, O: Overlay> Constraint<V, O> for RegionConstraint<V> {
 
     fn check(&self, puzzle: &State<V, O>, ranking: &mut RankingInfo<V>) -> ConstraintResult<V> {
         let grid = ranking.cells_mut();
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         for (i, r) in self.regions.iter().enumerate() {
             for c in &r.cells {
@@ -151,10 +142,8 @@ impl <V: Value, O: Overlay> Constraint<V, O> for RegionConstraint<V> {
 
     fn debug_at(&self, _: &State<V, O>, index: Index) -> Option<String> {
         let header = "RegionConstraintChecker:\n";
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                return Some(format!("{}  Illegal move: {} ({})", header, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            return Some(format!("{}  {}", header, s));
         }
         if let Some(i) = self.cell_to_region.get(&index) {
             return Some(format!(
@@ -167,10 +156,8 @@ impl <V: Value, O: Overlay> Constraint<V, O> for RegionConstraint<V> {
     }
 
     fn debug_highlight(&self, _: &State<V, O>, index: Index) -> Option<(u8, u8, u8)> {
-        if let Some((i, _, _)) = &self.illegal {
-            if *i == index {
-                return Some((200, 0, 0));
-            }
+        if let Some(c) = self.illegal.debug_highlight(index) {
+            return Some(c);
         }
         if let Some(i) = self.cell_to_region.get(&index) {
             return Some(self.colors[*i]);

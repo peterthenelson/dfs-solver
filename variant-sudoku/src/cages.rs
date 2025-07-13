@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::color_util::{color_fib_palette, color_planar_graph, find_undirected_edges};
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
 use crate::constraint::Constraint;
+use crate::illegal_move::IllegalMove;
 use crate::index_util::{check_orthogonally_connected, collections_orthogonally_neighboring};
 use crate::ranker::RankingInfo;
 use crate::sudoku::{unpack_stdval_vals, StdVal};
@@ -90,8 +91,6 @@ impl <'a, O: Overlay> CageBuilder<'a, O> {
     }
 }
 
-pub const CAGE_ILLEGAL_ACTION: Error = Error::new_const("A cage violation already exists; can't apply further actions.");
-pub const CAGE_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const CAGE_FEATURE: &str = "CAGE";
 pub const CAGE_DUPE_ATTRIBUTION: &str = "CAGE_DUPE";
 pub const CAGE_OVER_ATTRIBUTION: &str = "CAGE_SUM_OVER";
@@ -107,7 +106,7 @@ pub struct CageChecker<const MIN: u8, const MAX: u8> {
     cage_dupe_attr: Key<Attribution>,
     cage_over_attr: Key<Attribution>,
     cage_if_attr: Key<Attribution>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
+    illegal: IllegalMove<StdVal<MIN, MAX>>,
 }
 
 impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
@@ -131,7 +130,7 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
         let palette = color_fib_palette((200, 200, 0), 5, 50.0);
         let colors = color_planar_graph(edges, &palette);
         CageChecker {
-            cages, remaining, empty, cage_sets, colors, illegal: None,
+            cages, remaining, empty, cage_sets, colors, illegal: IllegalMove::new(),
             cage_feature: Key::register(CAGE_FEATURE),
             cage_dupe_attr: Key::register(CAGE_DUPE_ATTRIBUTION),
             cage_over_attr: Key::register(CAGE_OVER_ATTRIBUTION),
@@ -142,9 +141,7 @@ impl <const MIN: u8, const MAX: u8> CageChecker<MIN, MAX> {
 
 impl <const MIN: u8, const MAX: u8> Debug for CageChecker<MIN, MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         for (i, c) in self.cages.iter().enumerate() {
             write!(f, " Cage{:?}\n", c.cells)?;
             write!(f, " - {:?} remaining to target; {} cells empty\n", self.remaining[i], self.empty[i])?;
@@ -162,25 +159,21 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
         self.remaining = self.cages.iter().map(|c| c.target).collect();
         self.empty = self.cages.iter().map(|c| c.cells.len()).collect();
         self.cage_sets = vec![VBitSet::<StdVal<MIN, MAX>>::full(); self.cages.len()];
-        self.illegal = None;
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(CAGE_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         for (i, c) in self.cages.iter().enumerate() {
             if !c.contains(index) {
                 continue;
             }
             if let Some(r) = self.remaining[i] {
                 if value.val() > r {
-                    self.illegal = Some((index, value, self.cage_over_attr));
+                    self.illegal.set(index, value, self.cage_over_attr);
                     break;
                 } else if c.exclusive && !self.cage_sets[i].contains(&value) {
-                    self.illegal = Some((index, value, self.cage_dupe_attr));
+                    self.illegal.set(index, value, self.cage_dupe_attr);
                     break;
                 }
             }
@@ -193,13 +186,8 @@ impl <const MIN: u8, const MAX: u8> Stateful<StdVal<MIN, MAX>> for CageChecker<M
     }
 
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(CAGE_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         for (i, c) in self.cages.iter().enumerate() {
             if !c.contains(index) {
@@ -261,8 +249,8 @@ Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
     fn name(&self) -> Option<String> { Some("CageChecker".to_string()) }
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, O>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
         let grid = ranking.cells_mut();
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         for (i, c) in self.cages.iter().enumerate() {
             let mut set = if c.exclusive {
@@ -292,10 +280,8 @@ Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<String> {
         let header = "CageChecker:\n";
         let mut lines = vec![];
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            lines.push(format!("  {}", s));
         }
         for (i, c) in self.cages.iter().enumerate() {
             if !c.contains(index) {
@@ -319,10 +305,8 @@ Constraint<StdVal<MIN, MAX>, O> for CageChecker<MIN, MAX> {
     }
 
     fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, O>, index: Index) -> Option<(u8, u8, u8)> {
-        if let Some((i, _, _)) = &self.illegal {
-            if *i == index {
-                return Some((200, 0, 0));
-            }
+        if let Some(c) = self.illegal.debug_highlight(index) {
+            return Some(c);
         }
         for (i, c) in self.cages.iter().enumerate() {
             if c.contains(index) {

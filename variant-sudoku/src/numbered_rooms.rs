@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Error, Feature, Index, Key, State, Stateful, VBitSet, VSet, VSetMut, Value}, ranker::RankingInfo, sudoku::{StdOverlay, StdVal}};
+use crate::{constraint::Constraint, core::{Attribution, CertainDecision, ConstraintResult, Error, Feature, Index, Key, State, Stateful, VBitSet, VSet, VSetMut, Value}, illegal_move::IllegalMove, ranker::RankingInfo, sudoku::{StdOverlay, StdVal}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumberedRoomDirection {
@@ -313,8 +313,6 @@ NumberedRoom<MIN, MAX, N, M> {
     }
 }
 
-pub const NUMBERED_ROOM_ILLEGAL_ACTION: Error = Error::new_const("A numbered room violation already exists; can't apply further actions.");
-pub const NUMBERED_ROOM_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const NUMBERED_ROOM_FEATURE: &str = "NUMBERED_ROOM";
 pub const NUMBERED_ROOM_CONFLICT_ATTRIBUTION: &str = "NUMBERED_ROOM_CONFLICT";
 pub const NUMBERED_ROOM_CERTAINTY_ATTRIBUTION: &str = "NUMBERED_ROOM_CERTAINTY";
@@ -327,7 +325,7 @@ pub struct NumberedRoomChecker<const MIN: u8, const MAX: u8, const N: usize, con
     room_conflict_attr: Key<Attribution>,
     room_certainty_attr: Key<Attribution>,
     room_if_attr: Key<Attribution>,
-    illegal: Option<(Index, StdVal<MIN, MAX>, Key<Attribution>)>,
+    illegal: IllegalMove<StdVal<MIN, MAX>>,
 }
 
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> NumberedRoomChecker<MIN, MAX, N, M> {
@@ -340,7 +338,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> NumberedRoom
             room_conflict_attr: Key::register(NUMBERED_ROOM_CONFLICT_ATTRIBUTION),
             room_certainty_attr: Key::register(NUMBERED_ROOM_CERTAINTY_ATTRIBUTION),
             room_if_attr: Key::register(NUMBERED_ROOM_INFEASIBLE_ATTRIBUTION),
-            illegal: None,
+            illegal: IllegalMove::new(),
         }
     }
 }
@@ -348,9 +346,7 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize> NumberedRoom
 impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Debug for NumberedRoomChecker<MIN, MAX, N, M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         for (i, r) in self.rooms.iter().enumerate() {
             write!(f, "  {:?}\n", r)?;
             write!(f, "  - {}\n", r.possible_room_values().to_string())?;
@@ -371,26 +367,23 @@ impl <const MIN: u8, const MAX: u8, const N: usize, const M: usize>
 Stateful<StdVal<MIN, MAX>> for NumberedRoomChecker<MIN, MAX, N, M> {
     fn reset(&mut self) {
         self.room_completion = vec![(0, 0); self.rooms.len()];
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(NUMBERED_ROOM_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         let mut completions = Vec::new();
         for (i, r) in self.rooms.iter().enumerate() {
             if let Some(p_i) = r.relevant_possibility(index, &value) {
                 let p = &r.possibilities()[p_i];
                 if p.is_empty() {
-                    self.illegal = Some((index, value, self.room_if_attr));
+                    self.illegal.set(index, value, self.room_if_attr);
                     return Ok(());
                 }
                 if self.room_completion[i].1 == 0 || self.room_completion[i].0 == p_i {
                     completions.push((i, p_i));
                 } else {
-                    self.illegal = Some((index, value, self.room_conflict_attr));
+                    self.illegal.set(index, value, self.room_conflict_attr);
                     return Ok(());
                 }
             }
@@ -403,13 +396,8 @@ Stateful<StdVal<MIN, MAX>> for NumberedRoomChecker<MIN, MAX, N, M> {
     }
 
     fn undo(&mut self, index: Index, value: StdVal<MIN, MAX>) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(NUMBERED_ROOM_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         for (i, r) in self.rooms.iter().enumerate() {
             if let Some(_) = r.relevant_possibility(index, &value) {
@@ -428,8 +416,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for NumberedRoomChecker<MIN, MAX,
     fn name(&self) -> Option<String> { Some("NumberedRoomChecker".to_string()) }
 
     fn check(&self, puzzle: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, ranking: &mut RankingInfo<StdVal<MIN, MAX>>) -> ConstraintResult<StdVal<MIN, MAX>> {
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         let grid = ranking.cells_mut();
         for (i, room) in self.rooms.iter().enumerate() {
@@ -473,10 +461,8 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for NumberedRoomChecker<MIN, MAX,
     fn debug_at(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "NumberedRoomChecker:\n";
         let mut lines = vec![];
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            lines.push(format!("  {}", s));
         }
         for (i, r) in self.rooms.iter().enumerate() {
             if !r.contains(index) {
@@ -501,6 +487,9 @@ Constraint<StdVal<MIN, MAX>, StdOverlay<N, M>> for NumberedRoomChecker<MIN, MAX,
     }
 
     fn debug_highlight(&self, _: &State<StdVal<MIN, MAX>, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
+        if let Some(c) = self.illegal.debug_highlight(index) {
+            return Some(c);
+        }
         for r in &self.rooms {
             if !r.contains(index) {
                 continue;

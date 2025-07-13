@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::color_util::{color_ave, color_polarity};
 use crate::constraint::Constraint;
 use crate::core::{Attribution, ConstraintResult, Error, Feature, Index, Key, Overlay, State, Stateful, VBitSet, VSet, VSetMut};
+use crate::illegal_move::IllegalMove;
 use crate::index_util::{check_adjacent, expand_polyline};
 use crate::ranker::RankingInfo;
 use crate::sudoku::{unpack_stdval_vals, NineStdVal, StdOverlay};
@@ -66,8 +67,6 @@ impl <'a, O: Overlay> DutchWhisperBuilder<'a, O> {
     }
 }
 
-pub const DW_ILLEGAL_ACTION: Error = Error::new_const("A dutch-whisper violation already exists; can't apply further actions.");
-pub const DW_UNDO_MISMATCH: Error = Error::new_const("Undo value mismatch");
 pub const DW_FEATURE: &str = "DUTCH_WHISPER";
 pub const DW_TOO_CLOSE_ATTRIBUTION: &str = "DW_TOO_CLOSE";
 
@@ -77,7 +76,7 @@ pub struct DutchWhisperChecker {
     remaining: HashMap<Index, VBitSet<NineStdVal>>,
     dw_feature: Key<Feature>,
     dw_too_close_attr: Key<Attribution>,
-    illegal: Option<(Index, NineStdVal, Key<Attribution>)>,
+    illegal: IllegalMove<NineStdVal>,
 }
 
 impl DutchWhisperChecker {
@@ -96,16 +95,14 @@ impl DutchWhisperChecker {
             remaining,
             dw_feature: Key::register(DW_FEATURE),
             dw_too_close_attr: Key::register(DW_TOO_CLOSE_ATTRIBUTION),
-            illegal: None,
+            illegal: IllegalMove::new(),
         }
     }
 }
 
 impl Debug for DutchWhisperChecker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((i, v, a)) = &self.illegal {
-            write!(f, "Illegal move: {:?}={:?} ({})\n", i, v, a.name())?;
-        }
+        self.illegal.write_dbg(f)?;
         for (i, w) in self.whispers.iter().enumerate() {
             write!(f, " Whisper[{}]: ", i)?;
             for (cell, _) in &w.cells {
@@ -141,15 +138,11 @@ fn recompute(remaining: &mut HashMap<Index, VBitSet<NineStdVal>>, remaining_init
 impl Stateful<NineStdVal> for DutchWhisperChecker {
     fn reset(&mut self) {
         self.remaining = self.remaining_init.clone();
-        self.illegal = None;
+        self.illegal.reset();
     }
 
     fn apply(&mut self, index: Index, value: NineStdVal) -> Result<(), Error> {
-        // In theory we could be allow multiple illegal moves and just
-        // invalidate and recalculate the grid or something, but it seems hard.
-        if self.illegal.is_some() {
-            return Err(DW_ILLEGAL_ACTION);
-        }
+        self.illegal.check_unset()?;
         if !self.remaining.contains_key(&index) {
             return Ok(());
         }
@@ -164,7 +157,7 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
                 if cur.contains(&value) {
                     *cur = VBitSet::<NineStdVal>::singleton(&value);
                 } else {
-                    self.illegal = Some((index, value, self.dw_too_close_attr));
+                    self.illegal.set(index, value, self.dw_too_close_attr);
                     return Ok(());
                 }
                 if i > 0 {
@@ -181,13 +174,8 @@ impl Stateful<NineStdVal> for DutchWhisperChecker {
     }
 
     fn undo(&mut self, index: Index, value: NineStdVal) -> Result<(), Error> {
-        if let Some((i, v, _)) = self.illegal {
-            if i != index || v != value {
-                return Err(DW_UNDO_MISMATCH);
-            } else {
-                self.illegal = None;
-                return Ok(());
-            }
+        if self.illegal.undo(index, value)? {
+            return Ok(());
         }
         if !self.remaining.contains_key(&index) {
             return Ok(());
@@ -208,8 +196,8 @@ impl <const N: usize, const M: usize>
 Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
     fn name(&self) -> Option<String> { Some("DutchWhisperChecker".to_string()) }
     fn check(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, ranking: &mut RankingInfo<NineStdVal>) -> ConstraintResult<NineStdVal> {
-        if let Some((_, _, a)) = &self.illegal {
-            return ConstraintResult::Contradiction(*a);
+        if let Some(c) = self.illegal.to_contradiction() {
+            return c;
         }
         let grid = ranking.cells_mut();
         for w in &self.whispers {
@@ -258,10 +246,8 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
     fn debug_at(&self, _: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<String> {
         let header = "DutchWhisperChecker:\n";
         let mut lines = vec![];
-        if let Some((i, v, a)) = &self.illegal {
-            if *i == index {
-                lines.push(format!("  Illegal move: {:?}={:?} ({})", i, v, a.name()));
-            }
+        if let Some(s) = self.illegal.debug_at(index) {
+            lines.push(format!("  {}", s));
         }
         for (i, w) in self.whispers.iter().enumerate() {
             if !w.contains(index) {
@@ -285,10 +271,8 @@ Constraint<NineStdVal, StdOverlay<N, M>> for DutchWhisperChecker {
     }
 
     fn debug_highlight(&self, puzzle: &State<NineStdVal, StdOverlay<N, M>>, index: Index) -> Option<(u8, u8, u8)> {
-        if let Some((i, _, _)) = &self.illegal {
-            if *i == index {
-                return Some((200, 0, 0));
-            }
+        if let Some(c) = self.illegal.debug_highlight(index) {
+            return Some(c);
         }
         if let Some(rem) = self.remaining.get(&index) {
             if let Some(v) = puzzle.get(index) {

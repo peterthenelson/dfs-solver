@@ -4,6 +4,7 @@ pub mod color_util;
 pub mod index_util;
 pub mod memo;
 pub mod constraint;
+pub mod illegal_move;
 pub mod ranker;
 pub mod solver;
 pub mod sudoku;
