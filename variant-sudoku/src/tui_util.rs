@@ -158,8 +158,9 @@ pub fn readme_lines() -> Vec<Line<'static>> {
 pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = vec![];
     for bp in state.solver.stack() {
+        let open: Span<'_> = if state.scroll_pos == lines.len() { ">".bold() } else { " ".into() };
         let step: Span<'_> = format!("@step#{} ", bp.branch_step).italic();
-        let step_len = step.content.len();
+        let step_len = step.content.len() + 1;
         let mut alt2: Option<Span<'_>> = None;
         let alt1: Vec<Span<'_>> = match &bp.choices {
             BranchOver::Empty => vec!["EMPTY".yellow()],
@@ -193,7 +194,7 @@ pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'st
             },
         };
         let attr: Span<'_> = format!("({})", bp.branch_attribution.name()).cyan();
-        let mut first_line = vec![step];
+        let mut first_line = vec![open, step];
         first_line.extend(alt1);
         first_line.push("  ".into());
         first_line.push(attr);
