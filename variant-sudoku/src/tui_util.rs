@@ -2,7 +2,7 @@
 /// some generic implementations of a collection of useful tasks. They are used
 /// to implement the standard Tui impls.
 /// TODO: Figure out how to represent custom regions in the UI
-use std::{f64, fmt::Display};
+use std::{collections::HashMap, f64, fmt::Display};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{self, Direction, Layout, Rect}, style::{Color, Style, Stylize}, symbols::border, text::{Line, Span, Text}, widgets::{Block, Clear, Padding, Paragraph}, Frame
@@ -155,9 +155,37 @@ pub fn readme_lines() -> Vec<Line<'static>> {
     ]
 }
 
-pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'static>> {
+pub struct StackLines {
+    lines: Vec<Line<'static>>,
+    offset_to_index: HashMap<usize, usize>,
+    index_to_offset: HashMap<usize, usize>,
+}
+
+impl StackLines {
+    pub fn new<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Self {
+        let (lines, offset_to_index) = stack_lines(state);
+        let index_to_offset = offset_to_index.iter()
+            .map(|(k, v)| (*v, *k))
+            .collect();
+        Self { lines, offset_to_index, index_to_offset }
+    }
+
+    pub fn lines(&self) -> &Vec<Line<'static>> { &self.lines }
+
+    pub fn index_at_offset(&self, offset: usize) -> Option<usize> {
+        self.offset_to_index.get(&offset).copied()
+    }
+
+    pub fn offset_at_index(&self, index: usize) -> Option<usize> {
+        self.index_to_offset.get(&index).copied()
+    }
+}
+
+fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> (Vec<Line<'static>>, HashMap<usize, usize>) {
     let mut lines: Vec<Line<'static>> = vec![];
-    for bp in state.solver.stack() {
+    let mut offset_to_index: HashMap<usize, usize> = HashMap::new();
+    for (index, bp) in state.solver.stack().iter().enumerate() {
+        offset_to_index.insert(lines.len(), index);
         let open: Span<'_> = if state.scroll_pos == lines.len() { ">".bold() } else { " ".into() };
         let step: Span<'_> = format!("@step#{} ", bp.branch_step).italic();
         let step_len = step.content.len() + 1;
@@ -203,7 +231,7 @@ pub fn stack_lines<'a, P: PuzzleSetter>(state: &TuiState<'a, P>) -> Vec<Line<'st
             lines.push(Line::from(vec![" ".repeat(step_len).into(), s]));
         }
     }
-    lines
+    (lines, offset_to_index)
 }
 
 pub fn constraint_lines<'a, P: PuzzleSetter, CS: ConstraintSplitter<P>>(
@@ -389,7 +417,7 @@ pub fn scroll_lines<'a, P: PuzzleSetter, const N: usize, const M: usize, CS: Con
 ) -> Vec<Line<'static>> {
     match state.mode {
         Mode::Readme => readme_lines(),
-        Mode::Stack => stack_lines(state),
+        Mode::Stack => StackLines::new(state).lines().clone(),
         Mode::PossibilityHeatmap => possible_value_lines::<P, N, M>(state),
         Mode::ScoreHeatmap => score_lines::<P, N, M>(state),
         Mode::Constraints => constraint_lines::<P, CS>(state),
